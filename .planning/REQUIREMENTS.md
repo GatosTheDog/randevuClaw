@@ -70,26 +70,26 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| BOOK-01 | TBD | Pending |
-| BOOK-02 | TBD | Pending |
-| BOOK-03 | TBD | Pending |
-| BOOK-04 | TBD | Pending |
-| PLAT-01 | TBD | Pending |
-| OWNR-01 | TBD | Pending |
-| OWNR-02 | TBD | Pending |
-| OWNR-03 | TBD | Pending |
-| OWNR-04 | TBD | Pending |
-| NOTF-01 | TBD | Pending |
-| ASK-01 | TBD | Pending |
-| ASK-02 | TBD | Pending |
-| COMP-01 | TBD | Pending |
-| COMP-02 | TBD | Pending |
+| BOOK-01 | Phase 2 | Pending |
+| BOOK-02 | Phase 2 | Pending |
+| BOOK-03 | Phase 2 | Pending |
+| BOOK-04 | Phase 2 | Pending |
+| PLAT-01 | Phase 1 | Pending |
+| OWNR-01 | Phase 4 | Pending |
+| OWNR-02 | Phase 2 | Pending |
+| OWNR-03 | Phase 3 | Pending |
+| OWNR-04 | Phase 3 | Pending |
+| NOTF-01 | Phase 3 | Pending |
+| ASK-01 | Phase 2 | Pending |
+| ASK-02 | Phase 2 | Pending |
+| COMP-01 | Phase 1 | Pending |
+| COMP-02 | Phase 5 | Pending |
 
 **Coverage:**
 - v1 requirements: 14 total
-- Mapped to phases: 0 (pending roadmap creation)
-- Unmapped: 14 ⚠️
+- Mapped to phases: 14/14 ✓
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-07-03*
-*Last updated: 2026-07-03 after initial definition*
+*Last updated: 2026-07-03 after roadmap creation (5 phases, 100% v1 coverage)*
