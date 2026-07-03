@@ -44,7 +44,7 @@ A client can book or cancel an appointment with a Greek business entirely throug
 
 ## Constraints
 
-- **Budget**: $0 target for PoC — AI (Gemini free tier), hosting (fly.io), DB (Neon free tier), storage (R2 free tier), WhatsApp (Meta Cloud API free tier). No paid services until PoC validates.
+- **Budget**: Near-$0 for PoC — AI (Gemini free tier), DB (Neon free tier), storage (R2 free tier), WhatsApp (Meta Cloud API free tier). Exception: fly.io dropped its free tier in 2024, so hosting costs ~$1.94/mo minimum — accepted as negligible. No other paid services until PoC validates.
 - **Tech stack**: Node.js/TypeScript backend, Neon (Postgres) for data, fly.io for hosting, Cloudflare R2 for storage, Google Gemini API for the conversational AI, Google Calendar API for owner calendar sync, WhatsApp Cloud API for messaging.
 - **Language**: Bot conversation is Greek-only for the PoC.
 - **Compliance**: Personal/booking data of Greek users — GDPR applies; keep in mind during data modeling even though not a v1 feature.
