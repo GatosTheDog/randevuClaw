@@ -2,7 +2,6 @@ app = "randevuclaw"
 primary_region = "ams"
 
 [build]
-  builder = "paketobuildpacks/builder-jammy-full"
 
 [env]
   LOG_LEVEL = "info"
