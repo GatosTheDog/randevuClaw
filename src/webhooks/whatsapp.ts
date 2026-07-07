@@ -3,7 +3,7 @@ import express, { Router, Request, Response } from 'express';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 import { validateWebhookPayload } from '../utils/validation';
-import { extractAndNormalizeBusinessCode } from '../business/resolver';
+import { extractAndNormalizeAllBusinessCodeCandidates } from '../business/resolver';
 import {
   Business,
   findBusinessBySlug,
@@ -126,8 +126,15 @@ export async function handleWebhookPost(req: Request, res: Response): Promise<vo
         for (const message of change.value.messages ?? []) {
           if (message.type !== 'text' || !message.text) continue;
 
-          const code = extractAndNormalizeBusinessCode(message.text.body);
-          const business = code ? await findBusinessBySlug(code) : null;
+          // Try every hyphenated candidate in appearance order (WR-02)
+          // instead of only the first — a distractor token earlier in a
+          // free-form Greek message shouldn't shadow the real business slug.
+          const candidates = extractAndNormalizeAllBusinessCodeCandidates(message.text.body);
+          let business: Business | null = null;
+          for (const candidate of candidates) {
+            business = await findBusinessBySlug(candidate);
+            if (business) break;
+          }
 
           if (business) {
             await handleFoundBusiness(message.id, business, message.from, message.text.body);
