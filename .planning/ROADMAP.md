@@ -36,11 +36,18 @@ Decimal phases appear between their surrounding integers in numeric order.
   5. Meta Business Verification has been submitted (owner can confirm submission status in Meta Business Manager), starting the 1-6 week approval clock before later phases need a fully live number.
 
 **Plans**: 0/4 plans executed
+**Wave 1**
 
 - [ ] 01-01-PLAN.md
-- [ ] 01-02-PLAN.md
-- [ ] 01-03-PLAN.md
 - [ ] 01-04-PLAN.md
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 01-02-PLAN.md
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 01-03-PLAN.md
 
 ### Phase 2: AI Booking Conversations & Owner Alerts
 
