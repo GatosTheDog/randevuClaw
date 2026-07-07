@@ -93,45 +93,57 @@ async function handleNotFoundBusiness(messageId: string, senderPhone: string): P
 }
 
 export async function handleWebhookPost(req: Request, res: Response): Promise<void> {
-  const rawBody = req.body as Buffer;
-  const signatureHeader = req.headers['x-hub-signature-256'] as string | undefined;
-
-  if (!verifyWhatsAppSignature(rawBody, signatureHeader, config.appSecret)) {
-    res.status(403).send('Forbidden');
-    return;
-  }
-
-  let payload;
+  // Whole body wrapped in try/catch/finally (WR-01): Meta must always get
+  // 200 for a webhook delivery it will otherwise retry forever (see the
+  // "Meta must always get 200" invariant elsewhere in this file). Explicit
+  // 403/400 responses below still take effect normally since they return
+  // before the catch/finally is reached with headersSent already true; only
+  // an unexpected thrown error is coerced to 200 here.
   try {
-    payload = validateWebhookPayload(JSON.parse(rawBody.toString()));
-  } catch (err) {
-    logger.warn({ err }, 'Invalid webhook payload');
-    res.status(400).send('Bad Request');
-    return;
-  }
+    const rawBody = req.body as Buffer;
+    const signatureHeader = req.headers['x-hub-signature-256'] as string | undefined;
 
-  // Iterate over every entry/change/message in the payload (CR-02): WhatsApp
-  // Cloud API webhook POSTs can bundle more than one entry, change, or
-  // message. Indexing only [0] at each level silently discarded everything
-  // else, and because we always reply 200 Meta never retried the rest.
-  for (const entry of payload.entry) {
-    for (const change of entry.changes) {
-      for (const message of change.value.messages ?? []) {
-        if (message.type !== 'text' || !message.text) continue;
+    if (!verifyWhatsAppSignature(rawBody, signatureHeader, config.appSecret)) {
+      res.status(403).send('Forbidden');
+      return;
+    }
 
-        const code = extractAndNormalizeBusinessCode(message.text.body);
-        const business = code ? await findBusinessBySlug(code) : null;
+    let payload;
+    try {
+      payload = validateWebhookPayload(JSON.parse(rawBody.toString()));
+    } catch (err) {
+      logger.warn({ err }, 'Invalid webhook payload');
+      res.status(400).send('Bad Request');
+      return;
+    }
 
-        if (business) {
-          await handleFoundBusiness(message.id, business, message.from, message.text.body);
-        } else {
-          await handleNotFoundBusiness(message.id, message.from);
+    // Iterate over every entry/change/message in the payload (CR-02): WhatsApp
+    // Cloud API webhook POSTs can bundle more than one entry, change, or
+    // message. Indexing only [0] at each level silently discarded everything
+    // else, and because we always reply 200 Meta never retried the rest.
+    for (const entry of payload.entry) {
+      for (const change of entry.changes) {
+        for (const message of change.value.messages ?? []) {
+          if (message.type !== 'text' || !message.text) continue;
+
+          const code = extractAndNormalizeBusinessCode(message.text.body);
+          const business = code ? await findBusinessBySlug(code) : null;
+
+          if (business) {
+            await handleFoundBusiness(message.id, business, message.from, message.text.body);
+          } else {
+            await handleNotFoundBusiness(message.id, message.from);
+          }
         }
       }
     }
-  }
 
-  res.status(200).send('OK');
+    res.status(200).send('OK');
+  } catch (err) {
+    logger.error({ err }, 'Unhandled error processing webhook');
+  } finally {
+    if (!res.headersSent) res.status(200).send('OK');
+  }
 }
 
 const router = Router();
