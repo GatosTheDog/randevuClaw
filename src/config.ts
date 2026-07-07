@@ -1,7 +1,20 @@
 import dotenv from 'dotenv';
 import { z } from 'zod';
 
-dotenv.config();
+// Under Jest, tests fully control process.env (directly, or via
+// tests/jest.setup.ts). Skip reading real dotenv files entirely so test
+// behavior never depends on the contents of an untracked, developer-local
+// .env.local — otherwise a deleted-for-testing var could get silently
+// refilled from disk, masking "missing required var" / "falls back to
+// documented default" test scenarios.
+if (!process.env.JEST_WORKER_ID) {
+  // Load .env.local first (developer-local secrets, gitignored), then fall
+  // back to a plain .env for anything not already set. Neither call uses
+  // `override`, so any variable already present on process.env (e.g.
+  // injected by the shell or CI) always wins — dotenv only fills gaps.
+  dotenv.config({ path: '.env.local' });
+  dotenv.config({ path: '.env' });
+}
 
 const EnvSchema = z.object({
   APP_SECRET: z.string().min(1),
@@ -11,7 +24,11 @@ const EnvSchema = z.object({
   DATABASE_URL: z.string().min(1),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
   PORT: z.coerce.number().default(3000),
-  NODE_ENV: z.enum(['development', 'production']).default('development'),
+  // Accept any string here (Jest always sets NODE_ENV='test' before any of our
+  // code runs); the canonical 'development' | 'production' distinction the app
+  // actually cares about is derived below, treating anything other than
+  // 'production' as 'development' (including 'test' and an omitted value).
+  NODE_ENV: z.string().default('development'),
 });
 
 export interface Config {
@@ -37,5 +54,5 @@ export const config: Config = {
   databaseUrl: env.DATABASE_URL,
   port: env.PORT,
   logLevel: env.LOG_LEVEL,
-  nodeEnv: env.NODE_ENV,
+  nodeEnv: env.NODE_ENV === 'production' ? 'production' : 'development',
 };
