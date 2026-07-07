@@ -110,20 +110,25 @@ export async function handleWebhookPost(req: Request, res: Response): Promise<vo
     return;
   }
 
-  const message = payload.entry[0]?.changes[0]?.value?.messages?.[0];
+  // Iterate over every entry/change/message in the payload (CR-02): WhatsApp
+  // Cloud API webhook POSTs can bundle more than one entry, change, or
+  // message. Indexing only [0] at each level silently discarded everything
+  // else, and because we always reply 200 Meta never retried the rest.
+  for (const entry of payload.entry) {
+    for (const change of entry.changes) {
+      for (const message of change.value.messages ?? []) {
+        if (message.type !== 'text' || !message.text) continue;
 
-  if (!message || message.type !== 'text' || !message.text) {
-    res.status(200).send('OK');
-    return;
-  }
+        const code = extractAndNormalizeBusinessCode(message.text.body);
+        const business = code ? await findBusinessBySlug(code) : null;
 
-  const code = extractAndNormalizeBusinessCode(message.text.body);
-  const business = code ? await findBusinessBySlug(code) : null;
-
-  if (business) {
-    await handleFoundBusiness(message.id, business, message.from, message.text.body);
-  } else {
-    await handleNotFoundBusiness(message.id, message.from);
+        if (business) {
+          await handleFoundBusiness(message.id, business, message.from, message.text.body);
+        } else {
+          await handleNotFoundBusiness(message.id, message.from);
+        }
+      }
+    }
   }
 
   res.status(200).send('OK');
