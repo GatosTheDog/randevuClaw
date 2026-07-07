@@ -79,6 +79,11 @@ export async function insertClientBusinessRelationship(
   businessId: number,
   senderPhone: string
 ): Promise<ClientBusinessRelationship> {
+  // onConflictDoNothing guards the unique_client_business index (schema.ts)
+  // against the check-then-insert race in getOrCreateClientRelationship
+  // (checker.ts): if a concurrent request already inserted the row, this
+  // insert is a no-op (rows[0] undefined) and we re-fetch the winning row
+  // instead of throwing an uncaught unique-violation error (CR-01).
   const rows = await db
     .insert(clientBusinessRelationships)
     .values({
@@ -87,9 +92,14 @@ export async function insertClientBusinessRelationship(
       consentGiven: true,
       consentTimestamp: new Date(),
     })
+    .onConflictDoNothing()
     .returning();
 
-  return rows[0];
+  if (rows[0]) return rows[0];
+
+  const existing = await findClientBusinessRelationship(businessId, senderPhone);
+  if (!existing) throw new Error('Failed to read client relationship after conflict');
+  return existing;
 }
 
 export async function findMessageByWhatsappId(
