@@ -91,3 +91,14 @@ export async function insertClientBusinessRelationship(
 
   return rows[0];
 }
+
+export async function findMessageByWhatsappId(
+  whatsappMessageId: string
+): Promise<{ id: number } | null> {
+  const rows = await db
+    .select({ id: messages.id })
+    .from(messages)
+    .where(eq(messages.whatsappMessageId, whatsappMessageId))
+    .limit(1);
+  return rows[0] ?? null;
+}
