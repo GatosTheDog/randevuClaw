@@ -47,3 +47,25 @@ Each later phase adds one vertical slice on top of this skeleton without alterin
 - Phase 3: Google Calendar sync + daily agenda + reminder templates, triggered by Phase 2's booking events
 - Phase 4: Owner self-serve onboarding via chat, replacing the two fixture businesses seeded in this phase
 - Phase 5: GDPR deletion flow + Meta verification completion + load-tested reliability
+
+## Artifacts This Phase Produces
+
+> Consolidated across all 4 plans (see 01-PATTERNS.md for the original file inventory this cross-references). Each symbol is created by exactly one plan; later plans consume, not redefine, these.
+
+**Config & infra (Plan 01-01):** `package.json`, `tsconfig.json`, `jest.config.js`, `fly.toml`, `.env.example`, `.gitignore`, `drizzle.config.ts`, `migrations/*.sql` (drizzle-kit generated)
+**`src/config.ts`** (Plan 01-01): `interface Config`, `const config: Config`
+**`src/utils/logger.ts`** (Plan 01-01): `const logger: pino.Logger`
+**`src/database/db.ts`** (Plan 01-01): `const pool: pg.Pool`, `const db` (drizzle instance)
+**`src/database/schema.ts`** (Plan 01-01): `const businesses` (columns: `id`, `name`, `slug` unique, `phoneNumberId`, `createdAt`), `const messages` (columns: `id`, `whatsappMessageId` unique, `businessId` FK, `senderPhone`, `messageBody`, `status`, `createdAt`), `const clientBusinessRelationships` (columns: `id`, `businessId` FK, `senderPhone`, `consentGiven`, `consentTimestamp`, `createdAt`; composite unique index `unique_client_business` on `(businessId, senderPhone)`)
+**`src/database/seed.ts`** (Plan 01-01): `generateSlug(name, existingSlugs)`, `seed()` — produces fixture rows `pilates-athens` ("Pilates Athens") and `hair-salon-athens` ("Hair Salon Athens")
+**`src/database/queries.ts`** (Plan 01-01): `interface Business`, `interface ClientBusinessRelationship`, `findBusinessBySlug(slug)`, `insertOrIgnoreMessage(whatsappMessageId, businessId, senderPhone, messageBody)`, `markMessageProcessed(whatsappMessageId)`, `findClientBusinessRelationship(businessId, senderPhone)`, `insertClientBusinessRelationship(businessId, senderPhone)`
+**`src/whatsapp/client.ts`** (Plan 01-02): `interface SendMessageResult`, `sendWhatsAppMessage(recipientPhone, text)`
+**`src/business/resolver.ts`** (Plan 01-02): `extractBusinessCode(messageText)`, `normalizeBusinessCode(raw)`, `extractAndNormalizeBusinessCode(messageText)`
+**`src/utils/diacritics.ts`** (Plan 01-02): `stripGreekDiacritics(text)`
+**`src/utils/validation.ts`** (Plan 01-02): `WhatsAppWebhookPayloadSchema` (zod), `validateWebhookPayload(data)`
+**`src/webhooks/whatsapp.ts`** (Plan 01-02, extended by 01-03): `verifyWhatsAppSignature(rawBody, signatureHeader, appSecret)`, `handleWebhookGet(req, res)`, `handleWebhookPost(req, res)`, `BUSINESS_NOT_FOUND_REPLY_GREEK`, `buildBusinessFoundReplyGreek(businessName)`, default export `router` (mounted at `/webhooks/whatsapp`)
+**`src/server.ts`** (Plan 01-02): Express `app` (routes: `/webhooks/whatsapp`, `GET /healthz`)
+**`src/index.ts`** (Plan 01-02): process entrypoint, `app.listen(config.port, ...)`
+**`src/consent/checker.ts`** (Plan 01-03): `CONSENT_NOTICE_GREEK_TEMPLATE(businessName)`, `getOrCreateClientRelationship(businessId, senderPhone)`
+**Test files:** `tests/config.test.ts`, `tests/fixtures.test.ts` (01-01); `tests/whatsapp-client.test.ts`, `tests/business-resolver.test.ts`, `tests/webhook.test.ts` (01-02); `tests/idempotency.test.ts`, `tests/consent.test.ts`, `tests/consent-schema.test.ts` (01-03)
+**External/manual artifact (Plan 01-04):** Submitted Meta Business Verification request (no code artifact — tracked in Meta Business Manager)
