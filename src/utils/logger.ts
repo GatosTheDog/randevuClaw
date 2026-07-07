@@ -6,7 +6,11 @@ export const logger = pino({
   // Defensive guard: even though these keys are never logged as an object today,
   // this prevents an accidental future `logger.info(config)` from leaking secrets.
   redact: {
-    paths: ['appSecret', 'databaseUrl', 'whatsappAccessToken', 'webhookVerifyToken'],
+    paths: [
+      'appSecret', 'databaseUrl', 'whatsappAccessToken', 'webhookVerifyToken',
+      '*.appSecret', '*.databaseUrl', '*.whatsappAccessToken', '*.webhookVerifyToken',
+      'config.appSecret', 'config.databaseUrl', 'config.whatsappAccessToken', 'config.webhookVerifyToken',
+    ],
     censor: '[REDACTED]',
   },
 });
