@@ -5,16 +5,16 @@ milestone_name: milestone
 current_phase: 02
 current_phase_name: AI Booking Conversations & Owner Alerts
 status: executing
-stopped_at: Completed 02-04-PLAN.md
-last_updated: "2026-07-08T14:01:07.020Z"
+stopped_at: Completed 02-05-PLAN.md (Phase 2 complete)
+last_updated: "2026-07-08T14:15:16.844Z"
 last_activity: 2026-07-08
 last_activity_desc: Phase 02 execution resumed (wave continue)
 progress:
   total_phases: 5
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 9
-  completed_plans: 7
-  percent: 0
+  completed_plans: 8
+  percent: 20
 ---
 
 # Project State
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-03)
 ## Current Position
 
 Phase: 02 (AI Booking Conversations & Owner Alerts) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
 Last activity: 2026-07-08 — Phase 02 execution resumed (wave continue)
 
@@ -58,6 +58,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 02 P2 | 15min | 2 tasks | 5 files |
 | Phase 02 P3 | 15min | 2 tasks | 6 files |
 | Phase 02 P4 | 50min | 3 tasks | 10 files |
+| Phase 02 P5 | 20min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -78,6 +79,8 @@ Recent decisions affecting current work:
 - [Phase 02]: checkAvailability trusts findActiveBookingSlotsForDate's status scoping entirely, applying no independent booking-status re-filtering
 - [Phase 02]: Adapted AI-SPEC's illustrative Gemini SDK pseudocode field names to the real installed @google/genai@2.10.0 SDK's actual snake_case/nested generation_config shape
 - [Phase 02]: resolveConflictOrTaken shared helper disambiguates insertBooking conflicts into idempotent-replay vs genuine slot_taken for both book and reschedule tools
+- [Phase 02]: Owner callback_query taps validated via unscoped booking lookup + re-derived business-ownership check before any mutation (T-02-17)
+- [Phase 02]: 2-hour pending-booking expiry sweep implemented as a plain in-process setInterval poller, guarded against JEST_WORKER_ID, per the no-cron/no-Redis locked stack
 
 ### Pending Todos
 
@@ -102,7 +105,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-08T14:00:59.840Z
-Stopped at: Completed 02-04-PLAN.md
+Last session: 2026-07-08T14:15:16.839Z
+Stopped at: Completed 02-05-PLAN.md (Phase 2 complete)
 Resume file: None
 </content>

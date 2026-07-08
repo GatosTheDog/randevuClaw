@@ -14,7 +14,7 @@ RandevuClaw goes from zero to a working WhatsApp-native booking platform in five
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [ ] **Phase 1: Foundation, Webhook & Business Resolution** - Webhook infra, deep-link business resolution, and first-contact consent; starts Meta Business Verification.
-- [ ] **Phase 2: AI Booking Conversations & Owner Alerts** - Clients book, cancel, reschedule, check availability, and ask questions in natural Greek; owners get real-time alerts.
+- [x] **Phase 2: AI Booking Conversations & Owner Alerts** - Clients book, cancel, reschedule, check availability, and ask questions in natural Greek; owners get real-time alerts. (completed 2026-07-08)
 - [ ] **Phase 3: Calendar Sync, Agenda & Reminders** - Confirmed bookings sync to Google Calendar; owners get a daily agenda; clients get pre-approved-template reminders.
 - [ ] **Phase 4: Owner Self-Serve Onboarding & Multi-Tenancy** - Owners configure their business entirely via chat; multiple businesses coexist safely on one shared number.
 - [ ] **Phase 5: Compliance & Production Readiness** - Data-deletion requests, verification/template completion, and load-tested reliability close out the PoC.
@@ -63,7 +63,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. Client can ask about business hours/location/prices or a general freeform question and get a sensible Greek-language answer.
   5. Owner receives a WhatsApp alert on every new booking, cancellation, or reschedule and can accept/reject it; two clients attempting to book the exact same slot at the same time never both succeed — one is told the slot is already taken.
 
-**Plans**: 4/5 plans executed
+**Plans**: 5/5 plans complete
 **Wave 1**
 
 - [x] 02-01-PLAN.md — Phase 2 schema (services/business_hours/bookings/conversation_turns/telegram_updates), typed query layer, Gemini/Telegram config, fixture seed data
@@ -79,7 +79,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 02-05-PLAN.md — Owner callback_query approval/rejection handling (with reschedule cascade) + 2-hour pending-booking expiry poller
+- [x] 02-05-PLAN.md — Owner callback_query approval/rejection handling (with reschedule cascade) + 2-hour pending-booking expiry poller
 
 ### Phase 3: Calendar Sync, Agenda & Reminders
 
@@ -134,7 +134,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation, Webhook & Business Resolution | 3/4 | In Progress|  |
-| 2. AI Booking Conversations & Owner Alerts | 4/5 | In Progress|  |
+| 2. AI Booking Conversations & Owner Alerts | 5/5 | Complete   | 2026-07-08 |
 | 3. Calendar Sync, Agenda & Reminders | 0/TBD | Not started | - |
 | 4. Owner Self-Serve Onboarding & Multi-Tenancy | 0/TBD | Not started | - |
 | 5. Compliance & Production Readiness | 0/TBD | Not started | - |
