@@ -44,6 +44,9 @@ const mockedFindBusinessById = queries.findBusinessById as jest.MockedFunction<
 const mockedUpdateBookingStatus = queries.updateBookingStatus as jest.MockedFunction<
   typeof queries.updateBookingStatus
 >;
+const mockedUpdateBookingStatusIfPending = queries.updateBookingStatusIfPending as jest.MockedFunction<
+  typeof queries.updateBookingStatusIfPending
+>;
 const mockedFindServiceById = queries.findServiceById as jest.MockedFunction<
   typeof queries.findServiceById
 >;
@@ -228,12 +231,16 @@ describe('POST /webhooks/telegram — callback_query owner approval (Plan 02-05)
   it('Test 5: approves a pending booking — acks first, confirms, notifies client, clears buttons', async () => {
     mockedFindBookingByIdUnscoped.mockResolvedValue(PENDING_BOOKING);
     mockedFindBusinessById.mockResolvedValue(OWNER_BUSINESS);
+    mockedUpdateBookingStatusIfPending.mockResolvedValue({
+      ...PENDING_BOOKING,
+      bookingStatus: 'confirmed',
+    });
 
     const res = await postWebhook(makeCallbackQueryUpdate(100, 'owner1', 'approve_42'));
 
     expect(res.status).toBe(200);
     expect(mockedAnswerCallbackQuery).toHaveBeenCalledWith('cbq-1', expect.any(String));
-    expect(mockedUpdateBookingStatus).toHaveBeenCalledWith(42, 'confirmed');
+    expect(mockedUpdateBookingStatusIfPending).toHaveBeenCalledWith(42, 'confirmed');
     const [clientId, clientText] = mockedSendTelegramMessage.mock.calls[0];
     expect(clientId).toBe('c1');
     expect(clientText).toContain('Ομαδικό Pilates');
@@ -245,7 +252,7 @@ describe('POST /webhooks/telegram — callback_query owner approval (Plan 02-05)
     // (RESEARCH.md Pitfall 4) — verified via jest's global call-order counter.
     const ackOrder = mockedAnswerCallbackQuery.mock.invocationCallOrder[0];
     const bookingLookupOrder = mockedFindBookingByIdUnscoped.mock.invocationCallOrder[0];
-    const updateOrder = mockedUpdateBookingStatus.mock.invocationCallOrder[0];
+    const updateOrder = mockedUpdateBookingStatusIfPending.mock.invocationCallOrder[0];
     expect(ackOrder).toBeLessThan(bookingLookupOrder);
     expect(ackOrder).toBeLessThan(updateOrder);
   });
@@ -253,12 +260,16 @@ describe('POST /webhooks/telegram — callback_query owner approval (Plan 02-05)
   it('Test 6: rejects a pending booking — declines, notifies client, clears buttons, no cascade', async () => {
     mockedFindBookingByIdUnscoped.mockResolvedValue(PENDING_BOOKING);
     mockedFindBusinessById.mockResolvedValue(OWNER_BUSINESS);
+    mockedUpdateBookingStatusIfPending.mockResolvedValue({
+      ...PENDING_BOOKING,
+      bookingStatus: 'rejected',
+    });
 
     const res = await postWebhook(makeCallbackQueryUpdate(101, 'owner1', 'reject_42'));
 
     expect(res.status).toBe(200);
-    expect(mockedUpdateBookingStatus).toHaveBeenCalledWith(42, 'rejected');
-    expect(mockedUpdateBookingStatus).toHaveBeenCalledTimes(1);
+    expect(mockedUpdateBookingStatusIfPending).toHaveBeenCalledWith(42, 'rejected');
+    expect(mockedUpdateBookingStatus).not.toHaveBeenCalled();
     const [clientId, clientText] = mockedSendTelegramMessage.mock.calls[0];
     expect(clientId).toBe('c1');
     expect(clientText.length).toBeGreaterThan(0);
@@ -269,10 +280,14 @@ describe('POST /webhooks/telegram — callback_query owner approval (Plan 02-05)
     const rescheduleBooking = { ...PENDING_BOOKING, id: 99, rescheduledFromBookingId: 42 };
     mockedFindBookingByIdUnscoped.mockResolvedValue(rescheduleBooking);
     mockedFindBusinessById.mockResolvedValue(OWNER_BUSINESS);
+    mockedUpdateBookingStatusIfPending.mockResolvedValue({
+      ...rescheduleBooking,
+      bookingStatus: 'confirmed',
+    });
 
     await postWebhook(makeCallbackQueryUpdate(102, 'owner1', 'approve_99'));
 
-    expect(mockedUpdateBookingStatus).toHaveBeenCalledWith(99, 'confirmed');
+    expect(mockedUpdateBookingStatusIfPending).toHaveBeenCalledWith(99, 'confirmed');
     expect(mockedUpdateBookingStatus).toHaveBeenCalledWith(42, 'cancelled');
   });
 
@@ -280,11 +295,15 @@ describe('POST /webhooks/telegram — callback_query owner approval (Plan 02-05)
     const rescheduleBooking = { ...PENDING_BOOKING, id: 99, rescheduledFromBookingId: 42 };
     mockedFindBookingByIdUnscoped.mockResolvedValue(rescheduleBooking);
     mockedFindBusinessById.mockResolvedValue(OWNER_BUSINESS);
+    mockedUpdateBookingStatusIfPending.mockResolvedValue({
+      ...rescheduleBooking,
+      bookingStatus: 'rejected',
+    });
 
     await postWebhook(makeCallbackQueryUpdate(103, 'owner1', 'reject_99'));
 
-    expect(mockedUpdateBookingStatus).toHaveBeenCalledWith(99, 'rejected');
-    expect(mockedUpdateBookingStatus).not.toHaveBeenCalledWith(42, expect.anything());
+    expect(mockedUpdateBookingStatusIfPending).toHaveBeenCalledWith(99, 'rejected');
+    expect(mockedUpdateBookingStatus).not.toHaveBeenCalled();
   });
 
   it('Test 9: malformed callback data — acks (dismiss spinner) but never looks up or mutates a booking', async () => {
@@ -319,11 +338,37 @@ describe('POST /webhooks/telegram — callback_query owner approval (Plan 02-05)
   it('Test 12: already-resolved booking (re-tap) — no second transition, no duplicate client message', async () => {
     mockedFindBookingByIdUnscoped.mockResolvedValue({ ...PENDING_BOOKING, bookingStatus: 'confirmed' });
     mockedFindBusinessById.mockResolvedValue(OWNER_BUSINESS);
+    // Simulates the atomic update finding no matching pending row: the
+    // booking was already resolved by a prior tap.
+    mockedUpdateBookingStatusIfPending.mockResolvedValue(null);
 
     const res = await postWebhook(makeCallbackQueryUpdate(107, 'owner1', 'approve_42'));
 
     expect(res.status).toBe(200);
+    expect(mockedUpdateBookingStatusIfPending).toHaveBeenCalledWith(42, 'confirmed');
     expect(mockedUpdateBookingStatus).not.toHaveBeenCalled();
     expect(mockedSendTelegramMessage).not.toHaveBeenCalled();
+    expect(mockedEditTelegramMessageReplyMarkup).not.toHaveBeenCalled();
+  });
+
+  it('Test 13: concurrent double-tap on the same booking — exactly one client notification across both requests (WR-05)', async () => {
+    mockedFindBookingByIdUnscoped.mockResolvedValue(PENDING_BOOKING);
+    mockedFindBusinessById.mockResolvedValue(OWNER_BUSINESS);
+    // First request "wins" the atomic compare-and-swap; the second, racing
+    // in with the same callback data (a double-tap or Telegram redelivery),
+    // "loses" and gets null back.
+    mockedUpdateBookingStatusIfPending
+      .mockResolvedValueOnce({ ...PENDING_BOOKING, bookingStatus: 'confirmed' })
+      .mockResolvedValueOnce(null);
+
+    const [firstRes, secondRes] = await Promise.all([
+      postWebhook(makeCallbackQueryUpdate(200, 'owner1', 'approve_42')),
+      postWebhook(makeCallbackQueryUpdate(201, 'owner1', 'approve_42')),
+    ]);
+
+    expect(firstRes.status).toBe(200);
+    expect(secondRes.status).toBe(200);
+    expect(mockedUpdateBookingStatusIfPending).toHaveBeenCalledTimes(2);
+    expect(mockedSendTelegramMessage).toHaveBeenCalledTimes(1);
   });
 });
