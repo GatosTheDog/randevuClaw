@@ -71,9 +71,13 @@ function makeCallbackQueryUpdate(updateId: number, fromId = 111222333) {
   };
 }
 
-async function postWebhook(body: object, secret: string | undefined = SECRET) {
+// `secret` uses `null` (not `undefined`) as the "omit the header" sentinel:
+// a default parameter is only substituted when the caller omits the argument
+// or passes `undefined` explicitly, so passing `undefined` here would
+// silently fall back to SECRET instead of testing the missing-header case.
+async function postWebhook(body: object, secret: string | null = SECRET) {
   const req = request(app).post('/webhooks/telegram').set('Content-Type', 'application/json');
-  if (secret !== undefined) req.set('X-Telegram-Bot-Api-Secret-Token', secret);
+  if (secret !== null) req.set('X-Telegram-Bot-Api-Secret-Token', secret);
   return req.send(body);
 }
 
@@ -123,7 +127,7 @@ describe('POST /webhooks/telegram', () => {
   it('Test 4: missing/wrong secret token -> 403, sendTelegramMessage never called', async () => {
     mockedFindBusinessBySlug.mockResolvedValue(KNOWN_BUSINESS);
 
-    const resMissing = await postWebhook(makeMessageUpdate(4, 'pilates-athens'), undefined);
+    const resMissing = await postWebhook(makeMessageUpdate(4, 'pilates-athens'), null);
     expect(resMissing.status).toBe(403);
 
     const resWrong = await postWebhook(makeMessageUpdate(5, 'pilates-athens'), 'wrong-secret');
