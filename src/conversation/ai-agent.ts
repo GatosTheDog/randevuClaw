@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { config } from '../config';
 import { listServicesForBusiness, listBusinessHours, Business, Service, BusinessHours } from '../database/queries';
 import { executeTool } from './function-executor';
+import { logger } from '../utils/logger';
 
 const ai = new GoogleGenAI({ apiKey: config.geminiApiKey });
 
@@ -10,6 +11,10 @@ const ai = new GoogleGenAI({ apiKey: config.geminiApiKey });
 // 'gemini-2.5-flash-lite' if 'gemini-3.5-flash' is unavailable in-region.
 // Runtime model-fallback branching is explicitly out of scope for this task.
 const GEMINI_MODEL = 'gemini-3.5-flash';
+
+// CR-01: generous upper bound for a single conversation turn; prevents a
+// stuck Gemini tool-call loop from hanging the webhook request that awaits it.
+const MAX_TOOL_ROUNDS = 6;
 
 export const RATE_LIMIT_REPLY_GREEK =
   'Έχουμε μεγάλη κίνηση αυτή τη στιγμή. Δοκιμάστε ξανά σε λίγα λεπτά.';
@@ -23,7 +28,7 @@ class GeminiRateLimitError extends Error {
 
 export interface AiAgentResult {
   text: string;
-  interactionId: string;
+  interactionId: string | null;
   requestId: string;
   toolCalls: Array<{ name: string; args: Record<string, unknown> }>;
 }
@@ -223,8 +228,19 @@ export async function aiBookingAgent(
   const accumulatedToolCalls: Array<{ name: string; args: Record<string, unknown> }> = [];
   let input: string | GeminiFunctionResultInput[] = userMessage;
   let currentInteractionId: string | undefined = previousInteractionId ?? undefined;
+  let round = 0;
 
   while (true) {
+    if (++round > MAX_TOOL_ROUNDS) {
+      logger.error({ requestId, round }, 'aiBookingAgent exceeded MAX_TOOL_ROUNDS, aborting turn');
+      return {
+        text: 'Συγγνώμη, κάτι πήγε στραβά. Δοκιμάστε ξανά.',
+        interactionId: currentInteractionId ?? null,
+        requestId,
+        toolCalls: accumulatedToolCalls,
+      };
+    }
+
     let interaction: GeminiInteractionResult;
     try {
       interaction = await callGeminiWithRetry({
@@ -243,7 +259,7 @@ export async function aiBookingAgent(
       if (err instanceof GeminiRateLimitError) {
         return {
           text: RATE_LIMIT_REPLY_GREEK,
-          interactionId: previousInteractionId ?? '',
+          interactionId: previousInteractionId ?? null,
           requestId,
           toolCalls: accumulatedToolCalls,
         };
@@ -274,7 +290,13 @@ export async function aiBookingAgent(
     // either's DB write lands, defeating the slot-atomicity guarantee.
     const functionResults: GeminiFunctionResultInput[] = [];
     for (const call of functionCalls) {
-      const result = await executeTool(call.name, call.arguments, { business, clientPhone, requestId });
+      const idempotencyKey = `${requestId}:${call.id}`;
+      const result = await executeTool(call.name, call.arguments, {
+        business,
+        clientPhone,
+        requestId,
+        idempotencyKey,
+      });
       accumulatedToolCalls.push({ name: call.name, args: call.arguments });
       functionResults.push({
         type: 'function_result',

@@ -16,7 +16,15 @@ import { logger } from '../utils/logger';
 export interface ToolContext {
   business: { id: number; name: string; ownerTelegramId: string | null };
   clientPhone: string;
+  // Turn-constant identifier, stable across every tool call within the same
+  // conversation turn — used for logging/tracing only.
   requestId: string;
+  // CR-02: unique per mutating tool call (`${requestId}:${call.id}`), derived
+  // by ai-agent.ts. Two distinct book_appointment/reschedule_appointment
+  // calls within the SAME turn must never collide on the same idempotency
+  // key, or the second call's insertBooking conflict would be silently
+  // resolved to the first call's booking row.
+  idempotencyKey: string;
 }
 
 // D-09: pending bookings created by this executor expire 2 hours after
@@ -152,7 +160,7 @@ async function bookAppointmentTool(
     serviceId: parsed.service_id,
     calendarDate: parsed.calendar_date,
     calendarTime: parsed.calendar_time,
-    requestId: context.requestId,
+    requestId: context.idempotencyKey,
     expiresAt,
   });
 
@@ -161,7 +169,7 @@ async function bookAppointmentTool(
     return { success: true, booking_id: booking.id, status: booking.bookingStatus };
   }
 
-  return await resolveConflictOrTaken(context.clientPhone, context.requestId);
+  return await resolveConflictOrTaken(context.clientPhone, context.idempotencyKey);
 }
 
 async function cancelAppointmentTool(
@@ -184,11 +192,20 @@ async function cancelAppointmentTool(
   const service = await findServiceById(context.business.id, booking.serviceId);
   // D-05/D-06: cancellations are auto-processed (no owner veto) but the
   // owner still gets an FYI-only alert — no accept/reject keyboard.
-  if (context.business.ownerTelegramId) {
-    const ownerText = `Ακύρωση ραντεβού από πελάτη:\nΥπηρεσία: ${service?.name ?? 'άγνωστη'}\nΗμερομηνία: ${booking.calendarDate}\nΏρα: ${booking.calendarTime}\nΠελάτης: ${booking.clientPhone}`;
-    await sendTelegramMessage(context.business.ownerTelegramId, ownerText);
+  //
+  // CR-03a: the DB mutation above has already committed at this point — a
+  // subsequent Telegram send failure must never be reported back as an
+  // error, or the client will be told cancellation failed when it actually
+  // succeeded.
+  try {
+    if (context.business.ownerTelegramId) {
+      const ownerText = `Ακύρωση ραντεβού από πελάτη:\nΥπηρεσία: ${service?.name ?? 'άγνωστη'}\nΗμερομηνία: ${booking.calendarDate}\nΏρα: ${booking.calendarTime}\nΠελάτης: ${booking.clientPhone}`;
+      await sendTelegramMessage(context.business.ownerTelegramId, ownerText);
+    }
+    await sendTelegramMessage(booking.clientPhone, 'Το ραντεβού σας ακυρώθηκε.');
+  } catch (err) {
+    logger.error({ err, bookingId: booking.id }, 'Cancellation succeeded but notification failed');
   }
-  await sendTelegramMessage(booking.clientPhone, 'Το ραντεβού σας ακυρώθηκε.');
 
   return { success: true, booking_id: booking.id };
 }
@@ -218,15 +235,23 @@ async function rescheduleAppointmentTool(
     serviceId: parsed.service_id,
     calendarDate: parsed.calendar_date,
     calendarTime: parsed.calendar_time,
-    requestId: context.requestId,
+    requestId: context.idempotencyKey,
     expiresAt,
     rescheduledFromBookingId: original.id,
   });
 
   if (newBooking) {
-    await alertOwnerNewBooking(newBooking, service, context.business);
+    // CR-03b: the reschedule's DB mutation above has already committed — an
+    // owner-alert send failure must never be reported back as an error, or
+    // the client will be told the reschedule failed when it actually
+    // succeeded.
+    try {
+      await alertOwnerNewBooking(newBooking, service, context.business);
+    } catch (err) {
+      logger.error({ err, bookingId: newBooking.id }, 'Reschedule booking created but owner alert failed');
+    }
     return { success: true, booking_id: newBooking.id, status: newBooking.bookingStatus };
   }
 
-  return await resolveConflictOrTaken(context.clientPhone, context.requestId);
+  return await resolveConflictOrTaken(context.clientPhone, context.idempotencyKey);
 }
