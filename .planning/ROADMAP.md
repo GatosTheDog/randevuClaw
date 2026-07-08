@@ -63,10 +63,10 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. Client can ask about business hours/location/prices or a general freeform question and get a sensible Greek-language answer.
   5. Owner receives a WhatsApp alert on every new booking, cancellation, or reschedule and can accept/reject it; two clients attempting to book the exact same slot at the same time never both succeed — one is told the slot is already taken.
 
-**Plans**: 5 plans
+**Plans**: 1/5 plans executed
 **Wave 1**
 
-- [ ] 02-01-PLAN.md — Phase 2 schema (services/business_hours/bookings/conversation_turns/telegram_updates), typed query layer, Gemini/Telegram config, fixture seed data
+- [x] 02-01-PLAN.md — Phase 2 schema (services/business_hours/bookings/conversation_turns/telegram_updates), typed query layer, Gemini/Telegram config, fixture seed data
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -134,7 +134,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation, Webhook & Business Resolution | 3/4 | In Progress|  |
-| 2. AI Booking Conversations & Owner Alerts | 0/5 | Not started | - |
+| 2. AI Booking Conversations & Owner Alerts | 1/5 | In Progress|  |
 | 3. Calendar Sync, Agenda & Reminders | 0/TBD | Not started | - |
 | 4. Owner Self-Serve Onboarding & Multi-Tenancy | 0/TBD | Not started | - |
 | 5. Compliance & Production Readiness | 0/TBD | Not started | - |
