@@ -316,6 +316,25 @@ export async function updateBookingStatus(bookingId: number, status: string): Pr
   await db.update(bookings).set({ bookingStatus: status }).where(eq(bookings.id, bookingId));
 }
 
+// WR-05 gap closure: the WHERE clause here IS the concurrency guard. Of two
+// near-simultaneous callers racing to transition the same booking (a
+// double-tap, or Telegram redelivering the same callback_query), only the
+// first to reach Postgres finds a row still `pending_owner_approval` and
+// gets it back; the second's WHERE clause matches zero rows and this
+// returns null, telling the caller "someone else already resolved this" —
+// with no read-then-write gap for both to slip through.
+export async function updateBookingStatusIfPending(
+  bookingId: number,
+  newStatus: string
+): Promise<Booking | null> {
+  const rows = await db
+    .update(bookings)
+    .set({ bookingStatus: newStatus })
+    .where(and(eq(bookings.id, bookingId), eq(bookings.bookingStatus, 'pending_owner_approval')))
+    .returning();
+  return rows[0] ?? null;
+}
+
 export async function updateBookingOwnerMessageId(
   bookingId: number,
   telegramMessageId: number
