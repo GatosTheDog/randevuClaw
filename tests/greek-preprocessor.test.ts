@@ -5,7 +5,7 @@ import { resolveGreekTemporalExpressions } from '../src/conversation/greek-prepr
 // this instant so DST/rollover is not a factor for this fixture.
 const REFERENCE_DATE = new Date('2026-07-08T10:00:00Z');
 
-describe('resolveGreekTemporalExpressions — 20-phrase Greek temporal corpus', () => {
+describe('resolveGreekTemporalExpressions — 23-phrase Greek temporal corpus', () => {
   it('1. "θέλω ραντεβού αύριο" -> tomorrow, no time', () => {
     const result = resolveGreekTemporalExpressions('θέλω ραντεβού αύριο', REFERENCE_DATE);
     expect(result.resolvedDate).toBe('2026-07-09');
@@ -126,6 +126,24 @@ describe('resolveGreekTemporalExpressions — 20-phrase Greek temporal corpus', 
     const result = resolveGreekTemporalExpressions('Σάββατο 9 πμ', REFERENCE_DATE);
     expect(result.resolvedDate).toBe('2026-07-11');
     expect(result.resolvedTime).toBe('09:00');
+  });
+
+  it('21. "Παρασκευή στις 14" -> Friday, bare 24-hour input in 13-23 range must never get +12 applied again (CR-05)', () => {
+    const result = resolveGreekTemporalExpressions('Παρασκευή στις 14', REFERENCE_DATE);
+    expect(result.resolvedDate).toBe('2026-07-10');
+    expect(result.resolvedTime).toBe('14:00');
+  });
+
+  it('22. "Παρασκευή στις 20" -> Friday, bare 24-hour input in 13-23 range must never get +12 applied again (CR-05)', () => {
+    const result = resolveGreekTemporalExpressions('Παρασκευή στις 20', REFERENCE_DATE);
+    expect(result.resolvedDate).toBe('2026-07-10');
+    expect(result.resolvedTime).toBe('20:00');
+  });
+
+  it('23. "στις 22" -> no weekday/relative-day keyword -> resolvedDate null, bare 24-hour input resolves to its own literal hour (CR-05)', () => {
+    const result = resolveGreekTemporalExpressions('στις 22', REFERENCE_DATE);
+    expect(result.resolvedDate).toBeNull();
+    expect(result.resolvedTime).toBe('22:00');
   });
 });
 
