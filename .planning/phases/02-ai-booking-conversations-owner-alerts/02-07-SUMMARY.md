@@ -116,3 +116,10 @@ CR-05 is closed. This was one of 6 critical findings from the Phase 02 code revi
 ---
 *Phase: 02-ai-booking-conversations-owner-alerts*
 *Completed: 2026-07-08*
+
+## Self-Check: PASSED
+
+- FOUND: src/conversation/greek-preprocessor.ts
+- FOUND: commit 9d882ca (test - RED)
+- FOUND: commit 07d5c63 (fix - GREEN)
+- FOUND: commit 639f746 (docs - SUMMARY)
