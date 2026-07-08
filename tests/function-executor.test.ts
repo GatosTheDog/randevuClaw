@@ -30,7 +30,7 @@ const mockedSendTelegramMessageWithKeyboard = telegramClient.sendTelegramMessage
 >;
 
 const BUSINESS: ToolContext['business'] = { id: 1, name: 'Pilates Athens', ownerTelegramId: '999' };
-const CONTEXT: ToolContext = { business: BUSINESS, clientPhone: 'c1', requestId: 'r1' };
+const CONTEXT: ToolContext = { business: BUSINESS, clientPhone: 'c1', requestId: 'r1', idempotencyKey: 'ik1' };
 
 const SERVICE = {
   id: 2,
@@ -121,6 +121,16 @@ describe('executeTool', () => {
     ]);
     expect(mockedUpdateBookingOwnerMessageId).toHaveBeenCalledWith(42, 555);
     expect(result).toEqual({ success: true, booking_id: 42, status: 'pending_owner_approval' });
+
+    // CR-02: insertBooking's requestId field must be the per-call
+    // idempotencyKey ('ik1'), never the turn-constant requestId ('r1') —
+    // otherwise a second distinct booking in the same turn would collide.
+    expect(mockedInsertBooking).toHaveBeenCalledWith(
+      expect.objectContaining({ requestId: CONTEXT.idempotencyKey })
+    );
+    expect(mockedInsertBooking).not.toHaveBeenCalledWith(
+      expect.objectContaining({ requestId: CONTEXT.requestId })
+    );
   });
 
   it('Test 4: book_appointment with unknown service_id -> service_not_found, no insert/alert', async () => {
@@ -183,6 +193,17 @@ describe('executeTool', () => {
     expect(result).toEqual({ success: true, booking_id: 42 });
   });
 
+  it('Test 13 (CR-03a): cancel_appointment still reports success when the Telegram notification fails after the DB mutation lands', async () => {
+    mockedFindBookingById.mockResolvedValue(makeBooking({ bookingStatus: 'confirmed' }));
+    mockedFindServiceById.mockResolvedValue(SERVICE);
+    mockedSendTelegramMessage.mockRejectedValueOnce(new Error('telegram down'));
+
+    const result = await executeTool('cancel_appointment', { business_id: 1, booking_id: 42 }, CONTEXT);
+
+    expect(mockedUpdateBookingStatus).toHaveBeenCalledWith(42, 'cancelled');
+    expect(result).toEqual({ success: true, booking_id: 42 });
+  });
+
   it('Test 8: cancel_appointment for a booking belonging to a different client -> not_your_booking, no mutation', async () => {
     mockedFindBookingById.mockResolvedValue(makeBooking({ clientPhone: 'someone-else' }));
 
@@ -225,6 +246,32 @@ describe('executeTool', () => {
       ],
     ]);
     expect(mockedUpdateBookingStatus).not.toHaveBeenCalled();
+    expect(result).toEqual({ success: true, booking_id: 99, status: 'pending_owner_approval' });
+
+    // CR-02: reschedule's insertBooking must also key off the per-call
+    // idempotencyKey, not the turn-constant requestId.
+    expect(mockedInsertBooking).toHaveBeenCalledWith(
+      expect.objectContaining({ requestId: CONTEXT.idempotencyKey })
+    );
+  });
+
+  it('Test 14 (CR-03b): reschedule_appointment still reports success when the owner-alert Telegram send fails after the new booking already landed', async () => {
+    const original = makeBooking({ id: 7, bookingStatus: 'confirmed' });
+    mockedFindBookingById.mockResolvedValue(original);
+    mockedFindServiceById.mockResolvedValue(SERVICE);
+    const newBooking = makeBooking({ id: 99, rescheduledFromBookingId: 7 });
+    mockedInsertBooking.mockResolvedValue(newBooking);
+    mockedSendTelegramMessageWithKeyboard.mockRejectedValueOnce(new Error('telegram down'));
+
+    const result = await executeTool(
+      'reschedule_appointment',
+      { business_id: 1, booking_id: 7, service_id: 2, calendar_date: '2026-07-11', calendar_time: '11:00' },
+      CONTEXT
+    );
+
+    expect(mockedInsertBooking).toHaveBeenCalledWith(
+      expect.objectContaining({ rescheduledFromBookingId: 7 })
+    );
     expect(result).toEqual({ success: true, booking_id: 99, status: 'pending_owner_approval' });
   });
 
