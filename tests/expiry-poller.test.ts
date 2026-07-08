@@ -111,6 +111,29 @@ describe('runExpirySweep', () => {
     expect(mockedExpireStalePendingBookings).toHaveBeenCalledWith(2, 7200000);
     expect(logger.error).toHaveBeenCalled();
   });
+
+  it('Test 7 (CR-04): one booking notification failure does not stop notification for the rest of the same batch', async () => {
+    mockedListAllBusinessIds.mockResolvedValue([1]);
+    const firstBooking = makeExpiredBooking({ id: 5, clientPhone: 'c5', ownerTelegramMessageId: null });
+    const secondBooking = makeExpiredBooking({ id: 6, clientPhone: 'c6', ownerTelegramMessageId: null });
+    mockedExpireStalePendingBookings.mockResolvedValue([firstBooking, secondBooking]);
+    mockedSendTelegramMessage.mockImplementation(async (clientPhone: string) => {
+      if (clientPhone === 'c5') throw new Error('telegram send failed');
+      return { messageId: 2 };
+    });
+
+    const count = await runExpirySweep();
+
+    expect(mockedSendTelegramMessage).toHaveBeenCalledTimes(2);
+    expect(mockedSendTelegramMessage).toHaveBeenCalledWith('c5', expect.any(String));
+    expect(mockedSendTelegramMessage).toHaveBeenCalledWith('c6', expect.any(String));
+    expect(count).toBe(1);
+    expect(logger.error).toHaveBeenCalledTimes(1);
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({ bookingId: 5 }),
+      'Failed to notify client of expired booking'
+    );
+  });
 });
 
 describe('startExpiryPoller', () => {

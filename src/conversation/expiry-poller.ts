@@ -30,20 +30,34 @@ export async function runExpirySweep(): Promise<number> {
       const expired = await expireStalePendingBookings(businessId, EXPIRY_CUTOFF_MS);
 
       for (const booking of expired) {
-        await sendTelegramMessage(booking.clientPhone, EXPIRY_NOTICE_GREEK);
-        notifiedCount += 1;
+        // Per-booking isolation (CR-04), nested inside the per-business
+        // isolation above: a booking already atomically flipped to
+        // 'expired' by expireStalePendingBookings can never be revisited by
+        // a future sweep (its WHERE clause only selects still-
+        // pending_owner_approval rows), so one Telegram send failure here
+        // must not permanently silence notification for the rest of this
+        // already-expired batch.
+        try {
+          await sendTelegramMessage(booking.clientPhone, EXPIRY_NOTICE_GREEK);
+          notifiedCount += 1;
 
-        if (booking.ownerTelegramMessageId) {
-          // Button-clearing so a late tap on the original owner alert can't
-          // resurrect an already-expired booking.
-          const business = await findBusinessById(businessId);
-          if (business?.ownerTelegramId) {
-            await editTelegramMessageReplyMarkup(
-              business.ownerTelegramId,
-              booking.ownerTelegramMessageId,
-              []
-            );
+          if (booking.ownerTelegramMessageId) {
+            // Button-clearing so a late tap on the original owner alert can't
+            // resurrect an already-expired booking.
+            const business = await findBusinessById(businessId);
+            if (business?.ownerTelegramId) {
+              await editTelegramMessageReplyMarkup(
+                business.ownerTelegramId,
+                booking.ownerTelegramMessageId,
+                []
+              );
+            }
           }
+        } catch (err) {
+          logger.error(
+            { err, bookingId: booking.id },
+            'Failed to notify client of expired booking'
+          );
         }
       }
     } catch (err) {
