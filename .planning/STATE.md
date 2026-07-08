@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 02
 current_phase_name: AI Booking Conversations & Owner Alerts
 status: executing
-stopped_at: Completed 02-03-PLAN.md
-last_updated: "2026-07-08T13:42:01.831Z"
+stopped_at: Completed 02-04-PLAN.md
+last_updated: "2026-07-08T14:01:07.020Z"
 last_activity: 2026-07-08
 last_activity_desc: Phase 02 execution resumed (wave continue)
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 9
-  completed_plans: 6
+  completed_plans: 7
   percent: 0
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-03)
 ## Current Position
 
 Phase: 02 (AI Booking Conversations & Owner Alerts) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Ready to execute
 Last activity: 2026-07-08 — Phase 02 execution resumed (wave continue)
 
@@ -57,6 +57,7 @@ Progress: [░░░░░░░░░░] 0%
 *Updated after each plan completion*
 | Phase 02 P2 | 15min | 2 tasks | 5 files |
 | Phase 02 P3 | 15min | 2 tasks | 6 files |
+| Phase 02 P4 | 50min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -75,6 +76,8 @@ Recent decisions affecting current work:
 - [Phase 02]: sendTelegramMessage's chatId is populated from the sender's Telegram user id (from.id) since this phase only handles private one-on-one bot chats
 - [Phase 02]: resolveGreekTemporalExpressions only resolves time-of-day words (πρωί/απόγευμα/μεσημέρι/βράδυ) as AM/PM context modifiers, never as a standalone date/time resolver
 - [Phase 02]: checkAvailability trusts findActiveBookingSlotsForDate's status scoping entirely, applying no independent booking-status re-filtering
+- [Phase 02]: Adapted AI-SPEC's illustrative Gemini SDK pseudocode field names to the real installed @google/genai@2.10.0 SDK's actual snake_case/nested generation_config shape
+- [Phase 02]: resolveConflictOrTaken shared helper disambiguates insertBooking conflicts into idempotent-replay vs genuine slot_taken for both book and reschedule tools
 
 ### Pending Todos
 
@@ -99,7 +102,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-08T13:42:01.827Z
-Stopped at: Completed 02-03-PLAN.md
+Last session: 2026-07-08T14:00:59.840Z
+Stopped at: Completed 02-04-PLAN.md
 Resume file: None
 </content>
