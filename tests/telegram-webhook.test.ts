@@ -2,10 +2,11 @@ import request from 'supertest';
 import app from '../src/server';
 import * as queries from '../src/database/queries';
 import * as telegramClient from '../src/telegram/client';
-import { CONSENT_NOTICE_GREEK_TEMPLATE } from '../src/consent/checker';
+import * as router from '../src/conversation/router';
 
 jest.mock('../src/database/queries');
 jest.mock('../src/telegram/client');
+jest.mock('../src/conversation/router');
 
 const SECRET = 'test-telegram-webhook-secret';
 
@@ -18,15 +19,6 @@ const KNOWN_BUSINESS = {
   createdAt: new Date(),
 };
 
-const EXISTING_RELATIONSHIP = {
-  id: 1,
-  businessId: 1,
-  senderPhone: '111222333',
-  consentGiven: true,
-  consentTimestamp: new Date(),
-  createdAt: new Date(),
-};
-
 const mockedFindBusinessBySlug = queries.findBusinessBySlug as jest.MockedFunction<
   typeof queries.findBusinessBySlug
 >;
@@ -36,14 +28,11 @@ const mockedInsertOrIgnoreTelegramUpdate = queries.insertOrIgnoreTelegramUpdate 
 const mockedMarkTelegramUpdateProcessed = queries.markTelegramUpdateProcessed as jest.MockedFunction<
   typeof queries.markTelegramUpdateProcessed
 >;
-const mockedFindClientBusinessRelationship = queries.findClientBusinessRelationship as jest.MockedFunction<
-  typeof queries.findClientBusinessRelationship
->;
-const mockedInsertClientBusinessRelationship = queries.insertClientBusinessRelationship as jest.MockedFunction<
-  typeof queries.insertClientBusinessRelationship
->;
 const mockedSendTelegramMessage = telegramClient.sendTelegramMessage as jest.MockedFunction<
   typeof telegramClient.sendTelegramMessage
+>;
+const mockedRouteConversationMessage = router.routeConversationMessage as jest.MockedFunction<
+  typeof router.routeConversationMessage
 >;
 
 function makeMessageUpdate(updateId: number, text: string, fromId = 111222333) {
@@ -87,21 +76,26 @@ describe('POST /webhooks/telegram', () => {
     mockedInsertOrIgnoreTelegramUpdate.mockResolvedValue('inserted');
     mockedMarkTelegramUpdateProcessed.mockResolvedValue(undefined);
     mockedSendTelegramMessage.mockResolvedValue({ messageId: 999 });
-    mockedFindClientBusinessRelationship.mockResolvedValue(EXISTING_RELATIONSHIP);
+    mockedRouteConversationMessage.mockResolvedValue(undefined);
   });
 
-  it('Test 1: recognized business code -> 200 + Greek reply containing business name', async () => {
+  it('Test 1: recognized business code -> 200 + routeConversationMessage called with the channel adapter, not a direct reply', async () => {
     mockedFindBusinessBySlug.mockResolvedValue(KNOWN_BUSINESS);
 
     const res = await postWebhook(makeMessageUpdate(1, 'pilates-athens'));
 
     expect(res.status).toBe(200);
-    expect(mockedSendTelegramMessage).toHaveBeenCalledTimes(1);
-    const [, replyText] = mockedSendTelegramMessage.mock.calls[0];
-    expect(replyText).toContain('Pilates Athens');
+    expect(mockedRouteConversationMessage).toHaveBeenCalledTimes(1);
+    const [business, senderId, messageText, channel] = mockedRouteConversationMessage.mock.calls[0];
+    expect(business).toEqual(KNOWN_BUSINESS);
+    expect(senderId).toBe('111222333');
+    expect(messageText).toBe('pilates-athens');
+    expect(channel.sendMessage).toBe(mockedSendTelegramMessage);
+    expect(mockedSendTelegramMessage).not.toHaveBeenCalled();
+    expect(mockedMarkTelegramUpdateProcessed).toHaveBeenCalledWith('1', 1);
   });
 
-  it('Test 2: unrecognized business code -> 200 + BUSINESS_NOT_FOUND_REPLY_GREEK', async () => {
+  it('Test 2: unrecognized business code -> 200 + BUSINESS_NOT_FOUND_REPLY_GREEK direct reply, routeConversationMessage never called', async () => {
     mockedFindBusinessBySlug.mockResolvedValue(null);
 
     const res = await postWebhook(makeMessageUpdate(2, 'unknown-business'));
@@ -110,9 +104,10 @@ describe('POST /webhooks/telegram', () => {
     expect(mockedSendTelegramMessage).toHaveBeenCalledTimes(1);
     const [, replyText] = mockedSendTelegramMessage.mock.calls[0];
     expect(replyText).toContain('Δεν αναγνωρίσαμε');
+    expect(mockedRouteConversationMessage).not.toHaveBeenCalled();
   });
 
-  it('Test 3: duplicate update_id -> exactly one reply, not two', async () => {
+  it('Test 3: duplicate update_id -> routeConversationMessage called exactly once, not twice', async () => {
     mockedFindBusinessBySlug.mockResolvedValue(KNOWN_BUSINESS);
 
     mockedInsertOrIgnoreTelegramUpdate.mockResolvedValueOnce('inserted');
@@ -121,10 +116,10 @@ describe('POST /webhooks/telegram', () => {
     mockedInsertOrIgnoreTelegramUpdate.mockResolvedValueOnce('ignored');
     await postWebhook(makeMessageUpdate(3, 'pilates-athens'));
 
-    expect(mockedSendTelegramMessage).toHaveBeenCalledTimes(1);
+    expect(mockedRouteConversationMessage).toHaveBeenCalledTimes(1);
   });
 
-  it('Test 4: missing/wrong secret token -> 403, sendTelegramMessage never called', async () => {
+  it('Test 4: missing/wrong secret token -> 403, neither sendTelegramMessage nor routeConversationMessage called', async () => {
     mockedFindBusinessBySlug.mockResolvedValue(KNOWN_BUSINESS);
 
     const resMissing = await postWebhook(makeMessageUpdate(4, 'pilates-athens'), null);
@@ -134,34 +129,15 @@ describe('POST /webhooks/telegram', () => {
     expect(resWrong.status).toBe(403);
 
     expect(mockedSendTelegramMessage).not.toHaveBeenCalled();
+    expect(mockedRouteConversationMessage).not.toHaveBeenCalled();
   });
 
-  it('Test 5: first-contact client receives consent notice prepended to business-found reply', async () => {
-    mockedFindBusinessBySlug.mockResolvedValue(KNOWN_BUSINESS);
-    mockedFindClientBusinessRelationship.mockResolvedValue(null);
-    mockedInsertClientBusinessRelationship.mockResolvedValue({
-      id: 2,
-      businessId: 1,
-      senderPhone: '111222333',
-      consentGiven: true,
-      consentTimestamp: new Date(),
-      createdAt: new Date(),
-    });
-
-    const res = await postWebhook(makeMessageUpdate(6, 'pilates-athens'));
-
-    expect(res.status).toBe(200);
-    expect(mockedSendTelegramMessage).toHaveBeenCalledTimes(1);
-    const [, replyText] = mockedSendTelegramMessage.mock.calls[0];
-    expect(replyText).toContain(CONSENT_NOTICE_GREEK_TEMPLATE('Pilates Athens'));
-    expect(replyText).toContain('Pilates Athens');
-  });
-
-  it('Test 6: callback_query update -> 200, no reply, still deduped by update_id', async () => {
+  it('Test 6: callback_query update -> 200, no reply, no AI routing, still deduped by update_id', async () => {
     const res = await postWebhook(makeCallbackQueryUpdate(7));
 
     expect(res.status).toBe(200);
     expect(mockedSendTelegramMessage).not.toHaveBeenCalled();
+    expect(mockedRouteConversationMessage).not.toHaveBeenCalled();
     expect(mockedInsertOrIgnoreTelegramUpdate).toHaveBeenCalledWith(
       '7',
       null,

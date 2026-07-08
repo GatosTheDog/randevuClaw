@@ -4,8 +4,8 @@ import { logger } from '../utils/logger';
 import { extractAndNormalizeAllBusinessCodeCandidates } from '../business/resolver';
 import { Business, findBusinessBySlug, insertOrIgnoreTelegramUpdate, markTelegramUpdateProcessed } from '../database/queries';
 import { sendTelegramMessage } from '../telegram/client';
-import { getOrCreateClientRelationship, CONSENT_NOTICE_GREEK_TEMPLATE } from '../consent/checker';
-import { BUSINESS_NOT_FOUND_REPLY_GREEK, buildBusinessFoundReplyGreek } from './whatsapp';
+import { routeConversationMessage } from '../conversation/router';
+import { BUSINESS_NOT_FOUND_REPLY_GREEK } from './whatsapp';
 
 interface TelegramFrom {
   id: number;
@@ -44,18 +44,16 @@ export function verifyTelegramSecretToken(
 async function handleFoundBusiness(
   updateId: string,
   business: Business,
-  senderTelegramId: string
+  senderTelegramId: string,
+  messageText: string
 ): Promise<void> {
-  const { isFirstContact } = await getOrCreateClientRelationship(business.id, senderTelegramId);
-  const replyText = isFirstContact
-    ? `${CONSENT_NOTICE_GREEK_TEMPLATE(business.name)}\n\n${buildBusinessFoundReplyGreek(business.name)}`
-    : buildBusinessFoundReplyGreek(business.name);
-
   try {
-    await sendTelegramMessage(senderTelegramId, replyText);
+    await routeConversationMessage(business, senderTelegramId, messageText, {
+      sendMessage: sendTelegramMessage,
+    });
     await markTelegramUpdateProcessed(updateId, business.id);
   } catch (err) {
-    logger.error({ err }, 'Failed to send Telegram reply');
+    logger.error({ err }, 'Failed to route Telegram conversation message');
   }
 }
 
@@ -114,7 +112,7 @@ export async function handleTelegramWebhookPost(req: Request, res: Response): Pr
       }
 
       if (business) {
-        await handleFoundBusiness(updateId, business, senderTelegramId);
+        await handleFoundBusiness(updateId, business, senderTelegramId, messageText);
       } else {
         await handleNotFoundBusiness(senderTelegramId);
       }
