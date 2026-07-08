@@ -11,6 +11,7 @@ import {
   insertOrIgnoreTelegramUpdate,
   markTelegramUpdateProcessed,
   updateBookingStatus,
+  updateBookingStatusIfPending,
 } from '../database/queries';
 import { answerCallbackQuery, editTelegramMessageReplyMarkup, sendTelegramMessage } from '../telegram/client';
 import { routeConversationMessage } from '../conversation/router';
@@ -131,37 +132,46 @@ async function handleCallbackQuery(
     return;
   }
 
-  // Re-check status immediately before mutating (T-02-18): a second tap
-  // (double-click, or Telegram redelivering the callback) on an
-  // already-resolved booking is a no-op, not a second transition.
-  if (booking.bookingStatus !== 'pending_owner_approval') {
+  // Atomic compare-and-swap (WR-05): this single DB call is now the SOLE
+  // gate for whether notify/cascade/button-clear run below. It replaces the
+  // old read-then-write pre-check (read booking.bookingStatus, check it in
+  // application code, THEN mutate separately), which left a race window
+  // where two near-simultaneous taps — or Telegram redelivering the same
+  // callback_query — could both pass the check and both notify the client.
+  // The WHERE clause inside updateBookingStatusIfPending only matches a row
+  // still `pending_owner_approval`, so of two racing callers, only the
+  // first gets a non-null row back; the second gets null and is ignored
+  // here, exactly like the old already-resolved re-tap case.
+  const newStatus = parsed.action === 'approve' ? 'confirmed' : 'rejected';
+  const updated = await updateBookingStatusIfPending(booking.id, newStatus);
+  if (!updated) {
     logger.info(
-      { bookingId: booking.id, status: booking.bookingStatus },
-      'callback_query for already-resolved booking, ignoring'
+      { bookingId: booking.id },
+      'callback_query lost the race or booking already resolved, ignoring'
     );
     return;
   }
 
   if (parsed.action === 'approve') {
-    await updateBookingStatus(booking.id, 'confirmed');
-    if (booking.rescheduledFromBookingId) {
+    if (updated.rescheduledFromBookingId) {
       // Reschedule cascade: confirming the new booking also releases the
-      // original slot it replaced, in the same operation.
-      await updateBookingStatus(booking.rescheduledFromBookingId, 'cancelled');
+      // original slot it replaced. This targets a DIFFERENT booking row
+      // than the one just compare-and-swapped, so it stays a plain,
+      // unconditional updateBookingStatus call.
+      await updateBookingStatus(updated.rescheduledFromBookingId, 'cancelled');
     }
-    const service = await findServiceById(booking.businessId, booking.serviceId);
+    const service = await findServiceById(updated.businessId, updated.serviceId);
     await sendTelegramMessage(
-      booking.clientPhone,
-      `Το ραντεβού σας επιβεβαιώθηκε! ${service?.name ?? ''}, ${booking.calendarDate} στις ${booking.calendarTime}.`
+      updated.clientPhone,
+      `Το ραντεβού σας επιβεβαιώθηκε! ${service?.name ?? ''}, ${updated.calendarDate} στις ${updated.calendarTime}.`
     );
   } else {
     // No cascade on reject: the original booking (if any) is left untouched.
-    await updateBookingStatus(booking.id, 'rejected');
-    await sendTelegramMessage(booking.clientPhone, CLIENT_REJECT_NOTICE_GREEK);
+    await sendTelegramMessage(updated.clientPhone, CLIENT_REJECT_NOTICE_GREEK);
   }
 
-  if (booking.ownerTelegramMessageId) {
-    await editTelegramMessageReplyMarkup(ownerTelegramId, booking.ownerTelegramMessageId, []);
+  if (updated.ownerTelegramMessageId) {
+    await editTelegramMessageReplyMarkup(ownerTelegramId, updated.ownerTelegramMessageId, []);
   }
 }
 
