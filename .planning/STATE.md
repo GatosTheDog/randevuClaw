@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 02
 current_phase_name: AI Booking Conversations & Owner Alerts
 status: executing
-stopped_at: Completed 02-02-PLAN.md
-last_updated: "2026-07-08T13:30:49.479Z"
+stopped_at: Completed 02-03-PLAN.md
+last_updated: "2026-07-08T13:42:01.831Z"
 last_activity: 2026-07-08
 last_activity_desc: Phase 02 execution resumed (wave continue)
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 9
-  completed_plans: 5
+  completed_plans: 6
   percent: 0
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-03)
 ## Current Position
 
 Phase: 02 (AI Booking Conversations & Owner Alerts) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Ready to execute
 Last activity: 2026-07-08 — Phase 02 execution resumed (wave continue)
 
@@ -56,6 +56,7 @@ Progress: [░░░░░░░░░░] 0%
 
 *Updated after each plan completion*
 | Phase 02 P2 | 15min | 2 tasks | 5 files |
+| Phase 02 P3 | 15min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -72,6 +73,8 @@ Recent decisions affecting current work:
 - [Roadmap]: COMP-01 (consent notice) placed in Phase 1 as part of first-contact webhook handling; COMP-02 (deletion) placed in Phase 5 alongside production-readiness work.
 - [Phase 02]: Telegram secret-token check uses direct string equality (Telegram's documented mechanism), not HMAC/timingSafeEqual
 - [Phase 02]: sendTelegramMessage's chatId is populated from the sender's Telegram user id (from.id) since this phase only handles private one-on-one bot chats
+- [Phase 02]: resolveGreekTemporalExpressions only resolves time-of-day words (πρωί/απόγευμα/μεσημέρι/βράδυ) as AM/PM context modifiers, never as a standalone date/time resolver
+- [Phase 02]: checkAvailability trusts findActiveBookingSlotsForDate's status scoping entirely, applying no independent booking-status re-filtering
 
 ### Pending Todos
 
@@ -96,7 +99,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-08T13:30:49.470Z
-Stopped at: Completed 02-02-PLAN.md
+Last session: 2026-07-08T13:42:01.827Z
+Stopped at: Completed 02-03-PLAN.md
 Resume file: None
 </content>
