@@ -9,10 +9,10 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Booking
 
-- [ ] **BOOK-01**: Client can book an appointment via natural WhatsApp chat, in Greek
-- [ ] **BOOK-02**: Client can cancel an existing appointment via chat, any time before the appointment
-- [ ] **BOOK-03**: Client can check availability before booking (e.g. "έχετε ελεύθερο Παρασκευή απόγευμα;")
-- [ ] **BOOK-04**: Client can reschedule an existing appointment via chat
+- [x] **BOOK-01**: Client can book an appointment via natural WhatsApp chat, in Greek
+- [x] **BOOK-02**: Client can cancel an existing appointment via chat, any time before the appointment
+- [x] **BOOK-03**: Client can check availability before booking (e.g. "έχετε ελεύθερο Παρασκευή απόγευμα;")
+- [x] **BOOK-04**: Client can reschedule an existing appointment via chat
 
 ### Platform
 
@@ -21,7 +21,7 @@ Requirements for initial release. Each maps to roadmap phases.
 ### Owner Operations
 
 - [ ] **OWNR-01**: Owner can configure their business (hours, services, prices) entirely via WhatsApp chat, no dashboard
-- [ ] **OWNR-02**: Owner receives a WhatsApp alert on new booking/cancellation/reschedule and can accept or reject
+- [x] **OWNR-02**: Owner receives a WhatsApp alert on new booking/cancellation/reschedule and can accept or reject
 - [ ] **OWNR-03**: Owner receives a daily WhatsApp agenda message summarizing today's appointments
 - [ ] **OWNR-04**: Confirmed bookings auto-sync to the owner's Google Calendar (create/update/delete on booking, cancel, reschedule)
 
@@ -31,7 +31,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Bot Q&A
 
-- [ ] **ASK-01**: Client can ask business hours/location/prices and get an answer from the bot
+- [x] **ASK-01**: Client can ask business hours/location/prices and get an answer from the bot
 - [ ] **ASK-02**: Client can ask general freeform questions, bot answers best-effort via Gemini
 
 ### Compliance
@@ -70,22 +70,23 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| BOOK-01 | Phase 2 | Pending |
-| BOOK-02 | Phase 2 | Pending |
-| BOOK-03 | Phase 2 | Pending |
-| BOOK-04 | Phase 2 | Pending |
+| BOOK-01 | Phase 2 | Complete |
+| BOOK-02 | Phase 2 | Complete |
+| BOOK-03 | Phase 2 | Complete |
+| BOOK-04 | Phase 2 | Complete |
 | PLAT-01 | Phase 1 | Pending |
 | OWNR-01 | Phase 4 | Pending |
-| OWNR-02 | Phase 2 | Pending |
+| OWNR-02 | Phase 2 | Complete |
 | OWNR-03 | Phase 3 | Pending |
 | OWNR-04 | Phase 3 | Pending |
 | NOTF-01 | Phase 3 | Pending |
-| ASK-01 | Phase 2 | Pending |
+| ASK-01 | Phase 2 | Complete |
 | ASK-02 | Phase 2 | Pending |
 | COMP-01 | Phase 1 | Pending |
 | COMP-02 | Phase 5 | Pending |
 
 **Coverage:**
+
 - v1 requirements: 14 total
 - Mapped to phases: 14/14 ✓
 - Unmapped: 0

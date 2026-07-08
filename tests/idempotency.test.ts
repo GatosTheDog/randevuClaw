@@ -30,7 +30,7 @@ const mockedGetOrCreateClientRelationship =
   >;
 
 const APP_SECRET = 'test-app-secret';
-const KNOWN_BUSINESS = { id: 1, name: 'Pilates Athens', slug: 'pilates-athens', phoneNumberId: null, createdAt: new Date() };
+const KNOWN_BUSINESS = { id: 1, name: 'Pilates Athens', slug: 'pilates-athens', phoneNumberId: null, ownerTelegramId: null, createdAt: new Date() };
 
 function signPayload(bodyStr: string): string {
   return 'sha256=' + crypto.createHmac('sha256', APP_SECRET).update(bodyStr).digest('hex');

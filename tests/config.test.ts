@@ -16,6 +16,10 @@ describe('config', () => {
     process.env.WHATSAPP_ACCESS_TOKEN = 'test-whatsapp-token';
     process.env.WHATSAPP_PHONE_NUMBER_ID = 'test-phone-number-id';
     process.env.DATABASE_URL = 'postgresql://user:pass@localhost:5432/testdb?sslmode=require';
+    process.env.GEMINI_API_KEY = 'test-gemini-key';
+    process.env.TELEGRAM_BOT_TOKEN = 'test-telegram-bot-token';
+    process.env.TELEGRAM_WEBHOOK_SECRET = 'test-telegram-webhook-secret';
+    process.env.OWNER_TELEGRAM_ID = '999999999';
     delete process.env.PORT;
     delete process.env.LOG_LEVEL;
     delete process.env.NODE_ENV;
@@ -30,6 +34,10 @@ describe('config', () => {
     expect(config.databaseUrl).toBe(
       'postgresql://user:pass@localhost:5432/testdb?sslmode=require'
     );
+    expect(config.geminiApiKey).toBe('test-gemini-key');
+    expect(config.telegramBotToken).toBe('test-telegram-bot-token');
+    expect(config.telegramWebhookSecret).toBe('test-telegram-webhook-secret');
+    expect(config.ownerTelegramId).toBe('999999999');
     // Documented defaults when omitted:
     expect(config.port).toBe(3000);
     expect(config.logLevel).toBe('info');
@@ -44,5 +52,19 @@ describe('config', () => {
     process.env.DATABASE_URL = 'postgresql://user:pass@localhost:5432/testdb?sslmode=require';
 
     expect(() => require('../src/config')).toThrow(/APP_SECRET/);
+  });
+
+  it('throws synchronously naming GEMINI_API_KEY when it is missing', () => {
+    process.env.APP_SECRET = 'test-app-secret';
+    process.env.WEBHOOK_VERIFY_TOKEN = 'test-verify-token';
+    process.env.WHATSAPP_ACCESS_TOKEN = 'test-whatsapp-token';
+    process.env.WHATSAPP_PHONE_NUMBER_ID = 'test-phone-number-id';
+    process.env.DATABASE_URL = 'postgresql://user:pass@localhost:5432/testdb?sslmode=require';
+    process.env.TELEGRAM_BOT_TOKEN = 'test-telegram-bot-token';
+    process.env.TELEGRAM_WEBHOOK_SECRET = 'test-telegram-webhook-secret';
+    process.env.OWNER_TELEGRAM_ID = '999999999';
+    delete process.env.GEMINI_API_KEY;
+
+    expect(() => require('../src/config')).toThrow(/GEMINI_API_KEY/);
   });
 });
