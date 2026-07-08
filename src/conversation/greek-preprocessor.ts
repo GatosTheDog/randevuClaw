@@ -95,6 +95,11 @@ function resolveHourToTime(hour: number, minutes: string, marker: string | undef
     return hour < 12 ? formatHour(hour + 12, minutes) : formatHour(hour, minutes);
   }
 
+  // CR-05 fix: an hour already in unambiguous 24-hour form (13-23) must
+  // never have 12 added again by the bare-hour heuristic below — otherwise
+  // ordinary phrasing like "στις 20" would produce an invalid time like "32:00".
+  if (hour >= 13 && hour <= 23) return formatHour(hour, minutes);
+
   // Bare-hour heuristic, no marker and no time-of-day context word: noon
   // never resolves to midnight, 8-11 reads as morning, 1-7 reads as evening.
   if (hour === 12) return formatHour(12, minutes);
