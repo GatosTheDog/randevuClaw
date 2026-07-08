@@ -292,6 +292,26 @@ export async function findBookingById(
   return rows[0] ?? null;
 }
 
+// Intentionally unscoped by business (T-02-20 in Plan 02-05's threat model) —
+// ONLY for the callback_query owner-identity-verification path in
+// src/webhooks/telegram.ts, which immediately re-derives and checks business
+// ownership before any mutation. Never call this from any client-facing code
+// path.
+export async function findBookingByIdUnscoped(bookingId: number): Promise<Booking | null> {
+  const rows = await db.select().from(bookings).where(eq(bookings.id, bookingId)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function findBusinessById(businessId: number): Promise<Business | null> {
+  const rows = await db.select().from(businesses).where(eq(businesses.id, businessId)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function listAllBusinessIds(): Promise<number[]> {
+  const rows = await db.select({ id: businesses.id }).from(businesses);
+  return rows.map((row) => row.id);
+}
+
 export async function updateBookingStatus(bookingId: number, status: string): Promise<void> {
   await db.update(bookings).set({ bookingStatus: status }).where(eq(bookings.id, bookingId));
 }

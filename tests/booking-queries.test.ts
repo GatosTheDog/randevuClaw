@@ -24,6 +24,7 @@ jest.resetModules();
 const schema = require('../src/database/schema');
 const { db, pool } = require('../src/database/db');
 const queries = require('../src/database/queries');
+const { seed } = require('../src/database/seed');
 /* eslint-enable @typescript-eslint/no-var-requires */
 
 const { eq } = require('drizzle-orm');
@@ -266,5 +267,55 @@ describe('insertOrIgnoreTelegramUpdate', () => {
       'message'
     );
     expect(second).toBe('ignored');
+  });
+});
+
+// Plan 02-05: owner-approval (callback_query) and expiry-sweep support queries.
+describe('findBookingByIdUnscoped', () => {
+  it('Test 1: returns the row for any existing bookingId regardless of business, null for a nonexistent id', async () => {
+    const inserted = await queries.insertBooking({
+      businessId,
+      clientPhone: 'client-unscoped',
+      serviceId: shortServiceId,
+      calendarDate: '2026-08-06',
+      calendarTime: '09:00',
+      requestId: `${RUN_ID}-req-unscoped`,
+      expiresAt: futureExpiry(),
+    });
+    expect(inserted).not.toBeNull();
+
+    const found = await queries.findBookingByIdUnscoped(inserted!.id);
+    expect(found).not.toBeNull();
+    expect(found!.id).toBe(inserted!.id);
+
+    const missing = await queries.findBookingByIdUnscoped(999999999);
+    expect(missing).toBeNull();
+  });
+});
+
+describe('findBusinessById', () => {
+  it('Test 2: returns the business row including ownerTelegramId, null for a nonexistent id', async () => {
+    const found = await queries.findBusinessById(businessId);
+    expect(found).not.toBeNull();
+    expect(found!.id).toBe(businessId);
+    expect(found).toHaveProperty('ownerTelegramId');
+
+    const missing = await queries.findBusinessById(999999999);
+    expect(missing).toBeNull();
+  });
+});
+
+describe('listAllBusinessIds', () => {
+  it('Test 3: returns an array containing at least the two seeded fixture business ids after seed() has run', async () => {
+    await seed();
+
+    const pilates = await queries.findBusinessBySlug('pilates-athens');
+    const hairSalon = await queries.findBusinessBySlug('hair-salon-athens');
+    expect(pilates).not.toBeNull();
+    expect(hairSalon).not.toBeNull();
+
+    const ids: number[] = await queries.listAllBusinessIds();
+    expect(ids).toContain(pilates!.id);
+    expect(ids).toContain(hairSalon!.id);
   });
 });

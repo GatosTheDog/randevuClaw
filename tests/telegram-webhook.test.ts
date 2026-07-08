@@ -3,6 +3,7 @@ import app from '../src/server';
 import * as queries from '../src/database/queries';
 import * as telegramClient from '../src/telegram/client';
 import * as router from '../src/conversation/router';
+import { parseCallbackData } from '../src/webhooks/telegram';
 
 jest.mock('../src/database/queries');
 jest.mock('../src/telegram/client');
@@ -34,6 +35,24 @@ const mockedSendTelegramMessage = telegramClient.sendTelegramMessage as jest.Moc
 const mockedRouteConversationMessage = router.routeConversationMessage as jest.MockedFunction<
   typeof router.routeConversationMessage
 >;
+const mockedFindBookingByIdUnscoped = queries.findBookingByIdUnscoped as jest.MockedFunction<
+  typeof queries.findBookingByIdUnscoped
+>;
+const mockedFindBusinessById = queries.findBusinessById as jest.MockedFunction<
+  typeof queries.findBusinessById
+>;
+const mockedUpdateBookingStatus = queries.updateBookingStatus as jest.MockedFunction<
+  typeof queries.updateBookingStatus
+>;
+const mockedFindServiceById = queries.findServiceById as jest.MockedFunction<
+  typeof queries.findServiceById
+>;
+const mockedAnswerCallbackQuery = telegramClient.answerCallbackQuery as jest.MockedFunction<
+  typeof telegramClient.answerCallbackQuery
+>;
+const mockedEditTelegramMessageReplyMarkup = telegramClient.editTelegramMessageReplyMarkup as jest.MockedFunction<
+  typeof telegramClient.editTelegramMessageReplyMarkup
+>;
 
 function makeMessageUpdate(updateId: number, text: string, fromId = 111222333) {
   return {
@@ -48,14 +67,18 @@ function makeMessageUpdate(updateId: number, text: string, fromId = 111222333) {
   };
 }
 
-function makeCallbackQueryUpdate(updateId: number, fromId = 111222333) {
+function makeCallbackQueryUpdate(
+  updateId: number,
+  fromId: number | string = 111222333,
+  data = 'approve_7'
+) {
   return {
     update_id: updateId,
     callback_query: {
       id: 'cbq-1',
       from: { id: fromId, is_bot: false, first_name: 'Owner' },
       message: { message_id: 42, chat: { id: fromId, type: 'private' } },
-      data: 'approve_7',
+      data,
     },
   };
 }
@@ -144,5 +167,163 @@ describe('POST /webhooks/telegram', () => {
       '111222333',
       'callback_query'
     );
+  });
+});
+
+describe('parseCallbackData', () => {
+  it('Test 4: parses valid approve/reject data, returns null for malformed/unknown-action/undefined/empty', () => {
+    expect(parseCallbackData('approve_42')).toEqual({ action: 'approve', bookingId: 42 });
+    expect(parseCallbackData('reject_7')).toEqual({ action: 'reject', bookingId: 7 });
+    expect(parseCallbackData('approve_abc')).toBeNull();
+    expect(parseCallbackData('delete_42')).toBeNull();
+    expect(parseCallbackData(undefined)).toBeNull();
+    expect(parseCallbackData('')).toBeNull();
+  });
+});
+
+describe('POST /webhooks/telegram — callback_query owner approval (Plan 02-05)', () => {
+  const PENDING_BOOKING = {
+    id: 42,
+    businessId: 1,
+    clientPhone: 'c1',
+    serviceId: 3,
+    calendarDate: '2026-07-10',
+    calendarTime: '10:00',
+    bookingStatus: 'pending_owner_approval',
+    requestId: 'req-42',
+    ownerTelegramMessageId: 555,
+    rescheduledFromBookingId: null,
+    createdAt: new Date(),
+    expiresAt: new Date(),
+  };
+
+  const OWNER_BUSINESS = {
+    id: 1,
+    name: 'Pilates Athens',
+    slug: 'pilates-athens',
+    phoneNumberId: null,
+    ownerTelegramId: 'owner1',
+    createdAt: new Date(),
+  };
+
+  const SERVICE = {
+    id: 3,
+    businessId: 1,
+    name: 'Ομαδικό Pilates',
+    durationMin: 55,
+    price: 1500,
+    createdAt: new Date(),
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockedInsertOrIgnoreTelegramUpdate.mockResolvedValue('inserted');
+    mockedAnswerCallbackQuery.mockResolvedValue(undefined);
+    mockedSendTelegramMessage.mockResolvedValue({ messageId: 999 });
+    mockedUpdateBookingStatus.mockResolvedValue(undefined);
+    mockedEditTelegramMessageReplyMarkup.mockResolvedValue(undefined);
+    mockedFindServiceById.mockResolvedValue(SERVICE);
+  });
+
+  it('Test 5: approves a pending booking — acks first, confirms, notifies client, clears buttons', async () => {
+    mockedFindBookingByIdUnscoped.mockResolvedValue(PENDING_BOOKING);
+    mockedFindBusinessById.mockResolvedValue(OWNER_BUSINESS);
+
+    const res = await postWebhook(makeCallbackQueryUpdate(100, 'owner1', 'approve_42'));
+
+    expect(res.status).toBe(200);
+    expect(mockedAnswerCallbackQuery).toHaveBeenCalledWith('cbq-1', expect.any(String));
+    expect(mockedUpdateBookingStatus).toHaveBeenCalledWith(42, 'confirmed');
+    const [clientId, clientText] = mockedSendTelegramMessage.mock.calls[0];
+    expect(clientId).toBe('c1');
+    expect(clientText).toContain('Ομαδικό Pilates');
+    expect(clientText).toContain('2026-07-10');
+    expect(clientText).toContain('10:00');
+    expect(mockedEditTelegramMessageReplyMarkup).toHaveBeenCalledWith('owner1', 555, []);
+
+    // answerCallbackQuery must be the FIRST Telegram/DB call in the branch
+    // (RESEARCH.md Pitfall 4) — verified via jest's global call-order counter.
+    const ackOrder = mockedAnswerCallbackQuery.mock.invocationCallOrder[0];
+    const bookingLookupOrder = mockedFindBookingByIdUnscoped.mock.invocationCallOrder[0];
+    const updateOrder = mockedUpdateBookingStatus.mock.invocationCallOrder[0];
+    expect(ackOrder).toBeLessThan(bookingLookupOrder);
+    expect(ackOrder).toBeLessThan(updateOrder);
+  });
+
+  it('Test 6: rejects a pending booking — declines, notifies client, clears buttons, no cascade', async () => {
+    mockedFindBookingByIdUnscoped.mockResolvedValue(PENDING_BOOKING);
+    mockedFindBusinessById.mockResolvedValue(OWNER_BUSINESS);
+
+    const res = await postWebhook(makeCallbackQueryUpdate(101, 'owner1', 'reject_42'));
+
+    expect(res.status).toBe(200);
+    expect(mockedUpdateBookingStatus).toHaveBeenCalledWith(42, 'rejected');
+    expect(mockedUpdateBookingStatus).toHaveBeenCalledTimes(1);
+    const [clientId, clientText] = mockedSendTelegramMessage.mock.calls[0];
+    expect(clientId).toBe('c1');
+    expect(clientText.length).toBeGreaterThan(0);
+    expect(mockedEditTelegramMessageReplyMarkup).toHaveBeenCalledWith('owner1', 555, []);
+  });
+
+  it('Test 7: reschedule approval cascades — confirms the new booking AND cancels the original', async () => {
+    const rescheduleBooking = { ...PENDING_BOOKING, id: 99, rescheduledFromBookingId: 42 };
+    mockedFindBookingByIdUnscoped.mockResolvedValue(rescheduleBooking);
+    mockedFindBusinessById.mockResolvedValue(OWNER_BUSINESS);
+
+    await postWebhook(makeCallbackQueryUpdate(102, 'owner1', 'approve_99'));
+
+    expect(mockedUpdateBookingStatus).toHaveBeenCalledWith(99, 'confirmed');
+    expect(mockedUpdateBookingStatus).toHaveBeenCalledWith(42, 'cancelled');
+  });
+
+  it('Test 8: reschedule rejection does NOT cascade — only the new booking is touched', async () => {
+    const rescheduleBooking = { ...PENDING_BOOKING, id: 99, rescheduledFromBookingId: 42 };
+    mockedFindBookingByIdUnscoped.mockResolvedValue(rescheduleBooking);
+    mockedFindBusinessById.mockResolvedValue(OWNER_BUSINESS);
+
+    await postWebhook(makeCallbackQueryUpdate(103, 'owner1', 'reject_99'));
+
+    expect(mockedUpdateBookingStatus).toHaveBeenCalledWith(99, 'rejected');
+    expect(mockedUpdateBookingStatus).not.toHaveBeenCalledWith(42, expect.anything());
+  });
+
+  it('Test 9: malformed callback data — acks (dismiss spinner) but never looks up or mutates a booking', async () => {
+    const res = await postWebhook(makeCallbackQueryUpdate(104, 'owner1', 'garbage'));
+
+    expect(res.status).toBe(200);
+    expect(mockedAnswerCallbackQuery).toHaveBeenCalledWith('cbq-1', undefined);
+    expect(mockedFindBookingByIdUnscoped).not.toHaveBeenCalled();
+    expect(mockedUpdateBookingStatus).not.toHaveBeenCalled();
+  });
+
+  it('Test 10: nonexistent booking id — no crash, no mutation, still 200', async () => {
+    mockedFindBookingByIdUnscoped.mockResolvedValue(null);
+
+    const res = await postWebhook(makeCallbackQueryUpdate(105, 'owner1', 'approve_9999'));
+
+    expect(res.status).toBe(200);
+    expect(mockedUpdateBookingStatus).not.toHaveBeenCalled();
+  });
+
+  it('Test 11: wrong owner / spoofed tap — no mutation, no client message', async () => {
+    mockedFindBookingByIdUnscoped.mockResolvedValue(PENDING_BOOKING);
+    mockedFindBusinessById.mockResolvedValue(OWNER_BUSINESS);
+
+    const res = await postWebhook(makeCallbackQueryUpdate(106, 'someone-else', 'approve_42'));
+
+    expect(res.status).toBe(200);
+    expect(mockedUpdateBookingStatus).not.toHaveBeenCalled();
+    expect(mockedSendTelegramMessage).not.toHaveBeenCalled();
+  });
+
+  it('Test 12: already-resolved booking (re-tap) — no second transition, no duplicate client message', async () => {
+    mockedFindBookingByIdUnscoped.mockResolvedValue({ ...PENDING_BOOKING, bookingStatus: 'confirmed' });
+    mockedFindBusinessById.mockResolvedValue(OWNER_BUSINESS);
+
+    const res = await postWebhook(makeCallbackQueryUpdate(107, 'owner1', 'approve_42'));
+
+    expect(res.status).toBe(200);
+    expect(mockedUpdateBookingStatus).not.toHaveBeenCalled();
+    expect(mockedSendTelegramMessage).not.toHaveBeenCalled();
   });
 });
