@@ -119,6 +119,15 @@ None - no external service configuration required.
 - CR-04 gap closure complete; OWNR-02's expiry-sweep notification reliability guarantee now holds at the per-booking level, matching the existing per-business isolation pattern
 - The plan's `<verify><human-check>` end-to-end live-Telegram verification (D3 above) remains a human-judgment item — not automatable in this unit-test harness — and should be confirmed manually before considering Phase 02's gap-closure work fully signed off across all 6 critical findings plus the race-condition item from the code review
 
+## Self-Check: PASSED
+
+- FOUND: src/conversation/expiry-poller.ts
+- FOUND: tests/expiry-poller.test.ts
+- FOUND: .planning/phases/02-ai-booking-conversations-owner-alerts/02-08-SUMMARY.md
+- FOUND commit: 98698c3 (test: RED)
+- FOUND commit: 16702fe (fix: GREEN)
+- FOUND commit: ab36338 (docs: plan metadata)
+
 ---
 *Phase: 02-ai-booking-conversations-owner-alerts*
 *Completed: 2026-07-08*
