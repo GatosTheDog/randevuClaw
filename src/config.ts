@@ -22,6 +22,10 @@ const EnvSchema = z.object({
   WHATSAPP_ACCESS_TOKEN: z.string().min(1),
   WHATSAPP_PHONE_NUMBER_ID: z.string().min(1),
   DATABASE_URL: z.string().min(1),
+  GEMINI_API_KEY: z.string().min(1),
+  TELEGRAM_BOT_TOKEN: z.string().min(1),
+  TELEGRAM_WEBHOOK_SECRET: z.string().min(1),
+  OWNER_TELEGRAM_ID: z.string().min(1),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
   PORT: z.coerce.number().default(3000),
   // Accept any string here (Jest always sets NODE_ENV='test' before any of our
@@ -37,6 +41,10 @@ export interface Config {
   whatsappAccessToken: string;
   whatsappPhoneNumberId: string;
   databaseUrl: string;
+  geminiApiKey: string;
+  telegramBotToken: string;
+  telegramWebhookSecret: string;
+  ownerTelegramId: string;
   port: number;
   logLevel: 'debug' | 'info' | 'warn' | 'error';
   nodeEnv: 'development' | 'production';
@@ -52,6 +60,10 @@ export const config: Config = {
   whatsappAccessToken: env.WHATSAPP_ACCESS_TOKEN,
   whatsappPhoneNumberId: env.WHATSAPP_PHONE_NUMBER_ID,
   databaseUrl: env.DATABASE_URL,
+  geminiApiKey: env.GEMINI_API_KEY,
+  telegramBotToken: env.TELEGRAM_BOT_TOKEN,
+  telegramWebhookSecret: env.TELEGRAM_WEBHOOK_SECRET,
+  ownerTelegramId: env.OWNER_TELEGRAM_ID,
   port: env.PORT,
   logLevel: env.LOG_LEVEL,
   nodeEnv: env.NODE_ENV === 'production' ? 'production' : 'development',

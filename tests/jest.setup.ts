@@ -8,3 +8,7 @@ process.env.WEBHOOK_VERIFY_TOKEN ??= 'test-verify-token';
 process.env.WHATSAPP_ACCESS_TOKEN ??= 'test-whatsapp-token';
 process.env.WHATSAPP_PHONE_NUMBER_ID ??= 'test-phone-number-id';
 process.env.DATABASE_URL ??= 'postgresql://user:pass@localhost:5432/testdb?sslmode=require';
+process.env.GEMINI_API_KEY ??= 'test-gemini-key';
+process.env.TELEGRAM_BOT_TOKEN ??= 'test-telegram-bot-token';
+process.env.TELEGRAM_WEBHOOK_SECRET ??= 'test-telegram-webhook-secret';
+process.env.OWNER_TELEGRAM_ID ??= '999999999';
