@@ -208,9 +208,50 @@ describe('aiBookingAgent', () => {
 
     expect(mockCreate).toHaveBeenCalledTimes(4);
     expect(result.text).toBe(RATE_LIMIT_REPLY_GREEK);
-    expect(result.interactionId).toBe('');
+    expect(result.interactionId).toBeNull();
 
     jest.useRealTimers();
+  });
+
+  it('Test 10 (CR-01): a Gemini mock that never stops returning function_call steps still returns within MAX_TOOL_ROUNDS calls, with the graceful bail-out text', async () => {
+    const MAX_TOOL_ROUNDS = 6;
+    let callCount = 0;
+    mockCreate.mockImplementation(async () => {
+      callCount += 1;
+      return {
+        id: `int${callCount}`,
+        steps: [
+          { type: 'function_call', name: 'check_availability', arguments: { business_id: 1 }, id: `call${callCount}` },
+        ],
+      };
+    });
+    mockedExecuteTool.mockResolvedValue({});
+
+    const result = await aiBookingAgent('θέλω pilates', BUSINESS, 'c1', null);
+
+    expect(mockCreate).toHaveBeenCalledTimes(MAX_TOOL_ROUNDS);
+    expect(result.text).toBe('Συγγνώμη, κάτι πήγε στραβά. Δοκιμάστε ξανά.');
+  });
+
+  it('Test 11 (CR-02): two function_call steps in the same round get distinct idempotencyKey values derived from their own call.id, while requestId stays constant', async () => {
+    mockCreate.mockResolvedValueOnce({
+      id: 'int1',
+      steps: [
+        { type: 'function_call', name: 'book_appointment', arguments: { business_id: 1 }, id: 'call1' },
+        { type: 'function_call', name: 'book_appointment', arguments: { business_id: 1 }, id: 'call2' },
+      ],
+    });
+    mockedExecuteTool.mockResolvedValue({});
+    mockCreate.mockResolvedValueOnce({ id: 'int2', steps: [], output_text: 'ok' });
+
+    await aiBookingAgent('θέλω δύο ραντεβού', BUSINESS, 'c1', null);
+
+    expect(mockedExecuteTool).toHaveBeenCalledTimes(2);
+    const contexts = mockedExecuteTool.mock.calls.map((call) => call[2]);
+    expect(contexts[0].requestId).toBe(contexts[1].requestId);
+    expect(contexts[0].idempotencyKey).not.toBe(contexts[1].idempotencyKey);
+    expect(contexts[0].idempotencyKey).toBe(`${contexts[0].requestId}:call1`);
+    expect(contexts[1].idempotencyKey).toBe(`${contexts[1].requestId}:call2`);
   });
 
   it('Test 8: system prompt is grounded in the business name and at least one real service name', async () => {
