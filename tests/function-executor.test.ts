@@ -1,0 +1,249 @@
+import * as queries from '../src/database/queries';
+import * as availability from '../src/business/availability';
+import * as telegramClient from '../src/telegram/client';
+import { executeTool, ToolContext } from '../src/conversation/function-executor';
+
+jest.mock('../src/database/queries');
+jest.mock('../src/business/availability');
+jest.mock('../src/telegram/client');
+
+const mockedFindServiceById = queries.findServiceById as jest.MockedFunction<typeof queries.findServiceById>;
+const mockedInsertBooking = queries.insertBooking as jest.MockedFunction<typeof queries.insertBooking>;
+const mockedFindBookingByRequestId = queries.findBookingByRequestId as jest.MockedFunction<
+  typeof queries.findBookingByRequestId
+>;
+const mockedFindBookingById = queries.findBookingById as jest.MockedFunction<typeof queries.findBookingById>;
+const mockedUpdateBookingStatus = queries.updateBookingStatus as jest.MockedFunction<
+  typeof queries.updateBookingStatus
+>;
+const mockedUpdateBookingOwnerMessageId = queries.updateBookingOwnerMessageId as jest.MockedFunction<
+  typeof queries.updateBookingOwnerMessageId
+>;
+const mockedCheckAvailability = availability.checkAvailability as jest.MockedFunction<
+  typeof availability.checkAvailability
+>;
+const mockedSendTelegramMessage = telegramClient.sendTelegramMessage as jest.MockedFunction<
+  typeof telegramClient.sendTelegramMessage
+>;
+const mockedSendTelegramMessageWithKeyboard = telegramClient.sendTelegramMessageWithKeyboard as jest.MockedFunction<
+  typeof telegramClient.sendTelegramMessageWithKeyboard
+>;
+
+const BUSINESS: ToolContext['business'] = { id: 1, name: 'Pilates Athens', ownerTelegramId: '999' };
+const CONTEXT: ToolContext = { business: BUSINESS, clientPhone: 'c1', requestId: 'r1' };
+
+const SERVICE = {
+  id: 2,
+  businessId: 1,
+  name: 'Reformer Pilates',
+  durationMin: 50,
+  price: 3500,
+  createdAt: new Date(),
+};
+
+function makeBooking(overrides: Partial<queries.Booking> = {}): queries.Booking {
+  return {
+    id: 42,
+    businessId: 1,
+    clientPhone: 'c1',
+    serviceId: 2,
+    calendarDate: '2026-07-10',
+    calendarTime: '10:00',
+    bookingStatus: 'pending_owner_approval',
+    requestId: 'r1',
+    ownerTelegramMessageId: null,
+    rescheduledFromBookingId: null,
+    createdAt: new Date(),
+    expiresAt: new Date(),
+    ...overrides,
+  };
+}
+
+describe('executeTool', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('Test 1: check_availability delegates to checkAvailability unchanged', async () => {
+    mockedCheckAvailability.mockResolvedValue({ availableSlots: ['09:00'], closed: false });
+
+    const result = await executeTool(
+      'check_availability',
+      { business_id: 1, service_id: 2, calendar_date: '2026-07-10' },
+      CONTEXT
+    );
+
+    expect(mockedCheckAvailability).toHaveBeenCalledWith(1, 2, '2026-07-10');
+    expect(result).toEqual({ availableSlots: ['09:00'], closed: false });
+  });
+
+  it('Test 2: business_id mismatch -> cross_tenant_denied for two different tool names, no downstream call', async () => {
+    const result1 = await executeTool(
+      'check_availability',
+      { business_id: 999, service_id: 2, calendar_date: '2026-07-10' },
+      CONTEXT
+    );
+    const result2 = await executeTool(
+      'book_appointment',
+      { business_id: 999, service_id: 2, calendar_date: '2026-07-10', calendar_time: '10:00' },
+      CONTEXT
+    );
+
+    expect(result1).toEqual({ error: 'cross_tenant_denied' });
+    expect(result2).toEqual({ error: 'cross_tenant_denied' });
+    expect(mockedCheckAvailability).not.toHaveBeenCalled();
+    expect(mockedInsertBooking).not.toHaveBeenCalled();
+  });
+
+  it('Test 3: book_appointment success -> owner alert with keyboard, ownerMessageId stored, structured success', async () => {
+    mockedFindServiceById.mockResolvedValue(SERVICE);
+    const booking = makeBooking();
+    mockedInsertBooking.mockResolvedValue(booking);
+    mockedSendTelegramMessageWithKeyboard.mockResolvedValue({ messageId: 555 });
+
+    const result = await executeTool(
+      'book_appointment',
+      { business_id: 1, service_id: 2, calendar_date: '2026-07-10', calendar_time: '10:00' },
+      CONTEXT
+    );
+
+    expect(mockedSendTelegramMessageWithKeyboard).toHaveBeenCalledTimes(1);
+    const [chatId, text, keyboard] = mockedSendTelegramMessageWithKeyboard.mock.calls[0];
+    expect(chatId).toBe('999');
+    expect(text).toContain('Reformer Pilates');
+    expect(text).toContain('2026-07-10');
+    expect(text).toContain('10:00');
+    expect(keyboard).toEqual([
+      [
+        { text: 'Αποδοχή', callback_data: 'approve_42' },
+        { text: 'Απόρριψη', callback_data: 'reject_42' },
+      ],
+    ]);
+    expect(mockedUpdateBookingOwnerMessageId).toHaveBeenCalledWith(42, 555);
+    expect(result).toEqual({ success: true, booking_id: 42, status: 'pending_owner_approval' });
+  });
+
+  it('Test 4: book_appointment with unknown service_id -> service_not_found, no insert/alert', async () => {
+    mockedFindServiceById.mockResolvedValue(null);
+
+    const result = await executeTool(
+      'book_appointment',
+      { business_id: 1, service_id: 999, calendar_date: '2026-07-10', calendar_time: '10:00' },
+      CONTEXT
+    );
+
+    expect(result).toEqual({ success: false, error: 'service_not_found' });
+    expect(mockedInsertBooking).not.toHaveBeenCalled();
+    expect(mockedSendTelegramMessageWithKeyboard).not.toHaveBeenCalled();
+  });
+
+  it('Test 5: book_appointment idempotent retry (insertBooking null, findBookingByRequestId finds prior row) -> no duplicate alert', async () => {
+    mockedFindServiceById.mockResolvedValue(SERVICE);
+    mockedInsertBooking.mockResolvedValue(null);
+    mockedFindBookingByRequestId.mockResolvedValue(makeBooking({ id: 42, bookingStatus: 'pending_owner_approval' }));
+
+    const result = await executeTool(
+      'book_appointment',
+      { business_id: 1, service_id: 2, calendar_date: '2026-07-10', calendar_time: '10:00' },
+      CONTEXT
+    );
+
+    expect(result).toEqual({ success: true, booking_id: 42, status: 'pending_owner_approval' });
+    expect(mockedSendTelegramMessageWithKeyboard).not.toHaveBeenCalled();
+  });
+
+  it('Test 6: book_appointment genuine slot conflict (insertBooking null, no prior request row) -> slot_taken, no alert', async () => {
+    mockedFindServiceById.mockResolvedValue(SERVICE);
+    mockedInsertBooking.mockResolvedValue(null);
+    mockedFindBookingByRequestId.mockResolvedValue(null);
+
+    const result = await executeTool(
+      'book_appointment',
+      { business_id: 1, service_id: 2, calendar_date: '2026-07-10', calendar_time: '10:00' },
+      CONTEXT
+    );
+
+    expect(result).toEqual({ success: false, error: 'slot_taken' });
+    expect(mockedSendTelegramMessageWithKeyboard).not.toHaveBeenCalled();
+  });
+
+  it('Test 7: cancel_appointment (own booking, confirmed) -> status update, owner FYI (no keyboard), client confirmation', async () => {
+    mockedFindBookingById.mockResolvedValue(makeBooking({ bookingStatus: 'confirmed' }));
+    mockedFindServiceById.mockResolvedValue(SERVICE);
+
+    const result = await executeTool('cancel_appointment', { business_id: 1, booking_id: 42 }, CONTEXT);
+
+    expect(mockedUpdateBookingStatus).toHaveBeenCalledWith(42, 'cancelled');
+    expect(mockedSendTelegramMessage).toHaveBeenCalledTimes(2);
+    const [ownerChatId, ownerText] = mockedSendTelegramMessage.mock.calls[0];
+    expect(ownerChatId).toBe('999');
+    expect(ownerText).not.toContain('Αποδοχή');
+    const [clientChatId] = mockedSendTelegramMessage.mock.calls[1];
+    expect(clientChatId).toBe('c1');
+    expect(result).toEqual({ success: true, booking_id: 42 });
+  });
+
+  it('Test 8: cancel_appointment for a booking belonging to a different client -> not_your_booking, no mutation', async () => {
+    mockedFindBookingById.mockResolvedValue(makeBooking({ clientPhone: 'someone-else' }));
+
+    const result = await executeTool('cancel_appointment', { business_id: 1, booking_id: 42 }, CONTEXT);
+
+    expect(result).toEqual({ success: false, error: 'not_your_booking' });
+    expect(mockedUpdateBookingStatus).not.toHaveBeenCalled();
+  });
+
+  it('Test 9: cancel_appointment for a nonexistent booking -> booking_not_found', async () => {
+    mockedFindBookingById.mockResolvedValue(null);
+
+    const result = await executeTool('cancel_appointment', { business_id: 1, booking_id: 999 }, CONTEXT);
+
+    expect(result).toEqual({ success: false, error: 'booking_not_found' });
+  });
+
+  it('Test 10: reschedule_appointment success -> new booking references original, keyboard encodes NEW id, original untouched', async () => {
+    const original = makeBooking({ id: 7, bookingStatus: 'confirmed' });
+    mockedFindBookingById.mockResolvedValue(original);
+    mockedFindServiceById.mockResolvedValue(SERVICE);
+    const newBooking = makeBooking({ id: 99, rescheduledFromBookingId: 7 });
+    mockedInsertBooking.mockResolvedValue(newBooking);
+    mockedSendTelegramMessageWithKeyboard.mockResolvedValue({ messageId: 777 });
+
+    const result = await executeTool(
+      'reschedule_appointment',
+      { business_id: 1, booking_id: 7, service_id: 2, calendar_date: '2026-07-11', calendar_time: '11:00' },
+      CONTEXT
+    );
+
+    expect(mockedInsertBooking).toHaveBeenCalledWith(
+      expect.objectContaining({ rescheduledFromBookingId: 7 })
+    );
+    const [, , keyboard] = mockedSendTelegramMessageWithKeyboard.mock.calls[0];
+    expect(keyboard).toEqual([
+      [
+        { text: 'Αποδοχή', callback_data: 'approve_99' },
+        { text: 'Απόρριψη', callback_data: 'reject_99' },
+      ],
+    ]);
+    expect(mockedUpdateBookingStatus).not.toHaveBeenCalled();
+    expect(result).toEqual({ success: true, booking_id: 99, status: 'pending_owner_approval' });
+  });
+
+  it('Test 11: reschedule_appointment for a booking belonging to a different client -> not_your_booking, no insert', async () => {
+    mockedFindBookingById.mockResolvedValue(makeBooking({ clientPhone: 'someone-else' }));
+
+    const result = await executeTool(
+      'reschedule_appointment',
+      { business_id: 1, booking_id: 7, service_id: 2, calendar_date: '2026-07-11', calendar_time: '11:00' },
+      CONTEXT
+    );
+
+    expect(result).toEqual({ success: false, error: 'not_your_booking' });
+    expect(mockedInsertBooking).not.toHaveBeenCalled();
+  });
+
+  it('Test 12: unknown tool name -> structured not-found error', async () => {
+    const result = await executeTool('not_a_real_tool', {}, CONTEXT);
+
+    expect(result).toEqual({ error: "Tool 'not_a_real_tool' not found" });
+  });
+});
