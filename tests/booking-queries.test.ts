@@ -319,3 +319,51 @@ describe('listAllBusinessIds', () => {
     expect(ids).toContain(hairSalon!.id);
   });
 });
+
+// Plan 02-09: WR-05 gap closure — atomic compare-and-swap booking-status
+// transition, proving the WHERE clause itself is the sole concurrency guard.
+describe('updateBookingStatusIfPending', () => {
+  it('Test 4: transitions a pending_owner_approval booking and returns the updated row', async () => {
+    const inserted = await queries.insertBooking({
+      businessId,
+      clientPhone: 'client-cas-1',
+      serviceId: shortServiceId,
+      calendarDate: '2026-08-07',
+      calendarTime: '09:00',
+      requestId: `${RUN_ID}-req-cas-1`,
+      expiresAt: futureExpiry(),
+    });
+    expect(inserted).not.toBeNull();
+    expect(inserted!.bookingStatus).toBe('pending_owner_approval');
+
+    const updated = await queries.updateBookingStatusIfPending(inserted!.id, 'confirmed');
+    expect(updated).not.toBeNull();
+    expect(updated!.id).toBe(inserted!.id);
+    expect(updated!.bookingStatus).toBe('confirmed');
+  });
+
+  it('Test 5: a second call on an already-resolved booking returns null and does not revert or duplicate the row', async () => {
+    const inserted = await queries.insertBooking({
+      businessId,
+      clientPhone: 'client-cas-2',
+      serviceId: shortServiceId,
+      calendarDate: '2026-08-07',
+      calendarTime: '10:00',
+      requestId: `${RUN_ID}-req-cas-2`,
+      expiresAt: futureExpiry(),
+    });
+    expect(inserted).not.toBeNull();
+
+    const firstUpdate = await queries.updateBookingStatusIfPending(inserted!.id, 'confirmed');
+    expect(firstUpdate).not.toBeNull();
+    expect(firstUpdate!.bookingStatus).toBe('confirmed');
+
+    // Simulates the loser of a race: the booking is no longer
+    // pending_owner_approval, so this call must be a no-op.
+    const secondUpdate = await queries.updateBookingStatusIfPending(inserted!.id, 'confirmed');
+    expect(secondUpdate).toBeNull();
+
+    const refetched = await queries.findBookingById(businessId, inserted!.id);
+    expect(refetched!.bookingStatus).toBe('confirmed');
+  });
+});
