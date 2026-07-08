@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 02
 current_phase_name: AI Booking Conversations & Owner Alerts
 status: executing
-stopped_at: Phase 2 context gathered
-last_updated: "2026-07-08T12:55:28.147Z"
+stopped_at: Completed 02-02-PLAN.md
+last_updated: "2026-07-08T13:30:49.479Z"
 last_activity: 2026-07-08
 last_activity_desc: Phase 02 execution resumed (wave continue)
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 9
-  completed_plans: 3
+  completed_plans: 5
   percent: 0
 ---
 
@@ -29,8 +29,8 @@ See: .planning/PROJECT.md (updated 2026-07-03)
 ## Current Position
 
 Phase: 02 (AI Booking Conversations & Owner Alerts) — EXECUTING
-Plan: 1 of 5
-Status: Executing Phase 02
+Plan: 2 of 5
+Status: Ready to execute
 Last activity: 2026-07-08 — Phase 02 execution resumed (wave continue)
 
 Progress: [░░░░░░░░░░] 0%
@@ -55,6 +55,7 @@ Progress: [░░░░░░░░░░] 0%
 - Trend: -
 
 *Updated after each plan completion*
+| Phase 02 P2 | 15min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -69,6 +70,8 @@ Recent decisions affecting current work:
 - [Research]: WhatsApp reminder templates must be pre-approved by Meta before Phase 3 reminder logic goes live (24h free-form window constraint).
 - [Roadmap]: Phases 1-3 test against fixture/seed businesses; Phase 4 delivers real self-serve owner onboarding via chat and replaces the fixtures.
 - [Roadmap]: COMP-01 (consent notice) placed in Phase 1 as part of first-contact webhook handling; COMP-02 (deletion) placed in Phase 5 alongside production-readiness work.
+- [Phase 02]: Telegram secret-token check uses direct string equality (Telegram's documented mechanism), not HMAC/timingSafeEqual
+- [Phase 02]: sendTelegramMessage's chatId is populated from the sender's Telegram user id (from.id) since this phase only handles private one-on-one bot chats
 
 ### Pending Todos
 
@@ -93,7 +96,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-07T22:26:05.427Z
-Stopped at: Phase 2 context gathered
-Resume file: .planning/phases/02-ai-booking-conversations-owner-alerts/02-CONTEXT.md
+Last session: 2026-07-08T13:30:49.470Z
+Stopped at: Completed 02-02-PLAN.md
+Resume file: None
 </content>

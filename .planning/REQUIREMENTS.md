@@ -32,7 +32,7 @@ Requirements for initial release. Each maps to roadmap phases.
 ### Bot Q&A
 
 - [x] **ASK-01**: Client can ask business hours/location/prices and get an answer from the bot
-- [ ] **ASK-02**: Client can ask general freeform questions, bot answers best-effort via Gemini
+- [x] **ASK-02**: Client can ask general freeform questions, bot answers best-effort via Gemini
 
 ### Compliance
 
@@ -81,7 +81,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | OWNR-04 | Phase 3 | Pending |
 | NOTF-01 | Phase 3 | Pending |
 | ASK-01 | Phase 2 | Complete |
-| ASK-02 | Phase 2 | Pending |
+| ASK-02 | Phase 2 | Complete |
 | COMP-01 | Phase 1 | Pending |
 | COMP-02 | Phase 5 | Pending |
 
