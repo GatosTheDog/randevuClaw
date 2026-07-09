@@ -45,7 +45,19 @@ async function main(): Promise<void> {
   const server = http.createServer((req, res) => {
     void (async () => {
       try {
-        const requestUrl = new URL(req.url ?? '', `http://localhost:${port}`);
+        const requestUrl = new URL(req.url ?? '/', `http://localhost:${port}`);
+
+        // CR-02: ignore browser-generated auxiliary requests (favicon, prefetch)
+        // that arrive before the real OAuth callback. These carry no 'state'
+        // param, so they would otherwise hit the CSRF rejection path and close
+        // the server before the real callback arrives. Only process requests
+        // whose pathname matches the configured OAuth redirect URI pathname.
+        if (requestUrl.pathname !== new URL(config.googleRedirectUri).pathname) {
+          res.writeHead(204);
+          res.end();
+          return;
+        }
+
         const receivedState = requestUrl.searchParams.get('state');
         const code = requestUrl.searchParams.get('code');
 

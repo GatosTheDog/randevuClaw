@@ -9,8 +9,10 @@ export const logger = pino({
     paths: [
       'appSecret', 'databaseUrl', 'whatsappAccessToken', 'webhookVerifyToken',
       'geminiApiKey', 'telegramBotToken', 'telegramWebhookSecret', 'googleClientSecret',
+      'googleRefreshToken',
       '*.appSecret', '*.databaseUrl', '*.whatsappAccessToken', '*.webhookVerifyToken',
       '*.geminiApiKey', '*.telegramBotToken', '*.telegramWebhookSecret', '*.googleClientSecret',
+      '*.googleRefreshToken',
       'config.appSecret', 'config.databaseUrl', 'config.whatsappAccessToken', 'config.webhookVerifyToken',
       'config.geminiApiKey', 'config.telegramBotToken', 'config.telegramWebhookSecret', 'config.googleClientSecret',
     ],

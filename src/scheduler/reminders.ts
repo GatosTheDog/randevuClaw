@@ -138,11 +138,15 @@ export async function runReminderSweep(): Promise<number> {
             hadAtLeastHoursMarginAtBookingTime(booking, 24) &&
             minutesUntil <= 24 * 60
           ) {
+            // CR-01 / NOTF-01: use 'σήμερα' for same-day appointments, 'αύριο'
+            // for next-day ones. booking.calendarDate and todayIso are both
+            // Athens-local ISO dates; comparison is a pure string equality check.
+            const dayLabel = booking.calendarDate === todayIso ? 'σήμερα' : 'αύριο';
             const claimed = await claimReminder24hSlot(booking.id);
             if (claimed) {
               await sendTelegramMessage(
                 booking.clientPhone,
-                `Υπενθύμιση: έχετε ραντεβού αύριο στις ${booking.calendarTime}.`
+                `Υπενθύμιση: έχετε ραντεβού ${dayLabel} στις ${booking.calendarTime}.`
               );
               sentCount += 1;
             }
