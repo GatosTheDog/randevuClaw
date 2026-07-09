@@ -10,6 +10,31 @@ import { sendTelegramMessage } from '../telegram/client';
 import { isoDateInAthens } from '../utils/timezone';
 import { logger } from '../utils/logger';
 
+// D-09: agenda sweeps only fire at or after 08:00 Athens wall-clock time.
+// The first poller tick at or after 08:00 claims the slot and sends; ticks
+// before 08:00 bail out before any DB call so claimAgendaSlot is never called
+// during the early-morning window (OWNR-03 truth D-09).
+const AGENDA_HOUR_THRESHOLD = 8;
+export { AGENDA_HOUR_THRESHOLD };
+
+// Parse "HH:MM" into wall-clock minutes since midnight.
+function minutesSinceMidnight(time: string): number {
+  const [h, m] = time.split(':').map(Number);
+  return h * 60 + m;
+}
+
+// Return the current Athens wall-clock time as "HH:MM". Uses en-GB locale
+// because its 24-hour format with hour12:false is unambiguous and stable
+// across Node versions. Identical to the same function in src/scheduler/reminders.ts.
+function athensWallClockTime(date: Date): string {
+  return date.toLocaleString('en-GB', {
+    timeZone: 'Europe/Athens',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+}
+
 // D-09/D-11: once per business per Athens calendar day, a Greek summary of
 // that day's confirmed appointments. Bookings are already ordered by
 // calendarTime (Plan 03-01's listBookingsForDate), so no re-sort here.
@@ -26,6 +51,13 @@ function formatAgendaMessage(bookings: Booking[], serviceNamesById: Map<number, 
 // per-business try/catch isolation. Returns the count of agendas sent this
 // sweep.
 export async function runAgendaSweep(): Promise<number> {
+  // OWNR-03 / D-09: bail out before any DB call if Athens wall-clock time is
+  // before 08:00. claimAgendaSlot must NOT be called during this pre-08:00
+  // bailout — the slot stays unclaimed so the first tick at or after 08:00 can
+  // claim and send.
+  const nowAthens = athensWallClockTime(new Date());
+  if (minutesSinceMidnight(nowAthens) < AGENDA_HOUR_THRESHOLD * 60) return 0;
+
   const businessIds = await listAllBusinessIds();
   let sentCount = 0;
   const todayIso = isoDateInAthens(new Date());

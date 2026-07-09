@@ -2,7 +2,7 @@ import * as queries from '../src/database/queries';
 import * as telegramClient from '../src/telegram/client';
 import { logger } from '../src/utils/logger';
 import { isoDateInAthens } from '../src/utils/timezone';
-import { runAgendaSweep, startAgendaPoller } from '../src/scheduler/agenda';
+import { runAgendaSweep, startAgendaPoller, AGENDA_HOUR_THRESHOLD } from '../src/scheduler/agenda';
 
 jest.mock('../src/database/queries');
 jest.mock('../src/telegram/client');
@@ -162,6 +162,43 @@ describe('runAgendaSweep', () => {
     await expect(runAgendaSweep()).resolves.toBe(0);
     expect(mockedListBookingsForDate).toHaveBeenCalledWith(2, expect.any(String));
     expect(logger.error).toHaveBeenCalled();
+  });
+
+  describe('8am threshold gate', () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+      mockedListAllBusinessIds.mockResolvedValue([1]);
+      mockedFindBusinessById.mockResolvedValue(makeBusiness({ ownerTelegramId: 'owner1' }));
+      mockedListBookingsForDate.mockResolvedValue([makeBooking()]);
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('Test 7 (8am gate): runAgendaSweep sends nothing and does NOT call claimAgendaSlot when Athens wall-clock time is before 08:00, even when confirmed bookings exist for today', async () => {
+      // 2026-07-09T02:30:00Z = 05:30 Athens (UTC+3), before 08:00
+      jest.setSystemTime(new Date('2026-07-09T02:30:00Z'));
+
+      const count = await runAgendaSweep();
+
+      expect(mockedClaimAgendaSlot).not.toHaveBeenCalled();
+      expect(mockedSendTelegramMessage).not.toHaveBeenCalled();
+      expect(count).toBe(0);
+    });
+
+    it('Test 7b (8am gate): runAgendaSweep DOES send when Athens wall-clock time is exactly 08:00 or later', async () => {
+      // 2026-07-09T05:00:00Z = 08:00 Athens (UTC+3)
+      jest.setSystemTime(new Date('2026-07-09T05:00:00Z'));
+      mockedClaimAgendaSlot.mockResolvedValue(true);
+      mockedSendTelegramMessage.mockResolvedValue({ messageId: 1 });
+
+      const count = await runAgendaSweep();
+
+      expect(mockedClaimAgendaSlot).toHaveBeenCalled();
+      expect(mockedSendTelegramMessage).toHaveBeenCalledTimes(1);
+      expect(count).toBe(1);
+    });
   });
 });
 
