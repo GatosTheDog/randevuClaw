@@ -12,16 +12,15 @@ A client can book or cancel an appointment with a Greek business entirely throug
 
 ### Validated
 
-(None yet — ship to validate)
+- [x] Client can book an appointment via WhatsApp chat (natural language, Greek) — Validated in Phase 2 (BOOK-01)
+- [x] Client can cancel or reschedule an appointment via WhatsApp chat, anytime before the appointment — Validated in Phase 2 (BOOK-02, BOOK-04)
+- [x] Client can ask questions: business hours/location/prices, availability check, general freeform questions — Validated in Phase 2 (BOOK-03, ASK-01, ASK-02)
+- [x] Owner receives WhatsApp alert on new booking/cancellation/reschedule and can accept or reject — Validated in Phase 2 (OWNR-02)
 
 ### Active
 
-- [ ] Client can book an appointment via WhatsApp chat (natural language, Greek)
-- [ ] Client can cancel an appointment via WhatsApp chat, anytime before the appointment
-- [ ] Client can ask questions: business hours/location/prices, availability check, general freeform questions
 - [ ] Bot resolves which business a client means from a single shared WhatsApp number (e.g. deep link `wa.me/<number>?text=<business-code>`)
 - [ ] Owner can onboard/configure their business entirely via WhatsApp chat (services, hours, prices, single shared schedule)
-- [ ] Owner receives WhatsApp alert on new booking/cancellation and can accept/reject
 - [ ] Confirmed bookings auto-sync to owner's Google Calendar; cancellations remove/update the event
 - [ ] Owner gets a daily WhatsApp agenda message (today's appointments)
 - [ ] Client gets a WhatsApp reminder before their appointment
@@ -79,4 +78,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-03 after initialization*
+*Last updated: 2026-07-09 — Phase 2 (AI Booking Conversations & Owner Alerts) complete*
