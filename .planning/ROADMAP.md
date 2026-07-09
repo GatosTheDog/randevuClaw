@@ -103,10 +103,21 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 5 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 03-01-PLAN.md — Data foundation: schema + typed query layer for calendar-sync/agenda/reminder state
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 03-02-PLAN.md — Google Calendar OAuth flow, sync service, booking-lifecycle integration, retry poller (OWNR-04)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 03-03-PLAN.md — Checkpoint: run the OAuth consent flow for both fixture businesses
 - [ ] 03-04-PLAN.md — Daily 8am Athens owner agenda (OWNR-03)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 03-05-PLAN.md — DST-safe 24h/1h client reminders (NOTF-01)
 
 ### Phase 4: Owner Self-Serve Onboarding & Multi-Tenancy
