@@ -14,8 +14,8 @@ Confirmed bookings automatically sync to the owner's Google Calendar (create on 
 ## Implementation Decisions
 
 ### Messaging Channel (carries forward Phase 2 D-01, re-confirmed)
-- **D-01:** Meta Business Verification is still pending (submitted 2026-07-07, not yet cleared). Phase 3 continues on **Telegram** — same pivot as Phase 2. Agenda and reminder messages are Telegram messages.
-- **D-02:** ROADMAP.md SC3's "sent via a Meta-approved message template" clause does not apply this phase — Telegram has no 24h-window/template-approval system. WhatsApp template submission is explicitly deferred until WhatsApp is actually re-enabled (Phase 5 or later), not done in parallel now.
+- **D-01 [informational]:** Meta Business Verification is still pending (submitted 2026-07-07, not yet cleared). Phase 3 continues on **Telegram** — same pivot as Phase 2. Agenda and reminder messages are Telegram messages. Status/rationale only — the concrete build instruction is D-03/D-04 (reuse `sendTelegramMessage`, channel-agnostic core), which plans already cite.
+- **D-02 [informational]:** ROADMAP.md SC3's "sent via a Meta-approved message template" clause does not apply this phase — Telegram has no 24h-window/template-approval system. WhatsApp template submission is explicitly deferred until WhatsApp is actually re-enabled (Phase 5 or later), not done in parallel now. Scoping note only — no template-submission task is expected in any Phase 3 plan.
 - **D-03:** Reuse `src/telegram/client.ts`'s existing `sendTelegramMessage` / `sendTelegramMessageWithKeyboard` as-is for agenda and reminder sends — no new Telegram send helpers needed.
 - **D-04:** Calendar-sync/agenda/reminder trigger logic is structured channel-agnostic (core scheduling/business logic separate from the Telegram send call), matching Phase 2's D-03 channel-adapter split — so WhatsApp slots back in later as a drop-in adapter, not a rework.
 
