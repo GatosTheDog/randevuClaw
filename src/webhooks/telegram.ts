@@ -16,6 +16,7 @@ import {
 import { answerCallbackQuery, editTelegramMessageReplyMarkup, sendTelegramMessage } from '../telegram/client';
 import { routeConversationMessage } from '../conversation/router';
 import { BUSINESS_NOT_FOUND_REPLY_GREEK } from './whatsapp';
+import { deleteBookingFromCalendar, syncBookingToCalendar } from '../calendar/sync';
 
 interface TelegramFrom {
   id: number;
@@ -159,8 +160,28 @@ async function handleCallbackQuery(
       // than the one just compare-and-swapped, so it stays a plain,
       // unconditional updateBookingStatus call.
       await updateBookingStatus(updated.rescheduledFromBookingId, 'cancelled');
+      // Best-effort delete of the superseded booking's Calendar event
+      // (D-15: never rethrows, a failure here is retried by the poller).
+      try {
+        const oldBooking = await findBookingByIdUnscoped(updated.rescheduledFromBookingId);
+        if (oldBooking) await deleteBookingFromCalendar(oldBooking, business);
+      } catch (err) {
+        logger.error(
+          { err, bookingId: updated.rescheduledFromBookingId },
+          "Failed to delete superseded booking's calendar event"
+        );
+      }
     }
     const service = await findServiceById(updated.businessId, updated.serviceId);
+    // Best-effort Calendar sync (D-15). syncBookingToCalendar's own contract
+    // never throws, but this try/catch is defense in depth (Pitfall 2) so a
+    // totally unexpected bug here can never abort the client confirmation
+    // message below or the webhook's 200 response.
+    try {
+      if (service) await syncBookingToCalendar(updated, business, service);
+    } catch (err) {
+      logger.error({ err, bookingId: updated.id }, 'Calendar sync failed (best-effort)');
+    }
     await sendTelegramMessage(
       updated.clientPhone,
       `Το ραντεβού σας επιβεβαιώθηκε! ${service?.name ?? ''}, ${updated.calendarDate} στις ${updated.calendarTime}.`

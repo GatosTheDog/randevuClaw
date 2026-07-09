@@ -4,6 +4,7 @@ import {
   insertBooking,
   findBookingByRequestId,
   findBookingById,
+  findBusinessById,
   updateBookingStatus,
   updateBookingOwnerMessageId,
   Booking,
@@ -11,6 +12,7 @@ import {
 } from '../database/queries';
 import { checkAvailability } from '../business/availability';
 import { sendTelegramMessage, sendTelegramMessageWithKeyboard } from '../telegram/client';
+import { deleteBookingFromCalendar } from '../calendar/sync';
 import { logger } from '../utils/logger';
 
 export interface ToolContext {
@@ -188,6 +190,16 @@ async function cancelAppointmentTool(
   }
 
   await updateBookingStatus(booking.id, 'cancelled');
+
+  // Best-effort Calendar delete (D-15). ToolContext.business is the narrow
+  // { id, name, ownerTelegramId } shape, not the full Business row, so the
+  // full row (carrying googleRefreshToken) must be fetched separately here.
+  try {
+    const fullBusiness = await findBusinessById(context.business.id);
+    if (fullBusiness) await deleteBookingFromCalendar(booking, fullBusiness);
+  } catch (err) {
+    logger.error({ err, bookingId: booking.id }, 'Calendar deletion failed (best-effort)');
+  }
 
   const service = await findServiceById(context.business.id, booking.serviceId);
   // D-05/D-06: cancellations are auto-processed (no owner veto) but the

@@ -3,6 +3,7 @@ import { logger } from './utils/logger';
 import webhookRouter from './webhooks/whatsapp';
 import telegramWebhookRouter from './webhooks/telegram';
 import { startExpiryPoller } from './conversation/expiry-poller';
+import { startCalendarSyncPoller } from './calendar/poller';
 
 const app = express();
 
@@ -26,6 +27,7 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 // — is the only real signal here.
 if (!process.env.JEST_WORKER_ID) {
   startExpiryPoller();
+  startCalendarSyncPoller();
 }
 
 export default app;
