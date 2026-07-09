@@ -20,6 +20,9 @@ describe('config', () => {
     process.env.TELEGRAM_BOT_TOKEN = 'test-telegram-bot-token';
     process.env.TELEGRAM_WEBHOOK_SECRET = 'test-telegram-webhook-secret';
     process.env.OWNER_TELEGRAM_ID = '999999999';
+    process.env.GOOGLE_CLIENT_ID = 'test-google-client-id';
+    process.env.GOOGLE_CLIENT_SECRET = 'test-google-client-secret';
+    process.env.GOOGLE_REDIRECT_URI = 'http://localhost:3000/oauth/callback';
     delete process.env.PORT;
     delete process.env.LOG_LEVEL;
     delete process.env.NODE_ENV;
@@ -38,6 +41,9 @@ describe('config', () => {
     expect(config.telegramBotToken).toBe('test-telegram-bot-token');
     expect(config.telegramWebhookSecret).toBe('test-telegram-webhook-secret');
     expect(config.ownerTelegramId).toBe('999999999');
+    expect(config.googleClientId).toBe('test-google-client-id');
+    expect(config.googleClientSecret).toBe('test-google-client-secret');
+    expect(config.googleRedirectUri).toBe('http://localhost:3000/oauth/callback');
     // Documented defaults when omitted:
     expect(config.port).toBe(3000);
     expect(config.logLevel).toBe('info');
@@ -66,5 +72,22 @@ describe('config', () => {
     delete process.env.GEMINI_API_KEY;
 
     expect(() => require('../src/config')).toThrow(/GEMINI_API_KEY/);
+  });
+
+  it('throws synchronously naming GOOGLE_CLIENT_ID when it is missing', () => {
+    process.env.APP_SECRET = 'test-app-secret';
+    process.env.WEBHOOK_VERIFY_TOKEN = 'test-verify-token';
+    process.env.WHATSAPP_ACCESS_TOKEN = 'test-whatsapp-token';
+    process.env.WHATSAPP_PHONE_NUMBER_ID = 'test-phone-number-id';
+    process.env.DATABASE_URL = 'postgresql://user:pass@localhost:5432/testdb?sslmode=require';
+    process.env.GEMINI_API_KEY = 'test-gemini-key';
+    process.env.TELEGRAM_BOT_TOKEN = 'test-telegram-bot-token';
+    process.env.TELEGRAM_WEBHOOK_SECRET = 'test-telegram-webhook-secret';
+    process.env.OWNER_TELEGRAM_ID = '999999999';
+    process.env.GOOGLE_CLIENT_SECRET = 'test-google-client-secret';
+    process.env.GOOGLE_REDIRECT_URI = 'http://localhost:3000/oauth/callback';
+    delete process.env.GOOGLE_CLIENT_ID;
+
+    expect(() => require('../src/config')).toThrow(/GOOGLE_CLIENT_ID/);
   });
 });

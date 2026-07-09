@@ -8,11 +8,11 @@ export const logger = pino({
   redact: {
     paths: [
       'appSecret', 'databaseUrl', 'whatsappAccessToken', 'webhookVerifyToken',
-      'geminiApiKey', 'telegramBotToken', 'telegramWebhookSecret',
+      'geminiApiKey', 'telegramBotToken', 'telegramWebhookSecret', 'googleClientSecret',
       '*.appSecret', '*.databaseUrl', '*.whatsappAccessToken', '*.webhookVerifyToken',
-      '*.geminiApiKey', '*.telegramBotToken', '*.telegramWebhookSecret',
+      '*.geminiApiKey', '*.telegramBotToken', '*.telegramWebhookSecret', '*.googleClientSecret',
       'config.appSecret', 'config.databaseUrl', 'config.whatsappAccessToken', 'config.webhookVerifyToken',
-      'config.geminiApiKey', 'config.telegramBotToken', 'config.telegramWebhookSecret',
+      'config.geminiApiKey', 'config.telegramBotToken', 'config.telegramWebhookSecret', 'config.googleClientSecret',
     ],
     censor: '[REDACTED]',
   },
