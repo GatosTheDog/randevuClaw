@@ -5,16 +5,16 @@ milestone_name: milestone
 current_phase: 03
 current_phase_name: calendar-sync-agenda-reminders
 status: executing
-stopped_at: Completed 03-02-PLAN.md
-last_updated: "2026-07-09T09:00:37.929Z"
+stopped_at: Completed 03-05-PLAN.md
+last_updated: "2026-07-09T11:18:27.666Z"
 last_activity: 2026-07-09
-last_activity_desc: Phase 03 execution started
+last_activity_desc: Completed 03-04-PLAN.md (daily agenda)
 progress:
   total_phases: 5
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 18
-  completed_plans: 14
-  percent: 20
+  completed_plans: 17
+  percent: 40
 ---
 
 # Project State
@@ -29,11 +29,11 @@ See: .planning/PROJECT.md (updated 2026-07-03)
 ## Current Position
 
 Phase: 03 (calendar-sync-agenda-reminders) — EXECUTING
-Plan: 3 of 5
-Status: Ready to execute
-Last activity: 2026-07-09 — Phase 03 execution started
+Plan: 5 of 5
+Status: 03-04 complete — 03-03 (human OAuth checkpoint) and 03-05 (client reminders) remaining
+Last activity: 2026-07-09 — Completed 03-04-PLAN.md (daily agenda)
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [████████░░] 83%
 
 ## Performance Metrics
 
@@ -61,6 +61,8 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 02 P5 | 20min | 2 tasks | 7 files |
 | Phase 03 P1 | 7min | 2 tasks | 10 files |
 | Phase 03 P02 | 51min | 3 tasks | 18 files |
+| Phase 03 P04 | 3min | 2 tasks | 3 files |
+| Phase 03 P05 | 5min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -88,6 +90,10 @@ Recent decisions affecting current work:
 - [Phase 03]: Config's 3 new Google OAuth env vars pulled forward into Task 1's own commit (Rule 3 blocking fix) since src/google/oauth.ts references them and Task 1's own tsc/test verification requires them
 - [Phase 03]: googleapis is the only new direct dependency for Calendar sync; google-auth-library stays transitive via InstanceType<typeof google.auth.OAuth2> typing (T-03-SC)
 - [Phase 03]: MAX_CALENDAR_SYNC_RETRIES=10 at the poller's 5-minute interval (~50 min total retry window) before permanent 'failed' abandonment (D-16)
+- [Phase 03]: 10-minute default agenda-poller interval (D-09 discretion), matching the frequent-enough/cheap-enough-to-run-continuously rationale
+- [Phase 03]: Read-before-claim ordering (listBookingsForDate -> claimAgendaSlot -> sendTelegramMessage) established as the pattern for any future Phase 3 idempotent-send poller
+- [Phase ?]: [Phase 03]: 15-minute default poller interval (D-10, locked) for the reminder sweep -- not discretionary unlike the agenda poller's D-09 discretion
+- [Phase ?]: [Phase 03]: jest.setSystemTime() chosen over jest.spyOn(global, Date) for reminder sweep tests -- spyOn caused recursive stack overflow
 
 ### Pending Todos
 
@@ -112,7 +118,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-09T08:54:48.243Z
-Stopped at: Completed 03-02-PLAN.md
+Last session: 2026-07-09T11:18:27.661Z
+Stopped at: Completed 03-05-PLAN.md
 Resume file: 
 None
