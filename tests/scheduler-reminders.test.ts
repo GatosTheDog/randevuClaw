@@ -57,9 +57,14 @@ function makeBooking(overrides: Partial<queries.Booking> = {}): queries.Booking 
 describe('runReminderSweep', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    jest.useFakeTimers();
     mockedSendTelegramMessage.mockResolvedValue({ messageId: 1 });
     mockedClaimReminder24hSlot.mockResolvedValue(true);
     mockedClaimReminder1hSlot.mockResolvedValue(true);
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
   });
 
   // Test 1: 24h window — when "now" is exactly the day before the appointment
@@ -77,11 +82,7 @@ describe('runReminderSweep', () => {
     mockedFindBookingsNeedingReminder.mockResolvedValue([booking]);
 
     // Freeze "now" to exactly 24h before the appointment (Athens: 2026-07-09 10:00)
-    const fakeNow = new Date('2026-07-09T07:00:00Z'); // 10:00 Athens (UTC+3)
-    jest.spyOn(global, 'Date').mockImplementation((arg?: any) => {
-      if (arg === undefined) return fakeNow as unknown as Date;
-      return new (Date as any)(arg);
-    });
+    jest.setSystemTime(new Date('2026-07-09T07:00:00Z')); // 10:00 Athens (UTC+3)
 
     await runReminderSweep();
 
@@ -90,8 +91,6 @@ describe('runReminderSweep', () => {
       'c1',
       expect.stringMatching(/αύριο|10:00/)
     );
-
-    jest.restoreAllMocks();
   });
 
   it('Test 1b: does NOT send 24h reminder when now is more than 24h before appointment', async () => {
@@ -105,18 +104,12 @@ describe('runReminderSweep', () => {
     mockedFindBookingsNeedingReminder.mockResolvedValue([booking]);
 
     // "Now" = 2026-07-09 09:00 Athens = 2026-07-09T06:00:00Z => 25h before, outside window
-    const fakeNow = new Date('2026-07-09T06:00:00Z'); // 09:00 Athens (UTC+3)
-    jest.spyOn(global, 'Date').mockImplementation((arg?: any) => {
-      if (arg === undefined) return fakeNow as unknown as Date;
-      return new (Date as any)(arg);
-    });
+    jest.setSystemTime(new Date('2026-07-09T06:00:00Z')); // 09:00 Athens (UTC+3)
 
     await runReminderSweep();
 
     expect(mockedClaimReminder24hSlot).not.toHaveBeenCalled();
     expect(mockedSendTelegramMessage).not.toHaveBeenCalled();
-
-    jest.restoreAllMocks();
   });
 
   // Test 2 (D-14, 24h skip): booking created only 20h before appointment.
@@ -135,17 +128,11 @@ describe('runReminderSweep', () => {
     mockedFindBookingsNeedingReminder.mockResolvedValue([booking]);
 
     // Simulate sweep running at 24h window (2026-07-09 10:00 Athens)
-    const fakeNow = new Date('2026-07-09T07:00:00Z'); // 10:00 Athens
-    jest.spyOn(global, 'Date').mockImplementation((arg?: any) => {
-      if (arg === undefined) return fakeNow as unknown as Date;
-      return new (Date as any)(arg);
-    });
+    jest.setSystemTime(new Date('2026-07-09T07:00:00Z')); // 10:00 Athens
 
     await runReminderSweep();
 
     expect(mockedClaimReminder24hSlot).not.toHaveBeenCalled();
-
-    jest.restoreAllMocks();
   });
 
   // Test 3 (D-14, 1h skip): booking created only 30 minutes before appointment.
@@ -164,18 +151,12 @@ describe('runReminderSweep', () => {
     mockedFindBookingsNeedingReminder.mockResolvedValue([booking]);
 
     // Simulate sweep running within 1h window (09:30 Athens -- still before appointment)
-    const fakeNow = new Date('2026-07-10T06:30:00Z'); // 09:30 Athens
-    jest.spyOn(global, 'Date').mockImplementation((arg?: any) => {
-      if (arg === undefined) return fakeNow as unknown as Date;
-      return new (Date as any)(arg);
-    });
+    jest.setSystemTime(new Date('2026-07-10T06:30:00Z')); // 09:30 Athens
 
     await runReminderSweep();
 
     expect(mockedClaimReminder24hSlot).not.toHaveBeenCalled();
     expect(mockedClaimReminder1hSlot).not.toHaveBeenCalled();
-
-    jest.restoreAllMocks();
   });
 
   // Test 4: 1h reminder fires within 60 min before appointment (same day);
@@ -186,17 +167,13 @@ describe('runReminderSweep', () => {
     const booking = makeBooking({
       calendarDate: '2026-07-10',
       calendarTime: '10:00',
-      reminder24hSentAt: new Date(), // already sent -- only 1h test matters here
+      reminder24hSentAt: new Date('2026-07-09T07:00:00Z'), // already sent
       reminder1hSentAt: null,
     });
     mockedFindBookingsNeedingReminder.mockResolvedValue([booking]);
 
     // "Now" = 2026-07-10 09:30 Athens = 2026-07-10T06:30:00Z (30min before -- inside 60min window)
-    const fakeNow = new Date('2026-07-10T06:30:00Z');
-    jest.spyOn(global, 'Date').mockImplementation((arg?: any) => {
-      if (arg === undefined) return fakeNow as unknown as Date;
-      return new (Date as any)(arg);
-    });
+    jest.setSystemTime(new Date('2026-07-10T06:30:00Z'));
 
     await runReminderSweep();
 
@@ -205,8 +182,6 @@ describe('runReminderSweep', () => {
       'c1',
       expect.stringMatching(/1 ώρα|10:00/)
     );
-
-    jest.restoreAllMocks();
   });
 
   it('Test 4b: does NOT send 1h reminder after appointment has already passed', async () => {
@@ -214,23 +189,17 @@ describe('runReminderSweep', () => {
     const booking = makeBooking({
       calendarDate: '2026-07-10',
       calendarTime: '10:00',
-      reminder24hSentAt: new Date(),
+      reminder24hSentAt: new Date('2026-07-09T07:00:00Z'),
       reminder1hSentAt: null,
     });
     mockedFindBookingsNeedingReminder.mockResolvedValue([booking]);
 
     // "Now" = 2026-07-10 10:05 Athens = 2026-07-10T07:05:00Z (5min AFTER -- past)
-    const fakeNow = new Date('2026-07-10T07:05:00Z');
-    jest.spyOn(global, 'Date').mockImplementation((arg?: any) => {
-      if (arg === undefined) return fakeNow as unknown as Date;
-      return new (Date as any)(arg);
-    });
+    jest.setSystemTime(new Date('2026-07-10T07:05:00Z'));
 
     await runReminderSweep();
 
     expect(mockedClaimReminder1hSlot).not.toHaveBeenCalled();
-
-    jest.restoreAllMocks();
   });
 
   // Test 5 (late-night booking edge case): appointment at 01:00 "tomorrow"
@@ -244,23 +213,17 @@ describe('runReminderSweep', () => {
       calendarTime: '01:00',
       // Created 3 days before: 2026-07-07 01:00 Athens = 2026-07-06T22:00:00Z
       createdAt: new Date('2026-07-06T22:00:00Z'),
-      reminder24hSentAt: new Date(), // already sent
+      reminder24hSentAt: new Date('2026-07-09T22:00:00Z'), // already sent
       reminder1hSentAt: null,
     });
     mockedFindBookingsNeedingReminder.mockResolvedValue([booking]);
 
     // "Now" = 2026-07-10 01:05 Athens = 2026-07-09T22:05:00Z (5min past appointment)
-    const fakeNow = new Date('2026-07-09T22:05:00Z'); // 01:05 Athens (UTC+3)
-    jest.spyOn(global, 'Date').mockImplementation((arg?: any) => {
-      if (arg === undefined) return fakeNow as unknown as Date;
-      return new (Date as any)(arg);
-    });
+    jest.setSystemTime(new Date('2026-07-09T22:05:00Z')); // 01:05 Athens (UTC+3)
 
     await runReminderSweep();
 
     expect(mockedClaimReminder1hSlot).not.toHaveBeenCalled();
-
-    jest.restoreAllMocks();
   });
 
   // Test 6: claim returning false means sendTelegramMessage is never called for that type.
@@ -284,18 +247,12 @@ describe('runReminderSweep', () => {
     mockedClaimReminder1hSlot.mockResolvedValue(false);
 
     // "Now" = 2026-07-10 09:30 Athens (inside both 24h and 1h window)
-    const fakeNow = new Date('2026-07-10T06:30:00Z'); // 09:30 Athens
-    jest.spyOn(global, 'Date').mockImplementation((arg?: any) => {
-      if (arg === undefined) return fakeNow as unknown as Date;
-      return new (Date as any)(arg);
-    });
+    jest.setSystemTime(new Date('2026-07-10T06:30:00Z')); // 09:30 Athens
 
     const count = await runReminderSweep();
 
     expect(mockedSendTelegramMessage).not.toHaveBeenCalled();
     expect(count).toBe(0);
-
-    jest.restoreAllMocks();
   });
 
   // Test 7: one business's findBookingsNeedingReminder rejecting does NOT stop
