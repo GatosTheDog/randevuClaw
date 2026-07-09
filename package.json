@@ -22,6 +22,7 @@
     "dotenv": "^16.4.5",
     "drizzle-orm": "^0.45.2",
     "express": "^5.2.1",
+    "googleapis": "^173.0.0",
     "pg": "^8.13.0",
     "pino": "^10.3.1",
     "remove-accents": "^0.5.0",

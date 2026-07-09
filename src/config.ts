@@ -26,6 +26,9 @@ const EnvSchema = z.object({
   TELEGRAM_BOT_TOKEN: z.string().min(1),
   TELEGRAM_WEBHOOK_SECRET: z.string().min(1),
   OWNER_TELEGRAM_ID: z.string().min(1),
+  GOOGLE_CLIENT_ID: z.string().min(1),
+  GOOGLE_CLIENT_SECRET: z.string().min(1),
+  GOOGLE_REDIRECT_URI: z.string().min(1),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
   PORT: z.coerce.number().default(3000),
   // Accept any string here (Jest always sets NODE_ENV='test' before any of our
@@ -45,6 +48,9 @@ export interface Config {
   telegramBotToken: string;
   telegramWebhookSecret: string;
   ownerTelegramId: string;
+  googleClientId: string;
+  googleClientSecret: string;
+  googleRedirectUri: string;
   port: number;
   logLevel: 'debug' | 'info' | 'warn' | 'error';
   nodeEnv: 'development' | 'production';
@@ -64,6 +70,9 @@ export const config: Config = {
   telegramBotToken: env.TELEGRAM_BOT_TOKEN,
   telegramWebhookSecret: env.TELEGRAM_WEBHOOK_SECRET,
   ownerTelegramId: env.OWNER_TELEGRAM_ID,
+  googleClientId: env.GOOGLE_CLIENT_ID,
+  googleClientSecret: env.GOOGLE_CLIENT_SECRET,
+  googleRedirectUri: env.GOOGLE_REDIRECT_URI,
   port: env.PORT,
   logLevel: env.LOG_LEVEL,
   nodeEnv: env.NODE_ENV === 'production' ? 'production' : 'development',

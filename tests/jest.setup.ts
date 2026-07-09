@@ -12,3 +12,6 @@ process.env.GEMINI_API_KEY ??= 'test-gemini-key';
 process.env.TELEGRAM_BOT_TOKEN ??= 'test-telegram-bot-token';
 process.env.TELEGRAM_WEBHOOK_SECRET ??= 'test-telegram-webhook-secret';
 process.env.OWNER_TELEGRAM_ID ??= '999999999';
+process.env.GOOGLE_CLIENT_ID ??= 'test-google-client-id';
+process.env.GOOGLE_CLIENT_SECRET ??= 'test-google-client-secret';
+process.env.GOOGLE_REDIRECT_URI ??= 'http://localhost:3000/oauth/callback';
