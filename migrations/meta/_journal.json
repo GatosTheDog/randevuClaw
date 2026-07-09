@@ -15,6 +15,13 @@
       "when": 1783515654946,
       "tag": "0001_chief_karen_page",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1783585707591,
+      "tag": "0002_silent_ben_urich",
+      "breakpoints": true
     }
   ]
 }

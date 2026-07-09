@@ -18,6 +18,15 @@ export const businesses = pgTable('businesses', {
   // NOT NULL column without a default to a non-empty table): Telegram user ID
   // of the business owner, used to route owner-approval alerts (D-08).
   ownerTelegramId: text('owner_telegram_id'),
+  // Phase 3 (nullable — table is non-empty, same convention as ownerTelegramId
+  // above): the long-lived Google OAuth 2.0 refresh token for this business's
+  // owner Google account (D-06). Never logged — see 03-01-PLAN.md threat model
+  // T-03-01; only read by src/calendar/sync.ts (Plan 03-02).
+  googleRefreshToken: text('google_refresh_token'),
+  // Phase 3 (nullable — D-11 idempotency guard): ISO "YYYY-MM-DD" Europe/Athens
+  // local date the daily agenda was last sent for this business. null means
+  // never sent. Advanced only via the atomic claimAgendaSlot query.
+  agendaSentDate: text('agenda_sent_date'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 
@@ -112,6 +121,21 @@ export const bookings = pgTable(
     // type-annotated forward reference in Drizzle; skipped since this field
     // is not integrity-critical.
     rescheduledFromBookingId: integer('rescheduled_from_booking_id'),
+    // Phase 3 (D-16 — mirrors the bookingStatus notNull-with-default
+    // convention; safe on a non-empty table since Postgres backfills the
+    // default): 'pending' | 'synced' | 'failed'. Drives the calendar-sync
+    // poller (Plan 03-02).
+    calendarSyncStatus: text('calendar_sync_status').notNull().default('pending'),
+    // Nullable: Google's event id, set once a create/update call succeeds;
+    // used to target the correct event on a later update/delete.
+    googleCalendarEventId: text('google_calendar_event_id'),
+    // D-16: incremented by the retry poller (Plan 03-02), compared against a
+    // max-retry threshold there.
+    calendarSyncRetryCount: integer('calendar_sync_retry_count').notNull().default(0),
+    // Nullable — D-11 sent-state idempotency guards. Advanced only via the
+    // atomic claimReminder24hSlot/claimReminder1hSlot queries.
+    reminder24hSentAt: timestamp('reminder_24h_sent_at'),
+    reminder1hSentAt: timestamp('reminder_1h_sent_at'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     expiresAt: timestamp('expires_at'), // createdAt + 2h at insert time (D-09)
   },
