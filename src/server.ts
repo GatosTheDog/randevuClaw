@@ -5,6 +5,7 @@ import telegramWebhookRouter from './webhooks/telegram';
 import { startExpiryPoller } from './conversation/expiry-poller';
 import { startCalendarSyncPoller } from './calendar/poller';
 import { startAgendaPoller } from './scheduler/agenda';
+import { startReminderPoller } from './scheduler/reminders';
 
 const app = express();
 
@@ -30,6 +31,7 @@ if (!process.env.JEST_WORKER_ID) {
   startExpiryPoller();
   startCalendarSyncPoller();
   startAgendaPoller();
+  startReminderPoller();
 }
 
 export default app;
