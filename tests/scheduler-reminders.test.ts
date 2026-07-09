@@ -271,6 +271,39 @@ describe('runReminderSweep', () => {
     expect(logger.error).toHaveBeenCalled();
   });
 
+  // Test 9 (same-day 24h reminder): when booking.calendarDate equals today's Athens ISO date
+  // and minutesUntil <= 1440 and D-14 gate passes, the 24h reminder text contains
+  // 'σήμερα', not 'αύριο'.
+  it('Test 9 (same-day 24h reminder): message contains "σήμερα" not "αύριο" when booking.calendarDate equals todayIso', async () => {
+    mockedListAllBusinessIds.mockResolvedValue([1]);
+
+    // Appointment: 2026-07-10, 22:00 Athens
+    // "Now": 2026-07-10T04:00:00Z = 07:00 Athens (UTC+3)
+    // Athens ISO date at this instant = '2026-07-10' (same as booking.calendarDate)
+    // minutesUntil = (22*60) - (7*60) = 900 min = 15h <= 1440min ✓
+    // createdAt: 2026-07-07T07:00:00Z = 3 days prior — D-14 gate passes for 24h ✓
+    const NOW_UTC = new Date('2026-07-10T04:00:00Z');
+    jest.setSystemTime(NOW_UTC);
+
+    const booking = makeBooking({
+      calendarDate: '2026-07-10',
+      calendarTime: '22:00',
+      createdAt: new Date('2026-07-07T07:00:00Z'), // 3 days prior
+      reminder24hSentAt: null,
+      reminder1hSentAt: null,
+    });
+    mockedFindBookingsNeedingReminder.mockResolvedValue([booking]);
+
+    await runReminderSweep();
+
+    expect(mockedClaimReminder24hSlot).toHaveBeenCalledWith(42);
+    const calls = mockedSendTelegramMessage.mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    const messageText = calls[0][1] as string;
+    expect(messageText).toMatch(/σήμερα/);
+    expect(messageText).not.toMatch(/αύριο/);
+  });
+
   // Test 8a: startReminderPoller() defaults to 900000ms (15 minutes).
   // Test 8b: startReminderPoller(1000) fires repeatedly and stops on clearInterval.
 });
