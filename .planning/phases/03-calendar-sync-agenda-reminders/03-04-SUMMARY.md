@@ -125,3 +125,7 @@ None - no external service configuration required. This plan reuses the existing
 ---
 *Phase: 03-calendar-sync-agenda-reminders*
 *Completed: 2026-07-09*
+
+## Self-Check: PASSED
+
+All created/modified files verified on disk (src/scheduler/agenda.ts, tests/scheduler-agenda.test.ts, src/server.ts contains `startAgendaPoller`) and all 4 commits verified in git log (549943e, 6355e2a, 345fc0e, 7b5f00e).
