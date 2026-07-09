@@ -100,7 +100,14 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Client receives a WhatsApp reminder before their appointment (e.g., 24h and/or 1h prior), sent via a Meta-approved message template submitted early in this phase (not built last-minute).
   4. Reminder and agenda messages sent across a DST transition or a late-night booking still land at the correct Athens local time.
 
-**Plans**: TBD
+**Plans**: 5 plans
+
+Plans:
+- [ ] 03-01-PLAN.md — Data foundation: schema + typed query layer for calendar-sync/agenda/reminder state
+- [ ] 03-02-PLAN.md — Google Calendar OAuth flow, sync service, booking-lifecycle integration, retry poller (OWNR-04)
+- [ ] 03-03-PLAN.md — Checkpoint: run the OAuth consent flow for both fixture businesses
+- [ ] 03-04-PLAN.md — Daily 8am Athens owner agenda (OWNR-03)
+- [ ] 03-05-PLAN.md — DST-safe 24h/1h client reminders (NOTF-01)
 
 ### Phase 4: Owner Self-Serve Onboarding & Multi-Tenancy
 
@@ -141,7 +148,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 |-------|----------------|--------|-----------|
 | 1. Foundation, Webhook & Business Resolution | 3/4 | In Progress|  |
 | 2. AI Booking Conversations & Owner Alerts | 9/9 | Complete    | 2026-07-08 |
-| 3. Calendar Sync, Agenda & Reminders | 0/TBD | Not started | - |
+| 3. Calendar Sync, Agenda & Reminders | 0/5 | Not started | - |
 | 4. Owner Self-Serve Onboarding & Multi-Tenancy | 0/TBD | Not started | - |
 | 5. Compliance & Production Readiness | 0/TBD | Not started | - |
 </content>
