@@ -22,12 +22,12 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [ ] **OWNR-01**: Owner can configure their business (hours, services, prices) entirely via WhatsApp chat, no dashboard
 - [x] **OWNR-02**: Owner receives a WhatsApp alert on new booking/cancellation/reschedule and can accept or reject
-- [ ] **OWNR-03**: Owner receives a daily WhatsApp agenda message summarizing today's appointments
-- [ ] **OWNR-04**: Confirmed bookings auto-sync to the owner's Google Calendar (create/update/delete on booking, cancel, reschedule)
+- [x] **OWNR-03**: Owner receives a daily WhatsApp agenda message summarizing today's appointments
+- [x] **OWNR-04**: Confirmed bookings auto-sync to the owner's Google Calendar (create/update/delete on booking, cancel, reschedule)
 
 ### Notifications
 
-- [ ] **NOTF-01**: Client receives a WhatsApp reminder before their appointment
+- [x] **NOTF-01**: Client receives a WhatsApp reminder before their appointment
 
 ### Bot Q&A
 
@@ -77,9 +77,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PLAT-01 | Phase 1 | Pending |
 | OWNR-01 | Phase 4 | Pending |
 | OWNR-02 | Phase 2 | Complete |
-| OWNR-03 | Phase 3 | Pending |
-| OWNR-04 | Phase 3 | Pending |
-| NOTF-01 | Phase 3 | Pending |
+| OWNR-03 | Phase 3 | Complete |
+| OWNR-04 | Phase 3 | Complete |
+| NOTF-01 | Phase 3 | Complete |
 | ASK-01 | Phase 2 | Complete |
 | ASK-02 | Phase 2 | Complete |
 | COMP-01 | Phase 1 | Pending |

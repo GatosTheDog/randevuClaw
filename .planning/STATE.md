@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 3
-current_phase_name: Calendar Sync, Agenda & Reminders
+current_phase: 03
+current_phase_name: calendar-sync-agenda-reminders
 status: executing
-stopped_at: Phase 3 context gathered
-last_updated: "2026-07-09T08:17:41.186Z"
-last_activity: 2026-07-08
-last_activity_desc: Phase 02 complete, transitioned to Phase 3
+stopped_at: Completed 03-01-PLAN.md
+last_updated: "2026-07-09T08:38:36.324Z"
+last_activity: 2026-07-09
+last_activity_desc: Phase 03 execution started
 progress:
   total_phases: 5
   completed_phases: 1
-  total_plans: 13
-  completed_plans: 12
+  total_plans: 18
+  completed_plans: 13
   percent: 20
 ---
 
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-03)
 
 **Core value:** A client can book or cancel an appointment with a Greek business entirely through a WhatsApp conversation, in Greek, with zero friction — and the owner's calendar updates automatically.
-**Current focus:** Phase 02 — ai-booking-conversations-owner-alerts
+**Current focus:** Phase 03 — calendar-sync-agenda-reminders
 
 ## Current Position
 
-Phase: 3 — Calendar Sync, Agenda & Reminders
-Plan: Not started
+Phase: 03 (calendar-sync-agenda-reminders) — EXECUTING
+Plan: 2 of 5
 Status: Ready to execute
-Last activity: 2026-07-08 — Phase 02 complete, transitioned to Phase 3
+Last activity: 2026-07-09 — Phase 03 execution started
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -59,6 +59,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 02 P3 | 15min | 2 tasks | 6 files |
 | Phase 02 P4 | 50min | 3 tasks | 10 files |
 | Phase 02 P5 | 20min | 2 tasks | 7 files |
+| Phase 03 P1 | 7min | 2 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -81,6 +82,8 @@ Recent decisions affecting current work:
 - [Phase 02]: resolveConflictOrTaken shared helper disambiguates insertBooking conflicts into idempotent-replay vs genuine slot_taken for both book and reschedule tools
 - [Phase 02]: Owner callback_query taps validated via unscoped booking lookup + re-derived business-ownership check before any mutation (T-02-17)
 - [Phase 02]: 2-hour pending-booking expiry sweep implemented as a plain in-process setInterval poller, guarded against JEST_WORKER_ID, per the no-cron/no-Redis locked stack
+- [Phase 03]: D-06/D-11/D-16 column shapes implemented exactly as specified in 03-CONTEXT.md and 03-01-PLAN.md interfaces contract — Matches downstream Plans 03-02/03-04/03-05 contracts verbatim
+- [Phase 03]: Applied migration 0002 to both the live Neon DB and the local randevuclaw_test DB to keep test-infra schema in parity — tests/booking-queries.test.ts runs against a real local Postgres DB separate from the live Neon DB
 
 ### Pending Todos
 
@@ -105,7 +108,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-09T07:27:04.014Z
-Stopped at: Phase 3 context gathered
-Resume file: .planning/phases/03-calendar-sync-agenda-reminders/03-CONTEXT.md
-</content>
+Last session: 2026-07-09T08:38:36.318Z
+Stopped at: Completed 03-01-PLAN.md
+Resume file: 
+None

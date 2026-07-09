@@ -142,3 +142,7 @@ None - no external service configuration required. (Google Calendar OAuth setup 
 ---
 *Phase: 03-calendar-sync-agenda-reminders*
 *Completed: 2026-07-09*
+
+## Self-Check: PASSED
+
+All created files verified on disk (src/database/schema.ts, src/database/queries.ts, tests/calendar-agenda-reminder-queries.test.ts, migrations/0002_silent_ben_urich.sql) and all 3 task commits verified in git log (ac37af4, 5a815cf, 039bb82).
