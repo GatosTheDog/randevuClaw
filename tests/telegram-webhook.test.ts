@@ -3,11 +3,13 @@ import app from '../src/server';
 import * as queries from '../src/database/queries';
 import * as telegramClient from '../src/telegram/client';
 import * as router from '../src/conversation/router';
+import * as calendarSync from '../src/calendar/sync';
 import { parseCallbackData } from '../src/webhooks/telegram';
 
 jest.mock('../src/database/queries');
 jest.mock('../src/telegram/client');
 jest.mock('../src/conversation/router');
+jest.mock('../src/calendar/sync');
 
 const SECRET = 'test-telegram-webhook-secret';
 
@@ -57,6 +59,12 @@ const mockedAnswerCallbackQuery = telegramClient.answerCallbackQuery as jest.Moc
 >;
 const mockedEditTelegramMessageReplyMarkup = telegramClient.editTelegramMessageReplyMarkup as jest.MockedFunction<
   typeof telegramClient.editTelegramMessageReplyMarkup
+>;
+const mockedSyncBookingToCalendar = calendarSync.syncBookingToCalendar as jest.MockedFunction<
+  typeof calendarSync.syncBookingToCalendar
+>;
+const mockedDeleteBookingFromCalendar = calendarSync.deleteBookingFromCalendar as jest.MockedFunction<
+  typeof calendarSync.deleteBookingFromCalendar
 >;
 
 function makeMessageUpdate(updateId: number, text: string, fromId = 111222333) {
@@ -235,6 +243,8 @@ describe('POST /webhooks/telegram — callback_query owner approval (Plan 02-05)
     mockedUpdateBookingStatus.mockResolvedValue(undefined);
     mockedEditTelegramMessageReplyMarkup.mockResolvedValue(undefined);
     mockedFindServiceById.mockResolvedValue(SERVICE);
+    mockedSyncBookingToCalendar.mockResolvedValue(true);
+    mockedDeleteBookingFromCalendar.mockResolvedValue(true);
   });
 
   it('Test 5: approves a pending booking — acks first, confirms, notifies client, clears buttons', async () => {
@@ -379,5 +389,65 @@ describe('POST /webhooks/telegram — callback_query owner approval (Plan 02-05)
     expect(secondRes.status).toBe(200);
     expect(mockedUpdateBookingStatusIfPending).toHaveBeenCalledTimes(2);
     expect(mockedSendTelegramMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('Test 14 (Plan 03-02): approving a plain (non-reschedule) booking calls syncBookingToCalendar exactly once with the confirmed booking, business, and service', async () => {
+    mockedFindBookingByIdUnscoped.mockResolvedValue(PENDING_BOOKING);
+    mockedFindBusinessById.mockResolvedValue(OWNER_BUSINESS);
+    mockedUpdateBookingStatusIfPending.mockResolvedValue({
+      ...PENDING_BOOKING,
+      bookingStatus: 'confirmed',
+    });
+
+    const res = await postWebhook(makeCallbackQueryUpdate(300, 'owner1', 'approve_42'));
+
+    expect(res.status).toBe(200);
+    expect(mockedSyncBookingToCalendar).toHaveBeenCalledTimes(1);
+    expect(mockedSyncBookingToCalendar).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 42, bookingStatus: 'confirmed' }),
+      OWNER_BUSINESS,
+      SERVICE
+    );
+    expect(mockedDeleteBookingFromCalendar).not.toHaveBeenCalled();
+  });
+
+  it('Test 15 (Plan 03-02): approving a reschedule calls deleteBookingFromCalendar for the original booking AND syncBookingToCalendar for the newly confirmed booking', async () => {
+    const rescheduleBooking = { ...PENDING_BOOKING, id: 99, rescheduledFromBookingId: 42 };
+    const originalBooking = { ...PENDING_BOOKING, id: 42 };
+    mockedFindBookingByIdUnscoped.mockImplementation(async (bookingId: number) =>
+      bookingId === 99 ? rescheduleBooking : originalBooking
+    );
+    mockedFindBusinessById.mockResolvedValue(OWNER_BUSINESS);
+    mockedUpdateBookingStatusIfPending.mockResolvedValue({
+      ...rescheduleBooking,
+      bookingStatus: 'confirmed',
+    });
+
+    const res = await postWebhook(makeCallbackQueryUpdate(301, 'owner1', 'approve_99'));
+
+    expect(res.status).toBe(200);
+    expect(mockedDeleteBookingFromCalendar).toHaveBeenCalledWith(originalBooking, OWNER_BUSINESS);
+    expect(mockedSyncBookingToCalendar).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 99, bookingStatus: 'confirmed' }),
+      OWNER_BUSINESS,
+      SERVICE
+    );
+  });
+
+  it('Test 16 (Plan 03-02): syncBookingToCalendar rejecting does not prevent the client confirmation message or crash the handler', async () => {
+    mockedFindBookingByIdUnscoped.mockResolvedValue(PENDING_BOOKING);
+    mockedFindBusinessById.mockResolvedValue(OWNER_BUSINESS);
+    mockedUpdateBookingStatusIfPending.mockResolvedValue({
+      ...PENDING_BOOKING,
+      bookingStatus: 'confirmed',
+    });
+    mockedSyncBookingToCalendar.mockRejectedValueOnce(new Error('unexpected bug'));
+
+    const res = await postWebhook(makeCallbackQueryUpdate(302, 'owner1', 'approve_42'));
+
+    expect(res.status).toBe(200);
+    const [clientId, clientText] = mockedSendTelegramMessage.mock.calls[0];
+    expect(clientId).toBe('c1');
+    expect(clientText.length).toBeGreaterThan(0);
   });
 });

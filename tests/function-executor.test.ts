@@ -1,11 +1,13 @@
 import * as queries from '../src/database/queries';
 import * as availability from '../src/business/availability';
 import * as telegramClient from '../src/telegram/client';
+import * as calendarSync from '../src/calendar/sync';
 import { executeTool, ToolContext } from '../src/conversation/function-executor';
 
 jest.mock('../src/database/queries');
 jest.mock('../src/business/availability');
 jest.mock('../src/telegram/client');
+jest.mock('../src/calendar/sync');
 
 const mockedFindServiceById = queries.findServiceById as jest.MockedFunction<typeof queries.findServiceById>;
 const mockedInsertBooking = queries.insertBooking as jest.MockedFunction<typeof queries.insertBooking>;
@@ -27,6 +29,10 @@ const mockedSendTelegramMessage = telegramClient.sendTelegramMessage as jest.Moc
 >;
 const mockedSendTelegramMessageWithKeyboard = telegramClient.sendTelegramMessageWithKeyboard as jest.MockedFunction<
   typeof telegramClient.sendTelegramMessageWithKeyboard
+>;
+const mockedFindBusinessById = queries.findBusinessById as jest.MockedFunction<typeof queries.findBusinessById>;
+const mockedDeleteBookingFromCalendar = calendarSync.deleteBookingFromCalendar as jest.MockedFunction<
+  typeof calendarSync.deleteBookingFromCalendar
 >;
 
 const BUSINESS: ToolContext['business'] = { id: 1, name: 'Pilates Athens', ownerTelegramId: '999' };
@@ -206,6 +212,32 @@ describe('executeTool', () => {
     const result = await executeTool('cancel_appointment', { business_id: 1, booking_id: 42 }, CONTEXT);
 
     expect(mockedUpdateBookingStatus).toHaveBeenCalledWith(42, 'cancelled');
+    expect(result).toEqual({ success: true, booking_id: 42 });
+  });
+
+  it('Test 15 (Plan 03-02): cancel_appointment fetches the full Business row and calls deleteBookingFromCalendar; a rejected delete still reports success', async () => {
+    mockedFindBookingById.mockResolvedValue(makeBooking({ bookingStatus: 'confirmed' }));
+    mockedFindServiceById.mockResolvedValue(SERVICE);
+    const fullBusiness: queries.Business = {
+      id: 1,
+      name: 'Pilates Athens',
+      slug: 'pilates-athens',
+      phoneNumberId: null,
+      ownerTelegramId: '999',
+      googleRefreshToken: 'rt-1',
+      agendaSentDate: null,
+      createdAt: new Date(),
+    };
+    mockedFindBusinessById.mockResolvedValue(fullBusiness);
+    mockedDeleteBookingFromCalendar.mockRejectedValueOnce(new Error('calendar down'));
+
+    const result = await executeTool('cancel_appointment', { business_id: 1, booking_id: 42 }, CONTEXT);
+
+    expect(mockedFindBusinessById).toHaveBeenCalledWith(1);
+    expect(mockedDeleteBookingFromCalendar).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 42 }),
+      fullBusiness
+    );
     expect(result).toEqual({ success: true, booking_id: 42 });
   });
 
