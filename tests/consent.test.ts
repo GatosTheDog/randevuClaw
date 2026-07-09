@@ -9,7 +9,7 @@ import { CONSENT_NOTICE_GREEK_TEMPLATE } from '../src/consent/checker';
 jest.mock('../src/database/queries');
 jest.mock('../src/whatsapp/client');
 
-const KNOWN_BUSINESS = { id: 1, name: 'Pilates Athens', slug: 'pilates-athens', phoneNumberId: null, ownerTelegramId: null, createdAt: new Date() };
+const KNOWN_BUSINESS = { id: 1, name: 'Pilates Athens', slug: 'pilates-athens', phoneNumberId: null, ownerTelegramId: null, googleRefreshToken: null, agendaSentDate: null, createdAt: new Date() };
 
 const mockedFindBusinessBySlug = queries.findBusinessBySlug as jest.MockedFunction<
   typeof queries.findBusinessBySlug

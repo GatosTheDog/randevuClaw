@@ -17,6 +17,8 @@ const KNOWN_BUSINESS = {
   slug: 'pilates-athens',
   phoneNumberId: null,
   ownerTelegramId: '999999999',
+  googleRefreshToken: null,
+  agendaSentDate: null,
   createdAt: new Date(),
 };
 
@@ -196,6 +198,11 @@ describe('POST /webhooks/telegram — callback_query owner approval (Plan 02-05)
     requestId: 'req-42',
     ownerTelegramMessageId: 555,
     rescheduledFromBookingId: null,
+    calendarSyncStatus: 'pending',
+    googleCalendarEventId: null,
+    calendarSyncRetryCount: 0,
+    reminder24hSentAt: null,
+    reminder1hSentAt: null,
     createdAt: new Date(),
     expiresAt: new Date(),
   };
@@ -206,6 +213,8 @@ describe('POST /webhooks/telegram — callback_query owner approval (Plan 02-05)
     slug: 'pilates-athens',
     phoneNumberId: null,
     ownerTelegramId: 'owner1',
+    googleRefreshToken: null,
+    agendaSentDate: null,
     createdAt: new Date(),
   };
 

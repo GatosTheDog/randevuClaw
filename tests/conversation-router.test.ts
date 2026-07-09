@@ -35,6 +35,8 @@ const BUSINESS: queries.Business = {
   slug: 'pilates-athens',
   phoneNumberId: null,
   ownerTelegramId: '999999999',
+  googleRefreshToken: null,
+  agendaSentDate: null,
   createdAt: new Date(),
 };
 

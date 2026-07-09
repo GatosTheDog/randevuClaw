@@ -37,6 +37,11 @@ function makeExpiredBooking(overrides: Partial<queries.Booking> = {}): queries.B
     requestId: 'req-5',
     ownerTelegramMessageId: 111,
     rescheduledFromBookingId: null,
+    calendarSyncStatus: 'pending',
+    googleCalendarEventId: null,
+    calendarSyncRetryCount: 0,
+    reminder24hSentAt: null,
+    reminder1hSentAt: null,
     createdAt: new Date(),
     expiresAt: new Date(),
     ...overrides,
@@ -49,6 +54,8 @@ const OWNER_BUSINESS_1 = {
   slug: 'pilates-athens',
   phoneNumberId: null,
   ownerTelegramId: 'owner1',
+  googleRefreshToken: null,
+  agendaSentDate: null,
   createdAt: new Date(),
 };
 

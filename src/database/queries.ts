@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, lt } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import { db } from './db';
 import {
   businesses,
@@ -17,6 +17,8 @@ export interface Business {
   slug: string;
   phoneNumberId: string | null;
   ownerTelegramId: string | null;
+  googleRefreshToken: string | null;
+  agendaSentDate: string | null;
   createdAt: Date;
 }
 
@@ -155,6 +157,11 @@ export interface Booking {
   requestId: string;
   ownerTelegramMessageId: number | null;
   rescheduledFromBookingId: number | null;
+  calendarSyncStatus: string;
+  googleCalendarEventId: string | null;
+  calendarSyncRetryCount: number;
+  reminder24hSentAt: Date | null;
+  reminder1hSentAt: Date | null;
   createdAt: Date;
   expiresAt: Date | null;
 }
@@ -436,4 +443,137 @@ export async function markTelegramUpdateProcessed(
     .update(telegramUpdates)
     .set({ status: 'processed', businessId })
     .where(eq(telegramUpdates.updateId, updateId));
+}
+
+// --- Phase 3: Calendar Sync, Agenda & Reminders ---
+
+export async function updateBusinessGoogleRefreshToken(
+  businessId: number,
+  refreshToken: string
+): Promise<void> {
+  await db
+    .update(businesses)
+    .set({ googleRefreshToken: refreshToken })
+    .where(eq(businesses.id, businessId));
+}
+
+// Atomic: true iff THIS call transitioned agendaSentDate to todayIso. The
+// or(isNull(...), lt(...)) guard IS the concurrency control — a second
+// concurrent call for the same business/day finds zero matching rows (its
+// own prior call already advanced agendaSentDate to todayIso, which is
+// neither null nor < todayIso anymore). Closes RESEARCH.md Pitfall 5.
+export async function claimAgendaSlot(businessId: number, todayIso: string): Promise<boolean> {
+  const rows = await db
+    .update(businesses)
+    .set({ agendaSentDate: todayIso })
+    .where(
+      and(
+        eq(businesses.id, businessId),
+        or(isNull(businesses.agendaSentDate), lt(businesses.agendaSentDate, todayIso))
+      )
+    )
+    .returning({ id: businesses.id });
+  return rows.length > 0;
+}
+
+export async function updateCalendarSyncStatus(
+  bookingId: number,
+  status: 'pending' | 'synced' | 'failed'
+): Promise<void> {
+  await db
+    .update(bookings)
+    .set({ calendarSyncStatus: status })
+    .where(eq(bookings.id, bookingId));
+}
+
+export async function updateBookingGoogleEventId(
+  bookingId: number,
+  eventId: string
+): Promise<void> {
+  await db
+    .update(bookings)
+    .set({ googleCalendarEventId: eventId })
+    .where(eq(bookings.id, bookingId));
+}
+
+// Returns the NEW count after incrementing (reads the value back rather than
+// just firing the UPDATE), so the retry poller can compare it against a
+// max-retry threshold without a separate read.
+export async function incrementCalendarSyncRetryCount(bookingId: number): Promise<number> {
+  const rows = await db
+    .update(bookings)
+    .set({ calendarSyncRetryCount: sql`${bookings.calendarSyncRetryCount} + 1` })
+    .where(eq(bookings.id, bookingId))
+    .returning({ calendarSyncRetryCount: bookings.calendarSyncRetryCount });
+  return rows[0]?.calendarSyncRetryCount ?? 0;
+}
+
+export async function findBookingsNeedingCalendarSync(businessId: number): Promise<Booking[]> {
+  return db
+    .select()
+    .from(bookings)
+    .where(
+      and(
+        eq(bookings.businessId, businessId),
+        eq(bookings.calendarSyncStatus, 'pending'),
+        inArray(bookings.bookingStatus, ['confirmed', 'cancelled'])
+      )
+    );
+}
+
+export async function listBookingsForDate(
+  businessId: number,
+  calendarDate: string,
+  statuses: string[] = ['confirmed']
+): Promise<Booking[]> {
+  return db
+    .select()
+    .from(bookings)
+    .where(
+      and(
+        eq(bookings.businessId, businessId),
+        eq(bookings.calendarDate, calendarDate),
+        inArray(bookings.bookingStatus, statuses)
+      )
+    )
+    .orderBy(bookings.calendarTime);
+}
+
+export async function findBookingsNeedingReminder(
+  businessId: number,
+  calendarDates: string[]
+): Promise<Booking[]> {
+  return db
+    .select()
+    .from(bookings)
+    .where(
+      and(
+        eq(bookings.businessId, businessId),
+        eq(bookings.bookingStatus, 'confirmed'),
+        inArray(bookings.calendarDate, calendarDates),
+        or(isNull(bookings.reminder24hSentAt), isNull(bookings.reminder1hSentAt))
+      )
+    );
+}
+
+// Atomic: true iff THIS call set reminder24hSentAt (Pitfall 3 — closes the
+// sent-state idempotency bypass a status-based query would be vulnerable to).
+export async function claimReminder24hSlot(bookingId: number): Promise<boolean> {
+  const rows = await db
+    .update(bookings)
+    .set({ reminder24hSentAt: new Date() })
+    .where(and(eq(bookings.id, bookingId), isNull(bookings.reminder24hSentAt)))
+    .returning({ id: bookings.id });
+  return rows.length > 0;
+}
+
+// Atomic: true iff THIS call set reminder1hSentAt. Independent of
+// claimReminder24hSlot — claiming one never claims the other.
+export async function claimReminder1hSlot(bookingId: number): Promise<boolean> {
+  const rows = await db
+    .update(bookings)
+    .set({ reminder1hSentAt: new Date() })
+    .where(and(eq(bookings.id, bookingId), isNull(bookings.reminder1hSentAt)))
+    .returning({ id: bookings.id });
+  return rows.length > 0;
 }
