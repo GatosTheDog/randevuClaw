@@ -2,74 +2,86 @@
 
 ## What This Is
 
-A WhatsApp-native appointment booking platform for Greek service businesses (pilates studios, gyms, hair salons, etc.). Clients book, cancel, or ask questions by chatting with a single shared WhatsApp number; an AI agent understands the request, figures out which business they mean, and handles the booking. Business owners run everything — setup, accepting/rejecting bookings, cancellations, daily agenda — through WhatsApp chat too, no separate app or dashboard required for the PoC.
+A WhatsApp-native appointment booking platform for Greek service businesses (pilates studios, gyms, hair salons, etc.). Clients book, cancel, or ask questions by chatting with a shared number; an AI agent understands the request, figures out which business they mean, and handles the booking. Business owners run everything — accepting/rejecting bookings, cancellations, daily agenda — through chat too, no separate app or dashboard required.
+
+**PoC state (v1.0):** Telegram is the active messaging channel — WhatsApp is shelved pending Meta Business Verification (1-6 week external process). All booking logic, calendar sync, and reminders are implemented and tested via Telegram; the same code wires to WhatsApp once verification clears.
 
 ## Core Value
 
-A client can book or cancel an appointment with a Greek business entirely through a WhatsApp conversation, in Greek, with zero friction — and the owner's calendar updates automatically.
+A client can book or cancel an appointment with a Greek business entirely through a chat conversation, in Greek, with zero friction — and the owner's calendar updates automatically.
 
 ## Requirements
 
 ### Validated
 
-- [x] Client can book an appointment via WhatsApp chat (natural language, Greek) — Validated in Phase 2 (BOOK-01)
-- [x] Client can cancel or reschedule an appointment via WhatsApp chat, anytime before the appointment — Validated in Phase 2 (BOOK-02, BOOK-04)
-- [x] Client can ask questions: business hours/location/prices, availability check, general freeform questions — Validated in Phase 2 (BOOK-03, ASK-01, ASK-02)
-- [x] Owner receives WhatsApp alert on new booking/cancellation/reschedule and can accept or reject — Validated in Phase 2 (OWNR-02)
+- ✓ Client books appointment via natural-language Greek chat — v1.0 (BOOK-01)
+- ✓ Client cancels appointment via chat any time before the appointment — v1.0 (BOOK-02)
+- ✓ Client checks availability before booking (e.g. "έχετε ελεύθερο Παρασκευή απόγευμα;") — v1.0 (BOOK-03)
+- ✓ Client reschedules appointment via chat — v1.0 (BOOK-04)
+- ✓ Client asks business hours/location/prices and gets a Greek answer — v1.0 (ASK-01)
+- ✓ Client asks general freeform questions, bot answers via Gemini — v1.0 (ASK-02)
+- ✓ Owner receives alert on new booking/cancellation/reschedule and can accept or reject — v1.0 (OWNR-02)
+- ✓ Owner receives daily agenda message (8am Athens time) — v1.0 (OWNR-03)
+- ✓ Confirmed bookings auto-sync to Google Calendar; cancellations remove/update the event — v1.0 (OWNR-04, code complete; OAuth credentials pending)
+- ✓ Client receives DST-safe 24h/1h reminder before their appointment — v1.0 (NOTF-01)
 
 ### Active
 
-- [ ] Bot resolves which business a client means from a single shared WhatsApp number (e.g. deep link `wa.me/<number>?text=<business-code>`)
-- [ ] Owner can onboard/configure their business entirely via WhatsApp chat (services, hours, prices, single shared schedule)
-- [ ] Confirmed bookings auto-sync to owner's Google Calendar; cancellations remove/update the event
-- [ ] Owner gets a daily WhatsApp agenda message (today's appointments)
-- [ ] Client gets a WhatsApp reminder before their appointment
+- [ ] Bot resolves which business a client means from a single shared number via deep link (PLAT-01) — code complete; blocked on Meta Business Verification
+- [ ] Client shown data-consent notice on first contact (COMP-01) — code complete; not yet observed by a real user
+- [ ] Owner configures their business entirely via chat (services, hours, prices) — Phase 4 (OWNR-01)
+- [ ] Client or owner can request deletion of stored data — Phase 5 (COMP-02)
 
 ### Out of Scope
 
-- Native mobile/web app for owners or clients — WhatsApp chat is the entire interface for PoC
-- Per-business dedicated WhatsApp numbers — Meta Business verification per business is too slow/high-friction for a $0 PoC; revisit post-PoC if a business needs its own branded number
-- Multiple staff/rooms per business (e.g. per-instructor calendars) — PoC assumes one shared schedule per business
+- Native mobile/web app for owners or clients — chat is the entire interface for PoC
+- Per-business dedicated WhatsApp numbers — Meta verification per business is too slow/high-friction; revisit post-PoC
+- Multiple staff/rooms per business (per-instructor calendars) — PoC assumes one shared schedule
 - Payments/deposits — not requested, adds scope
-- Cancellation cutoff windows — client can cancel anytime for now, add a notice-period rule later if no-shows become a problem
-- English language support — Greek only for now, revisit if expanding beyond Greece
+- Cancellation cutoff windows — client can cancel anytime for now; add notice-period rule post-PoC if no-shows are a problem
+- English language support — Greek only, revisit if expanding beyond Greece
 
 ## Context
 
-- Target market: small Greek service businesses (pilates, gyms, hair salons) — likely underserved by WhatsApp-native booking; existing players (Fresha, Booksy) require app installs.
-- User (project owner) already holds: Google Cloud/Gemini API key, Meta for Developers account (for WhatsApp Cloud API), fly.io, Cloudflare R2 bucket, Neon Postgres — these are the intended building blocks, not just candidates.
-- MCP (Model Context Protocol) raised by owner as a possible way for the AI agent to call tools (calendar, DB actions) — worth evaluating during architecture research, not yet decided over direct API calls.
-- WhatsApp Cloud API requires Meta Business verification before going live; free tier exists but onboarding takes real setup time — plan for this lead time even though the API itself is free.
+- v1.0 shipped 2026-07-09: 3 phases, 19 plans, 32 tasks, 3,263 LOC TypeScript, 208 tests passing (Nyquist-compliant)
+- Tech stack: Node.js/TypeScript, Neon/Drizzle (Postgres), Telegram Bot API (active), WhatsApp Cloud API (wired, pending Meta BV), @google/genai (Gemini 2.5 Flash-Lite), Google Calendar API, fly.io
+- Telegram-first pivot (Phase 2 D-01): WhatsApp shelved after Meta BV delay emerged. Telegram webhook, client SDK, and owner callback_query flow are the PoC testing surface. WhatsApp client is built and wired; activating it requires Meta BV approval.
+- Meta Business Verification not yet submitted — submit immediately; approval takes 1-6 weeks and gates real WhatsApp delivery
+- OAuth consent flow (Google Calendar) CLI is ready; tokens to be provisioned before end-to-end calendar sync can be demonstrated live (`npm run setup-calendar -- --business-slug pilates-athens`)
+- 208/208 tests pass; TypeScript clean. All v1.0 gaps are operational (external human actions), not code defects.
 
 ## Constraints
 
-- **Budget**: Near-$0 for PoC — AI (Gemini free tier), DB (Neon free tier), storage (R2 free tier), WhatsApp (Meta Cloud API free tier). Exception: fly.io dropped its free tier in 2024, so hosting costs ~$1.94/mo minimum — accepted as negligible. No other paid services until PoC validates.
-- **Tech stack**: Node.js/TypeScript backend, Neon (Postgres) for data, fly.io for hosting, Cloudflare R2 for storage, Google Gemini API for the conversational AI, Google Calendar API for owner calendar sync, WhatsApp Cloud API for messaging.
+- **Budget**: Near-$0 for PoC — AI (Gemini free tier), DB (Neon free tier), WhatsApp (Meta Cloud API free tier). fly.io costs ~$1.94/mo — accepted as negligible.
+- **Tech stack**: Node.js/TypeScript backend, Neon (Postgres) for data, fly.io for hosting, Cloudflare R2 for storage, Google Gemini API for AI, Google Calendar API for owner sync, WhatsApp Cloud API for messaging (Telegram during PoC).
 - **Language**: Bot conversation is Greek-only for the PoC.
-- **Compliance**: Personal/booking data of Greek users — GDPR applies; keep in mind during data modeling even though not a v1 feature.
+- **Compliance**: GDPR applies; data model keeps phone number + booking history only. Full deletion flow deferred to Phase 5.
 
 ## Key Decisions
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| WhatsApp as the entire client/owner interface | Zero-install, meets users where they already are, matches Greek small-business habits | — Pending |
-| One shared platform WhatsApp number, not one per business | Per-business Meta verification too slow/high-friction for $0 PoC; bot disambiguates business via link/code | — Pending |
-| Google Gemini for conversational AI | Owner already has free API key — meets $0 budget constraint | — Pending |
-| Google Calendar for owner-side sync | Most common among Greek small businesses (Gmail/Workspace usage), solid API | — Pending |
-| Node.js/TypeScript backend on fly.io + Neon + R2 | Owner already has these accounts set up; strong free-tier fit | — Pending |
-| Single shared schedule per business (no per-staff calendars) | Simpler PoC scope; most small salons/studios fit this model | — Pending |
-| Owner onboarding/config via WhatsApp chat, no web dashboard | Consistent "WhatsApp only" simplicity goal for PoC | — Pending |
+| WhatsApp as the entire client/owner interface | Zero-install, meets users where they already are, matches Greek small-business habits | ✓ Good — Telegram bridges the gap during Meta BV wait |
+| One shared platform number, not one per business | Per-business Meta verification too slow/high-friction for $0 PoC; bot disambiguates via link/code | ✓ Good |
+| Google Gemini for conversational AI (@google/genai, not deprecated @google/generative-ai) | Owner already has free API key; new SDK is required (legacy support ends Aug 2025) | ✓ Good |
+| Google Calendar for owner-side sync | Most common among Greek small businesses; solid API | ✓ Good |
+| Node.js/TypeScript + fly.io + Neon + R2 | Owner already has these accounts; strong free-tier fit | ✓ Good |
+| Single shared schedule per business (no per-staff calendars) | Simpler PoC scope; most small salons/studios fit this model | ✓ Good |
+| Sequential (not parallel) Gemini function-calling | Prevents double-booking races from concurrent AI tool rounds | ✓ Good |
+| DB UNIQUE constraint on (business_id, calendar_date, calendar_time) | Last line of defense against double-booking even if app-level guard fails | ✓ Good |
+| Telegram-first pivot (D-01, Phase 2) | Meta Business Verification takes 1-6 weeks; Telegram has no approval gate | ✓ Good — unblocked PoC testing |
+| In-process setInterval pollers (no cron, no Redis) | Keeps stack near-$0; no extra infrastructure for 1-business PoC | ✓ Good |
+| MAX_CALENDAR_SYNC_RETRIES=10 at 5-min intervals (~50 min window) | Sufficient retry window before permanent abandonment; avoids infinite retry | ✓ Good |
+| owner-approval callback_query via atomic UPDATE...WHERE...RETURNING CAS | Eliminates read-then-write race on concurrent owner taps | ✓ Good |
+| Owner onboarding/config via chat, no web dashboard | Consistent "chat only" simplicity goal for PoC | — Phase 4 pending |
 
 ## Evolution
-
-This document evolves at phase transitions and milestone boundaries.
 
 **After each phase transition** (via `/gsd-transition`):
 1. Requirements invalidated? → Move to Out of Scope with reason
 2. Requirements validated? → Move to Validated with phase reference
 3. New requirements emerged? → Add to Active
 4. Decisions to log? → Add to Key Decisions
-5. "What This Is" still accurate? → Update if drifted
 
 **After each milestone** (via `/gsd-complete-milestone`):
 1. Full review of all sections
@@ -78,4 +90,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-09 — Phase 2 (AI Booking Conversations & Owner Alerts) complete*
+*Last updated: 2026-07-09 after v1.0 milestone*

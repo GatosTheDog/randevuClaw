@@ -2,38 +2,36 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 03
-current_phase_name: calendar-sync-agenda-reminders
-status: executing
+current_phase: 0
+status: Awaiting next milestone
 stopped_at: Completed 03-05-PLAN.md
-last_updated: "2026-07-09T13:43:24.129Z"
+last_updated: "2026-07-09T14:31:11.809Z"
 last_activity: 2026-07-09
-last_activity_desc: Phase 03 execution resumed (wave continue)
+last_activity_desc: Milestone v1.0 completed and archived
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 19
   completed_plans: 18
   percent: 40
+current_phase_name: calendar-sync-agenda-reminders
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-07-03)
+See: .planning/PROJECT.md (updated 2026-07-09 after v1.0)
 
-**Core value:** A client can book or cancel an appointment with a Greek business entirely through a WhatsApp conversation, in Greek, with zero friction — and the owner's calendar updates automatically.
-**Current focus:** Phase 03 — calendar-sync-agenda-reminders
+**Core value:** A client can book or cancel an appointment with a Greek business entirely through a chat conversation, in Greek, with zero friction — and the owner's calendar updates automatically.
+**Current focus:** Planning next milestone (v1.1)
 
 ## Current Position
 
-Phase: 03 (calendar-sync-agenda-reminders) — EXECUTING
-Plan: 1 of 6
-Status: Executing Phase 03
-Last activity: 2026-07-09 — Phase 03 execution resumed (wave continue)
-
-Progress: [████████░░] 83%
+Phase: Milestone v1.0 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-07-09 — Milestone v1.0 completed and archived
 
 ## Performance Metrics
 
@@ -108,13 +106,18 @@ None yet.
 
 ## Deferred Items
 
-Items acknowledged and carried forward from previous milestone close:
+Items acknowledged and deferred at v1.0 milestone close on 2026-07-09:
 
-| Category | Item | Status | Deferred At |
-|----------|------|--------|-------------|
-| v2 | OWNR2-01: Web dashboard alternative | Deferred to v2 | Requirements definition |
-| v2 | OWNR2-02: Waitlist for fully-booked slots | Deferred to v2 | Requirements definition |
-| v2 | BOOK2-01: Cancellation cutoff window | Deferred to v2 | Requirements definition |
+| Category | Item | Status |
+|----------|------|--------|
+| verification | Phase 01: 01-VERIFICATION.md | human_needed (Meta BV external action, code complete) |
+| verification | Phase 03: 03-VERIFICATION.md | human_needed (OAuth creds not provisioned, code complete) |
+| uat | Phase 01: 01-UAT.md | 2 pending scenarios (live WhatsApp delivery) |
+| todo | pivot-to-per-business-whatsapp-numbers-post-poc.md | planning |
+| todo | meta-business-verification-not-submitted.md | phase-1 |
+| v2 | OWNR2-01: Web dashboard alternative | Deferred to v2 |
+| v2 | OWNR2-02: Waitlist for fully-booked slots | Deferred to v2 |
+| v2 | BOOK2-01: Cancellation cutoff window | Deferred to v2 |
 
 ## Session Continuity
 
@@ -122,3 +125,7 @@ Last session: 2026-07-09T11:18:27.661Z
 Stopped at: Completed 03-05-PLAN.md
 Resume file: 
 None
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone
