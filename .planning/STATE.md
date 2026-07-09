@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 03
 current_phase_name: calendar-sync-agenda-reminders
 status: executing
-stopped_at: Completed 03-01-PLAN.md
-last_updated: "2026-07-09T08:38:36.324Z"
+stopped_at: Completed 03-02-PLAN.md
+last_updated: "2026-07-09T09:00:37.929Z"
 last_activity: 2026-07-09
 last_activity_desc: Phase 03 execution started
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 18
-  completed_plans: 13
+  completed_plans: 14
   percent: 20
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-03)
 ## Current Position
 
 Phase: 03 (calendar-sync-agenda-reminders) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Ready to execute
 Last activity: 2026-07-09 — Phase 03 execution started
 
@@ -60,6 +60,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 02 P4 | 50min | 3 tasks | 10 files |
 | Phase 02 P5 | 20min | 2 tasks | 7 files |
 | Phase 03 P1 | 7min | 2 tasks | 10 files |
+| Phase 03 P02 | 51min | 3 tasks | 18 files |
 
 ## Accumulated Context
 
@@ -84,6 +85,9 @@ Recent decisions affecting current work:
 - [Phase 02]: 2-hour pending-booking expiry sweep implemented as a plain in-process setInterval poller, guarded against JEST_WORKER_ID, per the no-cron/no-Redis locked stack
 - [Phase 03]: D-06/D-11/D-16 column shapes implemented exactly as specified in 03-CONTEXT.md and 03-01-PLAN.md interfaces contract — Matches downstream Plans 03-02/03-04/03-05 contracts verbatim
 - [Phase 03]: Applied migration 0002 to both the live Neon DB and the local randevuclaw_test DB to keep test-infra schema in parity — tests/booking-queries.test.ts runs against a real local Postgres DB separate from the live Neon DB
+- [Phase 03]: Config's 3 new Google OAuth env vars pulled forward into Task 1's own commit (Rule 3 blocking fix) since src/google/oauth.ts references them and Task 1's own tsc/test verification requires them
+- [Phase 03]: googleapis is the only new direct dependency for Calendar sync; google-auth-library stays transitive via InstanceType<typeof google.auth.OAuth2> typing (T-03-SC)
+- [Phase 03]: MAX_CALENDAR_SYNC_RETRIES=10 at the poller's 5-minute interval (~50 min total retry window) before permanent 'failed' abandonment (D-16)
 
 ### Pending Todos
 
@@ -108,7 +112,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-09T08:38:36.318Z
-Stopped at: Completed 03-01-PLAN.md
+Last session: 2026-07-09T08:54:48.243Z
+Stopped at: Completed 03-02-PLAN.md
 Resume file: 
 None
