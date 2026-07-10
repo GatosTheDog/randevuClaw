@@ -2,9 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Per-Business Bots & Telegram PoC Completion
+current_phase: 4
+current_phase_name: Per-Bot Foundation
 status: planning
-last_updated: "2026-07-10T14:14:44.147Z"
+stopped_at: Phase 4 context gathered
+last_updated: "2026-07-10T14:53:56.251Z"
 last_activity: 2026-07-10
+last_activity_desc: "v1.1 roadmap created (3 phases: 4, 5, 6)"
 progress:
   total_phases: 3
   completed_phases: 0
@@ -129,10 +133,10 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-07-09:
 
 ## Session Continuity
 
-Last session: 2026-07-10T14:06:42.655Z
-Stopped at: v1.1 roadmap created — ready to plan Phase 4
+Last session: 2026-07-10T14:53:56.244Z
+Stopped at: Phase 4 context gathered
 Resume file: 
-None
+.planning/phases/04-per-bot-foundation/04-CONTEXT.md
 
 ## Operator Next Steps
 
