@@ -522,6 +522,23 @@ export async function incrementCalendarSyncRetryCount(bookingId: number): Promis
   return rows[0]?.calendarSyncRetryCount ?? 0;
 }
 
+export async function listClientBookings(
+  businessId: number,
+  clientPhone: string
+): Promise<Booking[]> {
+  return db
+    .select()
+    .from(bookings)
+    .where(
+      and(
+        eq(bookings.businessId, businessId),
+        eq(bookings.clientPhone, clientPhone),
+        inArray(bookings.bookingStatus, ['pending_owner_approval', 'confirmed'])
+      )
+    )
+    .orderBy(bookings.calendarDate, bookings.calendarTime);
+}
+
 export async function findBookingsNeedingCalendarSync(businessId: number): Promise<Booking[]> {
   return db
     .select()

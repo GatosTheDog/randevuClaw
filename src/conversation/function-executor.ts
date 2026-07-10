@@ -7,6 +7,7 @@ import {
   findBusinessById,
   updateBookingStatus,
   updateBookingOwnerMessageId,
+  listClientBookings,
   Booking,
   Service,
 } from '../database/queries';
@@ -86,6 +87,8 @@ export async function executeTool(
         return await cancelAppointmentTool(args, context);
       case 'reschedule_appointment':
         return await rescheduleAppointmentTool(args, context);
+      case 'list_client_bookings':
+        return await listClientBookingsTool(context);
       default:
         return { error: `Tool '${name}' not found` };
     }
@@ -277,4 +280,19 @@ async function rescheduleAppointmentTool(
   }
 
   return await resolveConflictOrTaken(context.clientPhone, context.idempotencyKey);
+}
+
+async function listClientBookingsTool(
+  context: ToolContext
+): Promise<Record<string, unknown>> {
+  const clientBookings = await listClientBookings(context.business.id, context.clientPhone);
+  return {
+    bookings: clientBookings.map((b) => ({
+      booking_id: b.id,
+      service_id: b.serviceId,
+      calendar_date: b.calendarDate,
+      calendar_time: b.calendarTime,
+      status: b.bookingStatus,
+    })),
+  };
 }
