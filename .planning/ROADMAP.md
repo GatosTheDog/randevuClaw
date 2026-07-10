@@ -36,7 +36,13 @@ See: `.planning/milestones/v1.0-ROADMAP.md`
   2. Two distinct bot tokens can receive messages simultaneously; each request is matched to its correct business tenant with no cross-contamination of data or conversation state.
   3. Every incoming webhook request is verified against a per-bot HMAC secret using constant-time comparison; requests with invalid or missing secrets are rejected with 401.
   4. Attempting to read another business's rows in a Drizzle transaction (without a business_id filter) fails at the PostgreSQL RLS layer, not only at the application level.
-**Plans**: TBD
+**Plans**: 5 plans
+Plans:
+- [ ] 04-01-PLAN.md — Schema migration (0003 SQL), schema.ts, db.ts, config.ts
+- [ ] 04-02-PLAN.md — Telegraf registry, logger redaction, jest.setup.ts test env
+- [ ] 04-03-PLAN.md — queries.ts AsyncLocalStorage + withBusinessContext, client.ts botTokenStore
+- [ ] 04-04-PLAN.md — Express webhook handler /:webhookId, HMAC verification, seed.ts bot credentials
+- [ ] 04-05-PLAN.md — Schema push [BLOCKING], telegram-webhook.test.ts patch, rls-enforcement.test.ts
 
 ### Phase 5: Owner Self-Serve Onboarding
 
