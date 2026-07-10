@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Per-Business Bots & Telegram PoC Completion
-current_phase: 4
-current_phase_name: Per-Bot Foundation
-status: planning
+current_phase: 04
+current_phase_name: per-bot-foundation
+status: executing
 stopped_at: Phase 4 context gathered
-last_updated: "2026-07-10T14:53:56.251Z"
+last_updated: "2026-07-10T23:25:00.190Z"
 last_activity: 2026-07-10
-last_activity_desc: "v1.1 roadmap created (3 phases: 4, 5, 6)"
+last_activity_desc: Phase 04 execution started
 progress:
   total_phases: 3
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 5
+  completed_plans: 1
   percent: 0
 ---
 
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-09 after v1.0)
 
 **Core value:** A client can book or cancel an appointment with a Greek business entirely through a chat conversation, in Greek, with zero friction — and the owner's calendar updates automatically.
-**Current focus:** Phase 4 — Per-Bot Foundation (Telegraf migration, per-token webhook routing, RLS)
+**Current focus:** Phase 04 — per-bot-foundation
 
 ## Current Position
 
-Phase: Phase 4 — Per-Bot Foundation
-Plan: —
-Status: Ready to plan
-Last activity: 2026-07-10 — v1.1 roadmap created (3 phases: 4, 5, 6)
+Phase: 04 (per-bot-foundation) — EXECUTING
+Plan: 2 of 5
+Status: Ready to execute
+Last activity: 2026-07-10 — Phase 04 execution started
 
 ```
 [░░░░░░░░░░░░░░░░░░░░] 0% — Phase 4/6 not started
@@ -65,6 +65,7 @@ Last activity: 2026-07-10 — v1.1 roadmap created (3 phases: 4, 5, 6)
 | Phase 03 P02 | 51min | 3 tasks | 18 files |
 | Phase 03 P04 | 3min | 2 tasks | 3 files |
 | Phase 03 P05 | 5min | 2 tasks | 3 files |
+| Phase 04 P01 | 8 | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -100,6 +101,9 @@ Recent decisions affecting current work:
 - [Roadmap v1.1]: BOT-04 (Telegraf migration) placed first in Phase 4 as the foundational prerequisite for all per-bot routing
 - [Roadmap v1.1]: BOT-01 placed in Phase 5 (not Phase 4) because setWebhook automation is user-facing onboarding behavior, not infrastructure
 - [Roadmap v1.1]: RESIL-01 grouped with GDPR in Phase 6 — both are PoC-completion concerns that do not block the core onboarding path
+- [Phase ?]: [Phase 04-01]: telegramBotToken and telegramWebhookSecret removed from config (D-08)
+- [Phase ?]: [Phase 04-01]: appDb falls back to databaseUrl when DATABASE_APP_URL unset — keeps dev/test workflows working without randevuclaw_app role (D-11)
+- [Phase ?]: [Phase 04-01]: telegram_updates excluded from RLS — nullable business_id makes FOR ALL INSERT policy incompatible with dedup-INSERT flow (D-12)
 
 ### Pending Todos
 
@@ -133,10 +137,10 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-07-09:
 
 ## Session Continuity
 
-Last session: 2026-07-10T14:53:56.244Z
+Last session: 2026-07-10T23:24:47.834Z
 Stopped at: Phase 4 context gathered
 Resume file: 
-.planning/phases/04-per-bot-foundation/04-CONTEXT.md
+None
 
 ## Operator Next Steps
 
