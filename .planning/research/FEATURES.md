@@ -1,52 +1,47 @@
-# Feature Landscape: RandevuClaw (WhatsApp-Native Appointment Booking)
+# Feature Landscape: v1.1 Per-Business Bots & Telegram PoC Completion
 
-**Domain:** Chat-native appointment booking for small service businesses
-**Researched:** 2026-07-03
-**Market:** Greek service businesses (salons, gyms, pilates studios)
-**Overall Confidence:** HIGH
+**Domain:** Multi-tenant SaaS booking platform with per-business Telegram bots (Greek service businesses)
+**Researched:** 2026-07-10
+**Research Confidence:** HIGH
 
 ## Executive Summary
 
-WhatsApp-native appointment booking for small Greek service businesses succeeds by focusing on frictionless chat-based booking and owner management—eliminating the need for apps, dashboards, or complex integrations. The market (Fresha, Booksy) proves core features work, but conversational AI (45% higher conversion vs. forms) + native WhatsApp (users already there) + Greek language support create a defensible niche. Table stakes are booking, cancellation, reminders, and calendar sync; differentiators are conversational booking, shared platform number with AI business disambiguation, and owner-side chat management. Greek market specifics (12 public holidays, standard 8am-9am–5pm schedule, service business norms) require upfront configuration but don't change feature fundamentals.
+The v1.1 feature set consists of five interrelated capabilities that transform RandevuClaw from a single-business PoC (hardcoded fixtures) to a multi-tenant platform with owner self-serve onboarding. Each feature builds on existing v1.0 foundation (booking logic, calendar sync, reminders). The key distinction is that v1.1 shifts from a shared platform bot to per-business bots, which eliminates the need for business disambiguation and enables each business to own their Telegram presence entirely.
+
+Production multi-bot platforms (e.g., BotMux, BotHippo) handle this via webhook routing by bot token + secret token verification. Chat-based onboarding follows established SaaS patterns: progressive profiling, error recovery via quick-reply buttons, and validation loops. Multi-tenant safety requires PostgreSQL Row-Level Security (RLS) as a database-layer safety net, not just application-level tenant filtering. GDPR compliance mandates audit trails and immutable backup handling. Rate-limit resilience under free-tier Gemini (15 req/min) demands exponential backoff + request queueing, not optimistic retries.
 
 ---
 
-## Table Stakes
+## Table-Stakes Features
 
-Features users expect. Missing = product feels incomplete.
+Features users expect for a functioning multi-tenant platform. Missing = product breaks or data leaks.
 
 | Feature | Why Expected | Complexity | Notes |
 |---------|--------------|------------|-------|
-| **Book appointment via chat** | Entire product premise; clients expect to book by typing naturally | Med | Natural language parsing required; AI agent collects date, time, service, name, phone |
-| **Cancel/reschedule via chat** | Clients expect self-service control; eliminates call overhead | Low | Client sends cancellation message; bot confirms and removes/updates event |
-| **Automated reminders** | Proven to reduce no-shows by up to 90%; any competitor offers this | Med | SMS/WhatsApp at 24h and 1h before (configurable); increases attendance significantly |
-| **Google Calendar sync** | Owner expects their calendar (where they already live) to auto-update; prevents double-bookings | Med | Two-way sync: new bookings add to Google Calendar; existing events on calendar block availability |
-| **Availability checking** | Client asks "when are you free?" and expects instant answers; core booking workflow | Low | Bot checks business schedule + booked slots, suggests available times conversationally |
-| **Confirmation message** | Client expects to know booking succeeded; legal/trust baseline | Low | Auto-sent after booking with date, time, service, price, location |
-| **Service/price/hours inquiry** | Client expects to ask about offerings without a separate website/call | Low | Bot answers from stored business config (services, hours, prices, location, phone) |
-| **Business hours configuration** | Owner needs to set when they're open; table stakes for any scheduling tool | Low | Owner tells bot hours per day (e.g., "Mon-Fri 9am-6pm, Sat 10am-4pm, closed Sundays") |
-| **Multiple service types** | Salons/gyms offer haircuts, massages, classes—not just one service | Low | Owner configures service list with duration + price; client specifies which service |
-| **Owner daily agenda** | Owner expects to know their day without checking another app | Low | WhatsApp message with today's bookings (times, client names, services) each morning |
-| **Client name + contact** | Owner needs to identify who's coming and how to reach them | Low | Collected during booking conversation; used for reminders and confirmations |
+| **Per-business Telegram bot creation & token management** | Each business owner must be able to create their own bot via BotFather and provide the token to the platform. Without this, businesses cannot own their Telegram presence. | Medium | Requires secure token storage (environment/secret manager), webhook routing by token, and secret_token verification per request. BotMux pattern: route `/webhooks/telegram/:botToken`, verify X-Telegram-Bot-Api-Secret-Token header. |
+| **Webhook routing by bot token** | Platform must route incoming Telegram messages to the correct business based on which bot received it. Without this, cross-tenant message routing fails and data leaks occur. | Medium | Route via URL parameter (e.g., `/webhooks/telegram/{botToken}`) or header. Verify secret_token (constant-time comparison) before processing. No exception — this is a safety gate. |
+| **Tenant identification middleware** | Every API request must be mapped to a tenant (business_id) before touching the database. Application-level filtering alone is insufficient. | Low | Middleware extracts business_id from webhook route (`:botToken` → `business_id` via lookup) and threads it into request context. Used by RLS policies below. |
+| **PostgreSQL Row-Level Security (RLS) policies** | Database must enforce tenant isolation at the row level, not application logic. If app code forgets to filter by tenant_id, Postgres blocks it. | High | Drizzle ORM supports RLS policies via `crudPolicy()`. Requires ALTER TABLE ... ENABLE ROW LEVEL SECURITY. Set `app.current_tenant_id` at connection time. High setup cost, infinite payoff. |
+| **Business configuration via chat** | Owner must be able to set up their business (name, hours per day, services, prices, durations) entirely via Telegram chat messages, not a web form. | High | Progressive profiling: bot asks "What's your business name?", owner replies, bot validates, bot asks "What are your hours?", etc. Matches v1.0 chat-only design. Must handle re-entry (owner edits name later). |
+| **Secure token storage** | Bot tokens must not be hardcoded or logged. Stored in database (encrypted or plaintext) with access restricted to tenant owner. | Low–Medium | Use Node.js crypto to encrypt tokens at rest if paranoia demands, or trust Postgres + Neon row-level security. Store in a `bot_tokens` table with foreign key to business. Add audit log trigger. |
+| **Client data deletion on request** | When a client sends "διαγράψτε τα δεδομένα μου" (delete my data), their bookings + phone number must be deleted (or soft-deleted with audit trail). | Medium | Hard delete: remove record entirely. Soft delete: mark with deleted_at timestamp. Add audit log entry. Drizzle schema must support both. GDPR requires this within 30 days. |
+| **Owner data deletion on request** | When an owner sends the same deletion request, all their business data must be purged or anonymized. | High | Cascade: delete business → delete all bookings, services, audit logs. Or soft-delete business (deleted_at). Trickier than client deletion because of relationships. Audit trail mandatory. |
+| **Audit trail for all tenant-related events** | Platform must log every cross-tenant access attempt, every token lookup, every deletion. Regulators + you need to investigate breaches. | Medium | Add audit table: `tenant_audit_logs(id, tenant_id, user_id, action, timestamp, ip_address, user_agent, result)`. Trigger on sensitive queries (tokens, deletions, business config changes). Query cost is low if indexed. |
 
 ---
 
-## Differentiators
+## Differentiator Features
 
-Features that set product apart. Not expected by users, but valued for competitive advantage.
+Features that set RandevuClaw apart. Not expected, but create competitive advantage when present.
 
-| Feature | Value Proposition | Complexity | Notes | Market Evidence |
-|---------|-------------------|------------|-------|-----------------|
-| **Conversational AI booking** | 45% higher conversion vs. web-form booking; feels natural, no "click time slot" friction | High | Gemini-powered natural language understanding; handles rephrasing, asks clarifying questions | [AgentZap 2026](https://agentzap.ai/blog/conversational-ai-for-bookings-best-practices-2025): Conversational UX 30-60s vs. forms; engagement spike in 2026 |
-| **Greek language, natural** | Only chat-native tool working entirely in Greek (competitors require app installs + English) | Med | All bot responses, owner onboarding, client messages in Greek; cultural fit | TARGET: underserved Greek market; Fresha/Booksy require app download + secondary language |
-| **WhatsApp-native (no app)** | Zero install friction; clients already use WhatsApp daily; meets users where they are | Med | Entire UX in WhatsApp; no separate app for client or owner | [Happoin guide](https://happoin.com/en/whatsapp-chatbot-for-appointment-booking): "instant booking without leaving WhatsApp" is core sell |
-| **Shared platform number + AI disambiguation** | Solo founder with one WhatsApp number serves 100s of businesses; AI figures out which business each client means | High | Bot receives business code or name, routes to correct business schedule; one phone number = low friction for owner onboarding | **Technical differentiator:** Fresha/Booksy require per-business setup; RandevuClaw auto-routes via link (wa.me/<num>?text=<code>) |
-| **Owner onboarding via chat** | No dashboard, no web form pain; owner tells bot their hours, services, prices in conversation | Med | "Owner, tell me your business name" → natural Q&A to build config | **Consistency:** matches "WhatsApp-only" simplicity goal |
-| **Freeform question answering** | Client asks "do you have availability Tuesday?" or "what's your address?" without scripted menu | Med | Gemini understands intent; pulls from business config or calendar to answer | [Infobip](https://www.infobip.com/whatsapp-business/appointment-booking): voice/video calls for complex booking; RandevuClaw keeps chat-only |
-| **Owner booking alerts + accept/reject** | Owner gets WhatsApp notification on new booking; can confirm or reject in chat (not auto-accepted) | Med | High-touch control for owner; solves "I didn't know someone booked" problem | Common in Fresha/Booksy but not in all chat bots |
-| **Bulk availability slots** | Owner can block time (e.g., "I'm off July 8-15"); bot learns and hides those slots | Low | Owner messages "block July 8-15" or uses calendar; slots disappear from booking availability | Quality-of-life for owner; reduces booking conflicts |
-| **Client phone number validation** | Capture phone during booking; use for reminders + owner callback | Low | Required for WhatsApp reminders; critical for owner follow-up if no-show | Higher trust than anonymous bookings |
-| **Booking confirmation link** | Send WhatsApp message with click-to-confirm link (one-click reschedule/cancel) | Low | Reduces friction for client action; proven to lower no-show rates | [YouCanBook guide](https://youcanbook.me/blog/how-to-reduce-no-shows): one-click confirmation highly effective |
+| Feature | Value Proposition | Complexity | Notes |
+|---------|-------------------|------------|-------|
+| **Interactive guided onboarding (carousel of quick-replies)** | Instead of free-text input, bot shows buttons for common options. E.g., "How many hours/day do you operate?" → buttons: "6 hours", "8 hours", "10 hours", "Custom". Reduces typos, feels smoother. | Medium | Telegram InlineKeyboardMarkup. Collect inputs, validate, then confirm in a summary message before saving. Also enables re-editing (owner taps a button to re-enter hours). |
+| **Graceful rate-limit recovery** | When Gemini hits 15 req/min free-tier limit, platform queues requests, retries with exponential backoff, and never drops a user message. Clients don't see "error" — their booking still succeeds 30s later. | High | Async task queue (Redis/Bull or in-memory queue for small PoC). Separate orchestration layer: Telegram webhook → queue → Gemini LLM. Backoff: 1s, 2s, 4s, 8s... up to 60s. |
+| **Context caching for Gemini system prompt** | Reuse the same system prompt (Greek booking instructions, business hours, services list) for multiple user messages in one conversation. Reduces tokens, improves latency. | Medium | Gemini API `cacheControl: "ephemeral"` on system messages. Requires @google/genai 2.10.0+. Cache hits return results faster + count differently against quota. |
+| **Backup data anonymization for GDPR** | When a user requests deletion, flag backups as "marked for destruction" (they'll be overwritten on next rotation). GDPR regulators accept this as compliant. Actual delete can wait for backup cycle. | Medium | GDPR Feb 2026 Coordinated Enforcement Framework confirms: immutable backups don't need immediate physical deletion if marked for overwrite. Reduces operational complexity. |
+| **Owner re-onboarding flow** | Owner changes their business hours or adds a new service mid-PoC. Platform allows editing via chat without data loss. I.e., "Change your hours?" → buttons: "Yes", "No" → if yes, re-run the hours input flow. | Low | Store current business config in context. On re-entry, show current values as defaults. Use callback_query with inline buttons to allow quick edits. |
+| **Cross-tenant audit report** | Owners can view a log of who accessed their data and when (e.g., "Platform bot queried your bookings at 14:32 UTC"). Builds trust + helps compliance. | Medium–High | Expose in an optional command (e.g., `owner_audit_log()` returns last 7 days). Telegram-based view or link to a private audit CSV. Privacy by design. |
 
 ---
 
@@ -56,131 +51,280 @@ Features to explicitly NOT build.
 
 | Anti-Feature | Why Avoid | What to Do Instead |
 |--------------|-----------|-------------------|
-| **Per-staff calendars** | PoC scope: most small salons/studios share one schedule; adds complexity (routing, staff management) | Single shared schedule per business; revisit post-PoC if franchise/multi-staff demand grows |
-| **Multiple businesses per owner account** | Shared platform number model means one business per link; owner manages one business | One owner = one business config; if they have 2 salons, they get 2 booking links (same bot, different codes) |
-| **Payment/deposit collection** | Out of scope per PROJECT.md; adds Stripe/Razorpay integration, PCI compliance, fraud | Owner handles payment offline (cash, bank transfer); note this in client message if needed ("Payment due at visit") |
-| **Cancellation cutoff windows** | No-show strategy: owner can add later if pattern emerges; keeps PoC simple | For now, client can cancel anytime; if abuse happens, add "cancel by 24h before" in Phase 2 |
-| **Native mobile app for owner** | Contradicts "WhatsApp-only" PoC goal; adds app store overhead | Owner manages everything in WhatsApp; web dashboard deferred to post-PoC |
-| **Per-business WhatsApp phone numbers** | Meta Business verification is slow/high-friction; PoC speed goal requires shared number | Bot disambiguates via link/code; post-PoC, owner can add their own number if brand/SMS budget allows |
-| **Waitlist management** | Not core to PoC; add after validating core booking/cancellation flow | If demand is high, owner can take manual waitlist via chat; optimize later |
-| **Complex reporting/analytics** | Owner doesn't need reports for PoC; WhatsApp messages are enough | Send daily agenda + booking alerts; defer dashboards/KPIs to Phase 2 |
-| **English language support** | Splits focus; Greek PoC validation is higher priority | Greek-only for v1; revisit if expanding beyond Greece |
-| **Marketing automation (emails, SMS blasts)** | Out of scope; owner has WhatsApp, can message directly | Reminders and confirmations only; owner sends promo messages themselves via WhatsApp |
-| **Automated no-show follow-up sequences** | Not core; owner can handle via chat if needed | Owner manually follows up on no-shows; if pattern emerges, automate later |
+| **Per-business WhatsApp numbers (v1.1 scope)** | Meta Business Verification per business requires 1-6 weeks approval per account. PoC cannot afford this delay. Later (v1.2+) once verification is streamlined. | Stick with per-business Telegram bots for v1.1. WhatsApp activation deferred until v1.2. |
+| **Web dashboard for owner configuration** | Breaks the "chat only" principle established in v1.0. Added complexity, requires frontend hosting, auth, etc. Not MVP. | Keep onboarding 100% in Telegram chat. No web UI for v1.1. |
+| **Multi-staff scheduling per business** | Multiple instructors, each with their own calendar. PoC assumes one shared schedule per business. | Document as out-of-scope. Small salons/studios typically have one schedule. Revisit post-PoC if demand. |
+| **Soft deletes without hard deletion option** | GDPR right to erasure means complete deletion on request, not just hiding. Soft delete alone does not satisfy Article 17. | Offer hard delete by default; soft delete only for backup retention (with overwrite deadline). Dual-mode: soft-deleted records hidden from UI but still hard-deleted in backups. |
+| **Storing bot tokens in plaintext in logs or code** | Tokens are API credentials. Logging them is a security incident. Code visibility (GitHub) makes it worse. | Encrypt tokens at rest (or rely on Postgres RLS). Never log request bodies containing tokens. Audit log token lookups only, not token values. |
+| **Assuming application-level tenant filtering is sufficient** | If code forgets to filter by tenant_id on one query, a client can see another business's bookings. RLS at database layer catches this. | Mandatory: PostgreSQL RLS policy on every table. Application filtering is best-effort; database is the safety net. |
+| **Ignoring Gemini rate limits in free tier** | 15 req/min is not enough for any real traffic. Ignoring it means crashes and dropped bookings under load. | Queue all requests; implement exponential backoff. Monitor 429 errors. Upgrade to paid Gemini tier if PoC succeeds. |
+| **Deleting backups immediately on GDPR request** | Backup deletion is operationally complex and expensive. GDPR allows "marked for destruction" as compliant. | Mark data as deleted in DB, set expiration date on backups. Backups expire on rotation (e.g., 30 days). Audit log the mark, not the delete. |
+| **Requiring owners to manually verify webhook URLs** | Owners are not engineers. Manual webhook setup is error-prone and creates support burden. | Platform automatically handles webhook registration: owner provides token → platform calls Telegram setWebhook. Owner sees "Webhook registered ✓" in chat. |
+| **Allowing free-text bot token input without validation** | Owner typos the token → webhook never fires → owner thinks platform broke. | Validate token format (42 chars, digits + colon) immediately. Call Telegram getMe with token to confirm it's valid. Fail fast with user-friendly error. |
 
 ---
 
-## Feature Dependencies
+## Feature Dependencies & Sequencing
 
 ```
-Booking → Reminders (need booking to remind about)
-Booking → Cancellation (need booking to cancel)
-Booking → Google Calendar Sync (need booking to sync)
-Booking → Confirmation message (automatic follow-up to booking)
-Business Hours Configuration → Availability Checking (need hours to filter slots)
-Business Hours Configuration → Owner Daily Agenda (need config to know business context)
-Service/Price/Hours Config → Freeform Q&A (bot needs config to answer questions)
-Google Calendar Sync → Availability Checking (owner's existing events block slots)
-Shared Platform Number → AI Business Disambiguation (need to route client to correct business)
+Per-Business Bot Management
+├─ Telegram BotFather token input (owner creates bot externally, provides token)
+├─ Secure token storage in DB with RLS
+├─ Webhook routing by token (routes message to correct business)
+├─ Secret token verification (verify X-Telegram-Bot-Api-Secret-Token header)
+└─ Tenant ID extraction middleware (maps token → business_id for all requests)
+
+Owner Self-Serve Onboarding
+├─ Tenant ID middleware (required: know which business we're onboarding)
+├─ Progressive profiling chat flow (ask → validate → confirm → save)
+│  ├─ Business name input
+│  ├─ Hours per day input (with interactive buttons)
+│  ├─ Services + prices + durations input
+│  └─ Confirmation & summary
+├─ Business config persistence (drizzle schema: `businesses` table with RLS)
+└─ Re-entry/editing (owner can re-trigger onboarding to change settings)
+
+Multi-Tenant Safety Layer
+├─ Tenant ID middleware (prerequisite)
+├─ PostgreSQL RLS policies on all tables
+│  ├─ `businesses` — only business owner can read/write
+│  ├─ `bookings` — business owner can read/write; client can read own bookings
+│  ├─ `services` — business owner can read/write
+│  └─ Similar for all other tables
+├─ Audit table with RLS (track all cross-tenant access attempts)
+└─ Constant-time token comparison (prevent timing-attack token guessing)
+
+GDPR Data Deletion
+├─ Tenant ID middleware + RLS (prerequisite)
+├─ Chat-based deletion trigger ("διαγράψτε τα δεδομένα μου")
+├─ Dual-mode deletion (hard delete for active data; soft delete for backups)
+├─ Audit log entry for every deletion request
+├─ Cascade delete: client deletion → remove all bookings; owner deletion → remove business + all related data
+└─ Backup expiration policy (mark backups for destruction on deletion; overwrite on next rotation)
+
+Gemini Rate-Limit Resilience
+├─ Async request queue (in-process or Redis)
+├─ Exponential backoff on 429 RESOURCE_EXHAUSTED errors
+├─ Context Caching for system prompts (reduce token usage, improve resilience)
+├─ Fallback to Gemini Flash-Lite if Pro overloaded (if applicable)
+├─ Monitoring/alerting on rate-limit hits
+└─ NO silent failures — queue must retry successfully or alert operator
 ```
+
+**Sequencing Recommendation:**
+1. Per-Business Bot Management (enables multi-tenant architecture)
+2. Tenant ID Middleware + RLS Setup (foundation for safety)
+3. Owner Self-Serve Onboarding (replaces hardcoded fixtures)
+4. GDPR Data Deletion (legal requirement, can be added after features work)
+5. Gemini Rate-Limit Resilience (polish, but critical before real traffic)
+
+---
+
+## UX Flow Descriptions
+
+### Flow 1: Owner Creates Their Telegram Bot (External, Then Provides Token)
+
+1. Owner (e.g., pilates studio owner) goes to Telegram BotFather (@BotFather)
+2. Sends `/newbot` → BotFather asks for bot name → owner replies "PilatesSophia"
+3. BotFather asks for username → owner replies "PilatesSophia_bot"
+4. BotFather sends back API token (42-char string, e.g., `6391234567:ABCDEfg...`)
+5. Owner copies token and sends it to RandevuClaw platform bot (registration/admin bot) with text "Setup my bot" + token pasted
+6. Platform validates token format, calls Telegram getMe to confirm validity
+7. If valid: Platform registers webhook, stores token securely, creates business record, sends "✓ Bot registered! Start by telling me your business name."
+8. If invalid: Platform sends "That token didn't work. Did you copy it correctly? Here's the BotFather link: t.me/BotFather"
+
+### Flow 2: Owner Self-Serve Onboarding (Progressive Profiling)
+
+**Setup Business Name**
+- Platform: "What's your business name?" (free-text input)
+- Owner: "Sophia's Pilates Studio"
+- Platform: "Got it! Sophia's Pilates Studio. Let's continue." (validates non-empty, <100 chars)
+
+**Setup Hours per Day**
+- Platform: "How many hours per day do you operate?"
+- Platform shows buttons: [6 hours] [8 hours] [10 hours] [Custom hours]
+- Owner taps [8 hours]
+- Platform: "What time do you open? (e.g., 08:00)"
+- Owner: "08:00"
+- Platform: "Perfect! You operate 08:00 – 16:00 (8 hours). Is this correct?" [Yes] [Edit]
+- Owner taps [Yes]
+
+**Setup Services**
+- Platform: "Let's add your services. Send me each service as: Service Name | Duration (min) | Price (EUR)"
+- Platform: "Example: Pilates Class | 60 | 20"
+- Owner: "Pilates Class | 60 | 20"
+- Platform: "Added: Pilates Class (60 min, €20). Add another?" [Yes] [No]
+- Owner: "Yes"
+- Owner: "Private Session | 45 | 40"
+- Platform: "Added: Private Session (45 min, €40). Any more?" [Yes] [No]
+- Owner: "No"
+
+**Confirmation & Save**
+- Platform shows summary:
+  ```
+  Business Name: Sophia's Pilates Studio
+  Hours: 08:00 – 16:00 (Mon–Sun)
+  Services:
+    • Pilates Class — 60 min, €20
+    • Private Session — 45 min, €40
+  
+  Is this correct?
+  ```
+- Buttons: [Yes, Save] [Edit Name] [Edit Hours] [Edit Services]
+- Owner taps [Yes, Save]
+- Platform: "✓ Setup complete! Your bot is live. Clients can now book with you."
+
+### Flow 3: Client Books Appointment via Business's Telegram Bot
+
+1. Client finds Sophia's bot (@PilatesSophia_bot) on Telegram
+2. Client sends: "I'd like to book a pilates class on Friday at 10am" (in Greek or English, Gemini handles both)
+3. Platform:
+   - Extracts business_id from bot token
+   - Applies RLS: only Sophia's services/bookings visible
+   - Calls Gemini with function `create_booking(service_id, date, time)`
+   - Gemini confirms: "Pilates Class, Friday 10:00–11:00, €20. Confirm?" [Yes] [No]
+4. Client: [Yes]
+5. Platform creates booking, sends confirmation + Google Calendar event
+6. Owner (Sophia) receives alert: "New booking: Pilates Class, Friday 10:00, Client: +30-6xx-xxx-xxxx. Accept?" [✓ Accept] [✗ Reject]
+7. If accepted, event confirmed in calendar + client notified
+
+### Flow 4: Client/Owner Requests Data Deletion
+
+**Client-Initiated:**
+1. Client sends (in Greek): "διαγράψτε τα δεδομένα μου" (delete my data)
+2. Platform detects keyword, asks for confirmation: "This will delete your booking history and phone number. This cannot be undone. Confirm?" [Yes] [Cancel]
+3. Client: [Yes]
+4. Platform hard-deletes all client bookings + phone record, logs audit entry
+5. Platform: "✓ Your data has been deleted."
+
+**Owner-Initiated:**
+1. Owner sends: "Διαγράψτε την επιχείρηση" (delete my business)
+2. Platform asks: "This will delete your business, all services, all client bookings, and your data. Confirm?" [Yes] [Cancel]
+3. Owner: [Yes]
+4. Platform cascade-deletes business → services → bookings → owner record, logs audit entries with business_id + timestamps
+5. Bot is deactivated (webhook removed)
+6. Platform: "✓ Your business and all data have been deleted. The bot is now inactive."
+
+### Flow 5: Gemini Rate-Limit Recovery (Invisible to User)
+
+1. Client sends booking request: "Book me for next Tuesday at 3pm"
+2. Platform queues request to async queue (with client_id, business_id, message_id)
+3. Platform calls Gemini → gets 429 RESOURCE_EXHAUSTED (hit 15 req/min cap)
+4. Queue retries with backoff: wait 1s, retry (fail) → wait 2s, retry (fail) → wait 4s, retry (success after ~7s)
+5. Gemini returns booking confirmation
+6. Platform sends response to client: "✓ Booked for Tuesday 15:00. Confirmation sent." (user sees no delay, just a 7s wait, which is natural)
+7. If queue fails after max retries (5 min window), platform alerts operator and sends client: "Booking delayed — try again in a moment" (user can retry)
+
+**Monitoring (Internal):**
+- Operator sees dashboard: "Rate-limit hits: 12 in last hour. Queue depth: 3. Retry success rate: 95%."
+- If consistently over limit, operator upgrades Gemini to paid tier
+
+---
+
+## Complexity Ratings
+
+| Feature | Rating | Justification |
+|---------|--------|---------------|
+| Per-business bot creation & token management | **Medium** | One-time setup per business; validation + token storage straightforward. Webhook routing is the tricky part. |
+| Webhook routing by bot token | **Medium** | Route logic is simple (`:botToken` → `business_id` lookup), but must be rock-solid for multi-tenant safety. |
+| PostgreSQL RLS setup | **High** | Requires understanding of RLS policies, SET app.current_tenant_id, testing to ensure no loopholes. Easy to miss edge cases. |
+| Owner self-serve onboarding | **High** | Multi-step chat flows, validation, re-entry, error recovery, and saving to DB. Lot of state management. |
+| Secure token storage | **Low–Medium** | Encrypt or trust Postgres. Audit logging is the bigger effort. |
+| Client data deletion | **Medium** | Hard delete is straightforward; soft delete + audit trail adds complexity. |
+| Owner data deletion | **High** | Cascade across multiple tables (business → services → bookings → audit logs). Easy to miss a relationship. |
+| Audit trail logging | **Medium** | Add table, trigger, index. Query overhead is negligible if indexed. |
+| Graceful rate-limit handling | **High** | Async queue, exponential backoff, context caching, fallback logic. Requires careful testing under load. |
 
 ---
 
 ## MVP Recommendation
 
-**Core PoC (Phase 1):**
-1. **Book appointment via chat** — Entire product purpose
-2. **Cancel via chat** — Client control, owner workflow relief
-3. **Google Calendar sync** — Owner's existing tool; prevents double-bookings
-4. **Automated reminders** — 90% no-show reduction proven
-5. **Business hours + services config** — Owner can set up business
-6. **Availability checking** — Core booking flow
-7. **Daily agenda message** — Owner awareness
+**Must-Have (v1.1 Phase 1):**
+1. Per-business Telegram bot creation & token management
+2. Webhook routing + secret token verification
+3. Tenant ID middleware + PostgreSQL RLS
+4. Owner self-serve onboarding (business name, hours, services)
+5. Audit table + logging of critical operations
+6. Client/owner deletion via chat (basic hard delete)
 
-**Add in Phase 2 (post-MVP validation):**
-- Owner booking alerts + accept/reject (high-touch control; currently auto-accept)
-- Freeform question answering (Q&A beyond "availability?")
-- Bulk time blocking (vacation/sick days)
-- Booking confirmation link (one-click reschedule/cancel)
+**Should-Have (v1.1 Phase 2):**
+7. Interactive guided onboarding (buttons instead of free-text for hours/services)
+8. Graceful Gemini rate-limit handling (queue + exponential backoff)
+9. Owner re-entry/editing flow (change settings mid-PoC)
+10. Backup expiration policy for GDPR compliance
 
-**Defer (not for PoC):**
-- Per-staff calendars
-- Waitlist management
-- Payment processing
-- Cancellation cutoff windows
-- Native owner mobile app
+**Nice-to-Have (v1.1 Phase 3+):**
+11. Context Caching for Gemini system prompt
+12. Cross-tenant audit report for owners
+13. Fallback to Gemini Flash-Lite on overload
+
+**Explicitly Out (v1.2+):**
+- Per-business WhatsApp numbers (Meta verification required)
+- Web dashboard for owners
+- Multi-staff scheduling
 - English language support
-- Marketing automation
-- Complex analytics
 
 ---
 
-## Greek Market Specifics
+## Pitfalls & Mitigation
 
-| Topic | Implication | Feature Impact |
-|-------|-----------|-----------------|
-| **Public holidays** (12/year: Jan 1, 6, Mar 25, Easter Monday, May 1, Aug 15, Oct 28, Dec 25-26, local saints) | Owner must block these dates; high importance for seasonal/holiday planning | Add holiday calendar to onboarding; owner can quickly block known holidays; sync from Greek calendar API (optional Phase 2) |
-| **Standard work hours** (8am–9am start, 40–42 hrs/week, 5 days typical) | Salons/gyms likely open 9am–6pm Mon–Fri, 10am–2pm Sat, closed Sun | Default config: Mon–Fri 9am–6pm, Sat 10am–2pm, closed Sun; owner customizes |
-| **Lunch break / siesta culture** | Some small businesses still close 1pm–3pm for lunch | Support break time in config (e.g., "closed 1pm–3pm daily"); not forced, owner opts in |
-| **Weekend/holiday work restrictions** | Sunday/holiday work requires labor permit; most small businesses closed | Default blocks Sundays; owner manually overrides if permitted |
-| **Service business prevalence** | Pilates studios, gyms, hair salons are common; expect multiple service types (haircuts, massages, classes, personal training) | Ensure multi-service booking works smoothly; pilot with 1–3 service types per business |
-| **Language preference** | Greek-speaking owners/clients; English interface = friction | Greek-only bot, Greek config interface, Greek client experience; non-negotiable for PoC |
-| **Informal communication norms** | Greek small-business culture favors direct WhatsApp over email/forms | Conversational tone in bot; informal Greek register; avoid overly formal language |
-| **Tourism seasonality** | Some businesses (especially in islands) have seasonal hours (summer vs winter) | Allow seasonal hour configs; defer complex scheduling to Phase 2 |
-| **Small team sizes** | Most target businesses are solo practitioners or 2–3 staff | Single shared schedule works; multi-staff calendars defer to Phase 2 |
+| Pitfall | Risk | Mitigation |
+|---------|------|-----------|
+| **Forgetting tenant_id filter on one query** | Data leak: owner A sees owner B's bookings. | Database RLS policy blocks this. Test via direct SQL: `SELECT * FROM bookings` without WHERE clause must fail. |
+| **Storing bot tokens in plaintext + logging them** | Security breach if logs are exposed (GitHub, Sentry). | Encrypt tokens; never log token values. Audit log token lookups, not token contents. Code review checklist. |
+| **Incomplete GDPR deletion (forgetting audit logs, backups)** | Compliance failure. Regulators find deleted data in backup. | Mark backups for destruction; set expiration date. Audit logs are exempt from Article 17 (allowed to keep indefinitely). Hard delete only production DB. |
+| **Rate-limit silent failures** | Bookings dropped under load. User re-sends, double-booking results. | Queue + retry logic. Monitor 429s. Never silently fail. Alert operator. |
+| **Webhook routing by username instead of token** | If two businesses have similar bot names, routing fails. | Route by token (unique per bot) only. Token is stable; bot names can collide. |
+| **Assuming onboarding will be one-shot** | Owner needs to edit hours after launch. Data is gone. | Store all inputs; allow re-entry. Use callback_query buttons for edits. |
+| **Cascading deletes without audit trail** | No way to investigate deletion requests later. Regulators can't verify compliance. | Log audit entry before each cascade. Include business_id, timestamp, requester, reason. |
 
 ---
 
-## Complexity Scoring
+## Confidence Assessment
 
-- **Low:** Can be built/configured in 1–3 days; well-established patterns (Fresha/Booksy have these)
-- **Med:** 1–2 weeks; some AI/integration work (Gemini for booking, Google Calendar API)
-- **High:** 2–4 weeks; novel complexity (multi-business routing, conversational AI for all edge cases)
+| Area | Confidence | Notes |
+|---|---|---|
+| **Per-Business Bot Management** | HIGH | BotMux + BotHippo patterns are well-established. Telegram documentation (setWebhook, secret_token) is current. Webhook routing by token is industry-standard. |
+| **Owner Onboarding UX** | HIGH | SaaS chat-based onboarding is mature (WhatsApp Flows, Telegram keyboards). Research found clear best practices: progressive profiling, quick-reply buttons, error recovery loops. |
+| **Multi-Tenant Safety** | HIGH | PostgreSQL RLS is mature (PostgreSQL 9.5+, used in production SaaS). Drizzle ORM has built-in support. Node.js middleware patterns are standard. Feb 2026 EDPB guidance on RLS compliance confirmed. |
+| **GDPR Data Deletion** | HIGH | GDPR Article 17 is clear. Feb 2026 Coordinated Enforcement Framework clarifies backup handling: soft deletion + marked-for-destruction is compliant. Industry consensus on hard delete + audit trail. |
+| **Gemini Rate-Limit Resilience** | HIGH | Exponential backoff is industry-standard. Gemini API documentation (May 2026) confirms 15 req/min free tier. Context Caching is documented in @google/genai. Google Cloud best practices confirmed. |
+| **Telegram Webhook Security** | HIGH | Telegram official documentation current. secret_token feature is recommended since Telegram Bot API v6.1 (2021+). BotMux + Telebot reference implementations available. |
 
 ---
 
 ## Sources
 
-### WhatsApp Appointment Booking Features
-- [Happoin: WhatsApp Chatbot for Appointment Booking](https://happoin.com/en/whatsapp-chatbot-for-appointment-booking)
-- [Infobip: WhatsApp Business Appointment Booking](https://www.infobip.com/whatsapp-business/appointment-booking)
-- [Respond.io: WhatsApp Appointment Booking](https://respond.io/blog/whatsapp-appointment-booking)
-- [Whautomate: WhatsApp Appointment Scheduling](https://whautomate.com/streamline-your-appointment-scheduling-with-whatsapp-booking-bots/)
+### Multi-Bot & Webhook Routing
+- [BotMux Documentation — Web-based command center for managing Telegram bots](https://docs.botmux.dev/docs/en)
+- [GitHub — skrashevich/botmux: Multi-bot dashboard, reverse proxy, inter-bot routing](https://github.com/skrashevich/botmux)
+- [Telegram Bot Manager & Automation Platform | BotHippo](https://bothippo.com/)
 
-### Appointment Booking Industry Standards
-- [Goodcall: 10 Key Features of Appointment Booking Software](https://www.goodcall.com/appointment-scheduling-software/features)
-- [Zoho Bookings: 13 Must-Have Features](https://www.zoho.com/bookings/buyers-guide/appointment-scheduling-software-features.html)
-- [Calendly: 13 Best Appointment Scheduling Apps](https://calendly.com/blog/best-appointment-scheduling-apps)
+### SaaS Onboarding via Chat
+- [WhatsApp for SaaS: Onboarding, Activation & Churn Reduction — aisensy](https://m.aisensy.com/blog/whatsapp-for-saas-companies/)
+- [Chat UX Best Practices: From Onboarding to Re-Engagement — GetStream.io](https://getstream.io/blog/chat-ux/)
+- [SaaS Chat & Messaging UX: Examples & Patterns (2026) — SaaSUI Design](https://www.saasui.design/blog/saas-chat-messaging-ux-patterns)
 
-### Competitive Landscape
-- [Fresha vs Booksy Comparison](https://www.goodcall.com/appointment-scheduling-software/fresha-vs-booksy)
-- [Schedulingkit: Booksy vs Fresha](https://schedulingkit.com/compare/booksy-vs-fresha)
-- [Calendesk: Booksy vs Fresha](https://calendesk.com/compare/booksy-vs-fresha)
+### Multi-Tenant Data Isolation & RLS
+- [Multi-Tenant API in Node.js + PostgreSQL RLS (2026) — 1xAPI Blog](https://1xapi.com/blog/multi-tenant-api-nodejs-postgresql-row-level-security-2026)
+- [Multi-Tenant SaaS Data Isolation: Row-Level Security, Tenant Scoping, and Plan Enforcement with Prisma — DEV Community](https://dev.to/whoffagents/multi-tenant-saas-data-isolation-row-level-security-tenant-scoping-and-plan-enforcement-with-1gd4)
+- [Multi-Tenant Security in SaaS: Data Isolation Patterns That Actually Work — DEV Community](https://dev.to/oluwatosinolamilekan/multi-tenant-security-in-saas-data-isolation-patterns-that-actually-work-fk)
+- [Postgres Row-Level Security for Multi-Tenant Apps (2026) — Nerd Level Tech](https://nerdleveltech.com/postgres-row-level-security-multi-tenant-nodejs-tutorial)
 
-### Salon/Gym/Pilates-Specific Requirements
-- [Glofox: Studio Booking Software](https://www.glofox.com/blog/studio-booking-software/)
-- [StudioBookings: Pilates & Fitness Studio Software](https://www.studiobookings.com/)
-- [PickTime: Pilates Studio Scheduling Guide](https://www.picktime.com/resources/online-appointment-scheduling-software-for-pilates-studios-the-complete-2026-guide/)
-- [Pilates Bridge: Scheduling Software Reviews](https://pilatesbridge.com/best-scheduling-software-for-pilates-studios-reviews/)
+### GDPR Data Deletion & Compliance
+- [Best Practices for GDPR-Compliant Data Deletion — reform.app](https://www.reform.app/blog/best-practices-gdpr-compliant-data-deletion)
+- [GDPR Deletion Requests & Backups: How to Stay Compliant — ProBackup](https://www.probackup.io/blog/gdpr-and-backups-how-to-handle-deletion-requests)
+- [GDPR Implementation: Building Data Deletion and Export APIs That Actually Work — Sohail x Codes, Medium](https://medium.com/@sohail_saifii/gdpr-implementation-building-data-deletion-and-export-apis-that-actually-work-833b34eb09f6)
+- [GDPR Article 17: Data Erasure (Right to be Forgotten) Requests — WatchDog Security](https://watchdogsecurity.io/gdpr/data-erasure-request-handling)
 
-### Conversational AI vs. Form-Based Booking
-- [AgentZap: Conversational AI for Bookings (2026)](https://agentzap.ai/blog/conversational-ai-for-bookings-best-practices-2025)
-- [Taskade: 9 Best AI Booking Systems](https://www.taskade.com/blog/best-ai-booking-systems)
-- [Ascend UX/PROS: Conversational AI UX](https://pros.com/ascend/conversational-ai-next-generation-user-experience/)
+### API Rate Limiting & Graceful Degradation
+- [Gemini API Rate Limits Explained 2026: Check Current Quotas Without Hard-Coding Tables — YingTu](https://yingtu.ai/en/blog/gemini-api-rate-limits-explained)
+- [Graceful Degradation Strategies for AI Agents Hitting Rate Limits in Production — Brandon Lincoln Hendricks](https://brandonlincolnhendricks.com/research/graceful-degradation-ai-agent-rate-limits)
+- [Gemini API Inference Architecture: System Design for Production Traffic [2026] — Markaicode](https://markaicode.com/architecture/inference-architecture-with-gemini-api/)
+- [Rate limits | Gemini API | Google AI for Developers](https://ai.google.dev/gemini-api/docs/rate-limits)
 
-### Google Calendar Integration
-- [Google Workspace: Appointment Scheduling with Calendar](https://workspace.google.com/resources/appointment-scheduling/)
-- [Simply Schedule Appointments: Google Calendar Sync](https://simplyscheduleappointments.com/guides/syncing-google-calendar/)
-- [Setmore: Add Appointments to Google Calendar](https://www.setmore.com/blog/add-appointments-google-calendar/)
-
-### No-Show Prevention
-- [Curogram: 25+ Ways to Reduce No-Show Appointments](https://curogram.com/blog/how-to-reduce-no-show-appointments)
-- [Koalendar: Proven No-Show Reduction Tools](https://koalendar.com/blog/how-to-reduce-no-shows)
-- [YouCanBook.me: 10 Practical No-Show Strategies](https://youcanbook.me/blog/how-to-reduce-no-show-appointments)
-- [Booknetic: 7 Strategies for Small Businesses](https://www.booknetic.com/blog/strategies-to-reduce-no-shows)
-
-### Greek Market & Business Norms
-- [Business Culture: Work-Life Balance in Greece](https://businessculture.org/southern-europe/business-culture-in-greece/work-life-balance-in-greece/)
-- [DateWithTime: Working Hours in Greece](https://www.datewithtime.com/working-hours/greece)
-- [Rivermate: Working Hours in Greece](https://rivermate.com/guides/greece/working-hours)
-- [Skuad: Employment Laws in Greece 2025](https://www.skuad.io/employment-laws/greece)
+### Telegram Webhook & Bot Security
+- [Marvin's Marvellous Guide to All Things Webhook — Telegram Core](https://core.telegram.org/bots/webhooks)
+- [Telegram bot webhook setup: complete guide for developers — Teleclaw](https://teleclaw.bot/blog/telegram-bot-webhook-setup)
+- [Secret Token in Telegram API: Secure Webhook Verification — Nguyen Thanh Luan](https://nguyenthanhluan.com/en/glossary/secret_token-for-setwebhook-en/)
+- [Telegram Token: Get, Manage, and Secure Your Bot API Key — CodeWords](https://www.codewords.ai/blog/telegram-token)

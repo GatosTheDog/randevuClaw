@@ -1,417 +1,917 @@
-# Domain Pitfalls: WhatsApp Booking Platform for Greek Businesses
+# Domain Pitfalls: v1.1 Multi-Bot Telegram & Onboarding Migration
 
-**Domain:** WhatsApp-native multi-tenant appointment booking platform with AI agent, Greek language, Google Calendar sync
-**Researched:** 2026-07-03
+**Project:** RandevuClaw v1.1
+**Researched:** 2026-07-10
+**Domain:** Migrating from single shared Telegram bot to per-business bots with owner self-serve onboarding, multi-tenant isolation, GDPR deletion, and rate-limit resilience.
 **Confidence:** HIGH
 
 ---
 
 ## Critical Pitfalls
 
-### Pitfall 1: Meta Business Verification Delays Block Launch
+These mistakes cause data corruption, security breaches, or complete architecture rewrites.
+
+### Pitfall 1: Telegram Bot Token Exposure in Webhook URL Path
 
 **What goes wrong:**
-A single name mismatch across touchpoints (Meta Business Info, registration documents, website, address proof, authorized admin) causes Meta to reject verification and request resubmission. Approval can take 1–6 weeks depending on review backlog and completeness. For a $0-budget PoC, this is the primary blocker to using WhatsApp Cloud API at all.
+Storing bot token in the URL path (e.g., `/webhooks/telegram/:botToken`) or logging it during webhook registration makes the token visible in HTTP access logs, WAF logs, Cloudflare analytics, and error stack traces. Once exposed, an attacker immediately controls the bot and can impersonate your platform, send fake booking confirmations, collect client messages, or delete events.
 
 **Why it happens:**
-Meta's verification process is manual and requires consistency across legal documents, which small businesses typically have mismatches (DBA names, formatted addresses, exact legal entity names). Developers often rush this step assuming it's "just paperwork."
+Developers assume the webhook URL is "secret" because it's not published. Telegram's setWebhook API doesn't warn that tokens should never appear in URLs. Early multi-bot implementations often use tokens in URLs for "easy" routing without realizing the security implication.
 
-**How to avoid:**
-- Audit all legal documents BEFORE submitting to Meta: exact match on business name, address, legal entity type, and authorized signatory across registration, website, privacy policy, and Meta Business Info.
-- Start verification immediately when prototyping (do NOT wait until "almost ready for launch") because the 1–6 week delay is the critical path.
-- Use a checklist: business name consistency, authorized admin identity, website presence, privacy policy URL, registration document scan quality.
-- Do NOT assume free tier = instant approval; free tier is still subject to the same verification as paid.
+**Consequences:**
+- Bot takeover: attacker sends malicious messages, collects booking/payment data
+- Reputation damage: business receives fake confirmations or cancellations
+- Data breach: all conversations with clients become readable to attacker
+- Requires immediate bot token revocation and registration with new token (1-2 business hours downtime)
 
-**Warning signs:**
-- Meta rejects your submission with a vague message about "document mismatch" — re-read the exact rejection reason and cross-check all four touchpoints.
-- Resubmission after first rejection adds another 1–2 weeks.
-- Approaching launch date with verification still pending — this is a hidden-delay crisis.
+**Prevention:**
+1. **Never include bot token in URL paths.** Extract from request headers or body after signature verification.
+2. **Use bot_id (UUID) in URL, not token:** `/webhooks/telegram/:botId` → look up token from database → verify signature with token.
+3. **Store bot_token → webhook_url mapping in database**, not in the URL itself. Webhook registration should store the mapping, not expose it.
+4. **Verify X-Telegram-Bot-Api-Secret-Token header first** before looking up any database records. This signature is your first gate.
+5. **Rotate tokens immediately on suspected exposure.** Use `deleteWebhook()` then `setWebhook()` with a new URL.
+6. **Scan git history for leaked tokens.** Use `git-secrets` or `trufflehog` in CI; fail deployment if tokens are found.
+7. **Filter tokens from all logs.** Redact bot_token values in application logs, error tracking (Sentry), and fly.io logs.
 
-**Phase to address:**
-Phase 1 (Architecture & Setup): Start verification immediately; do not treat it as a launch-week task. Verification completion should be a hard gate before any client-facing prototype.
+**Detection:**
+- Alert on unusual `setWebhook` calls with new URLs
+- Monitor for spike in bot messages (sudden volume change)
+- Alerts for permission failures (bot attempts to send message but is revoked)
+- Regular git history audit for exposed tokens
+
+**Phase:** Phase 1 (Infrastructure Setup) — This must be addressed before registering the first webhook. Include token security in the webhook registration design checklist.
 
 ---
 
-### Pitfall 2: WhatsApp 24-Hour Customer Service Window Breaks Reminders/Notifications
+### Pitfall 2: Webhook Conflict — "another webhook is active" on Token Reuse
 
 **What goes wrong:**
-You send a WhatsApp appointment reminder 48 hours before the appointment. WhatsApp silently throttles/blocks the message because you're outside the 24-hour customer service window and you haven't created (or your template was rejected). Users never receive reminders and no-shows spike. The 24-hour window restarts each time a customer messages you; outside that window, all business-initiated messages must use Meta-approved templates.
+When transitioning to per-business bots, if a bot token is registered with an old webhook URL and you try to set it to a new URL, Telegram returns: `Error: Conflict: another webhook is active`. The service fails to register, hangs waiting for webhooks that never arrive, and customers cannot reach the bot.
+
+This happens because Telegram only allows **one active webhook per bot token**. If an old webhook is still set, the new registration fails. Multiple environments (dev, staging, prod) or app instances competing for the same token also trigger this conflict.
 
 **Why it happens:**
-Developers assume WhatsApp is like SMS and can send messages anytime; they don't realize the strict 24-hour window and template requirement. Template approval itself takes 24–48 hours, so there's a cascading dependency: you can't send reminders until templates are approved.
+Developers assume old webhooks are automatically cleaned up or can be skipped. No explicit delete-then-set pattern. Multiple environments or app instances try to claim the same token without coordinating.
 
-**How to avoid:**
-- Create and submit (Utility category) message templates for:
-  - Appointment confirmation (with booking details)
-  - 24-hour reminder (with appointment time and cancellation link)
-  - Cancellation acknowledgment
-  - Daily agenda for business owners
-  - Template approval typically takes 24 hours; treat this as a blocking dependency.
-- Do NOT assume custom messaging outside the 24-hour window is possible; it isn't for new customers.
-- Design your UX around template constraints: keep variables minimal, structure messages for readability within templates.
-- Implement fallback: if reminder template is rejected, you can only send custom reminders within 24 hours of a customer's last message (which may be insufficient).
+**Consequences:**
+- Bot becomes unreachable; customers cannot book or cancel
+- Service restart worsens the problem (tries to set webhook again, fails again)
+- Silent failure: the app logs a webhook setup error but continues, leading customers to think the bot is live when it's actually broken
+- Recovery requires manual BotFather intervention or token revocation
 
-**Warning signs:**
-- You send a test reminder and it doesn't arrive, but no error is logged by the WhatsApp API.
-- Template approval takes >2 days; resubmit if unclear why it was rejected.
-- Real-time monitoring: check WhatsApp Business Account dashboard for "rejected" or "pending" template status.
+**Prevention:**
+1. **Always delete old webhook before setting new one:**
+   ```typescript
+   // On service startup, before setWebhook:
+   try {
+     await bot.deleteWebhook();  // Idempotent; safe even if no webhook was set
+   } catch (e) {
+     // Log but don't fail; deleteWebhook might not exist on new tokens
+   }
+   const result = await bot.setWebhook(newUrl, { secret_token: newSecret });
+   if (!result) throw new Error('Failed to set webhook');
+   ```
 
-**Phase to address:**
-Phase 2 (Message Flow): Define all templates, test approval workflow, and implement fallback reminder strategy (within 24-hour window) before implementing reminder jobs.
+2. **Verify webhook configuration on startup.** Call `getWebhookInfo()` and compare expected vs. actual URL. Raise an alarm if mismatch.
+3. **Use separate tokens per environment.** Each environment (dev, staging, prod) gets its own bot from BotFather. Prevents conflicts and enforces isolation.
+4. **Document token → environment mapping.** Maintain a table of token ↔ business_id ↔ environment to detect ownership conflicts.
+5. **Add webhook healthcheck.** Telegram sends a test request to your webhook URL when `setWebhook()` is called. Log the result; if healthcheck fails, reject the webhook configuration change.
+6. **Implement startup verification.** If webhook setup fails at startup, fail the service entirely (don't proceed with stale config). Force manual intervention.
+
+**Detection:**
+- Alert on webhook setup failures in startup logs
+- Alert if `getWebhookInfo()` shows unexpected URL
+- Daily audit: compare active webhooks in Telegram API vs. expected configuration
+- Health check: test webhook endpoints daily (send test message, verify received)
+
+**Phase:** Phase 1 (Infrastructure Setup) — Implement webhook lifecycle management (delete + verify) before routing logic. Include webhook health checks in startup.
 
 ---
 
-### Pitfall 3: LLM Function-Calling Double-Booking and Race Conditions
+### Pitfall 3: Multi-Bot Express Routing — Shared Middleware State Leaks Across Bots
 
 **What goes wrong:**
-Two clients message in quick succession, both requesting the same time slot. The LLM function-call loop processes both requests simultaneously (or with insufficient locking), and the system books both of them to the same slot. Or: the LLM "hallucinates" that a slot is available when it's already booked, because it's operating on stale state or making multiple write calls without coordination.
+When handling multiple bot tokens in a single Express app (e.g., `/webhooks/telegram/:botId`), shared middleware state (in-memory caches, request context, global variables) causes cross-bot data leakage:
+
+```typescript
+// WRONG: Shared state
+let currentOwner = null;  // Global; shared across all requests
+let pendingBooking = null;  // Another global
+
+app.post('/webhooks/telegram/:botId', async (req, res) => {
+  const owner = await db.getOwner(req.body.message.from.id);
+  currentOwner = owner;  // Bot A sets this
+  pendingBooking = req.body.message.text;  // Bot A sets this
+  
+  // Concurrent request from Bot B reads currentOwner and thinks it belongs to Bot B
+  // Booking intended for business A gets routed to business B
+  // Owner data from business A is visible to business B's handlers
+});
+```
+
+One bot's owner data is visible to another bot. Client messages from business A are routed to business B's logic.
 
 **Why it happens:**
-Developers treat LLM function calling as fire-and-forget. Parallel tool calls for database writes (book_appointment, check_availability, update_calendar) without idempotency keys or transaction isolation allow race conditions. Gemini's free tier also has rate limits that can cause partial failures (one write succeeds, another fails) leading to data corruption.
+Developers migrate from single-bot to multi-bot by adding a `:botId` parameter, assuming request handlers are isolated. But global/module-level state is shared across all requests. Express middleware is also shared. Request handler isolation holds only if there's no async suspension or callback-based code.
 
-**How to avoid:**
-- **Enforce sequential booking logic:** Do NOT let LLM call booking functions in parallel. Wrap all booking actions in a database transaction with row-level locks on the availability slot.
-- **Idempotency keys:** Every function call must include a unique request ID that the database persists; a duplicate request with the same ID returns cached result, not a re-execution.
-- **Slot locking:** When checking availability, immediately reserve the slot with a temporary hold (expires in 5 minutes). Do not allow multiple reserves of the same slot in the same transaction.
-- **Function-call orchestration:** Enforce strict ordering: check_availability → reserve_slot → (LLM receives confirmation) → book_appointment. Do not parallelize these.
-- **Rate limit handling:** If Gemini returns a rate-limit error during booking, rollback the entire transaction and inform the client to retry; do not proceed with partial state.
+**Consequences:**
+- Data leakage: business A's clients see business B's availability, prices, or bookings
+- Booking corruption: a booking intended for business A is stored for business B
+- Service degradation: one bot's crash affects all bots
+- Silent corruption: no obvious error; incorrect behavior masquerades as a bug elsewhere
 
-**Warning signs:**
-- Two bookings appear in the database for the same time slot from different messages.
-- Logs show that check_availability was called but book_appointment never ran, leaving dangling reservations.
-- Rapid-fire test messages cause inconsistent outcomes (sometimes books successfully, sometimes doesn't).
-- LLM confidently offers a time that's already booked according to the database.
+**Prevention:**
+1. **Never use global or module-level variables for request state.** Every request must carry its context from start to finish.
 
-**Phase to address:**
-Phase 2 (Booking Flow): Implement database-level concurrency control and idempotency framework before the first user test. This is not a nice-to-have; it's a functional requirement.
+2. **Use request-scoped context (res.locals or AsyncLocalStorage):**
+   ```typescript
+   app.post('/webhooks/telegram/:botId', async (req, res) => {
+     res.locals.botId = req.params.botId;
+     res.locals.bot = bots[req.params.botId];
+     res.locals.owner = await db.getOwner(req.body.message.from.id);
+     // Pass res.locals to all downstream functions
+     await handleBookingRequest(res.locals);
+   });
+   ```
+
+3. **Isolate session stores per bot token.** Don't use in-memory caches. Use Neon or Redis with bot_token as key prefix:
+   ```typescript
+   const sessionKey = `${botToken}:${userId}:onboarding_state`;
+   const session = await redis.get(sessionKey);
+   ```
+
+4. **Avoid middleware that modifies global state.** Every middleware must leave global state unchanged between requests.
+
+5. **Test concurrent requests from multiple bots.** Unit tests won't catch cross-bot isolation failures. Use integration tests or load tests hammering multiple bots in parallel.
+
+6. **Code review checklist:** In every bot handler, verify:
+   - No assignments to global variables
+   - No in-memory caches without bot_token isolation
+   - All state read from `res.locals` or database
+
+**Detection:**
+- Integration tests sending concurrent requests to different bots, verifying isolation
+- Logs that correlate `botId` with every operation
+- Unit tests for request-scoped helpers (ensure no shared state)
+- Smoke test: create two business bots, send concurrent messages, verify data doesn't leak
+
+**Phase:** Phase 2 (Multi-Bot Routing) — Build request isolation patterns before writing any handler logic. This is foundational; retrofitting isolation is expensive.
 
 ---
 
-### Pitfall 4: Gemini Free Tier Rate Limits Silently Break Under Load
+### Pitfall 4: Telegram Signature Verification — Wrong Secret Per Token
 
 **What goes wrong:**
-You ship the PoC and it works fine with test messages (1–2 req/min). One week later, the system gets 15+ queries/min as real users arrive. Gemini starts returning 429 (Too Many Requests) errors. Your error handling logs them, but does not retry or notify users. Booking requests hang, clients get confused, and your bot appears broken.
+Telegram sends an `X-Telegram-Bot-Api-Secret-Token` header with each webhook request. If you verify signatures with a shared secret or the wrong token's secret, attackers can forge webhooks:
 
-Current free tier limits (2026):
-- Gemini 2.5 Pro: 5 RPM (requests per minute), 100 RPD (requests per day)
-- Gemini 2.5 Flash: 10 RPM, 100 RPD
-- Gemini Flash-Lite: 15 RPM, 100 RPD
+```typescript
+// WRONG: Shared secret for all bots
+const sharedSecret = process.env.TELEGRAM_SECRET;  // Used for ALL bots
+const receivedSignature = req.headers['x-telegram-bot-api-secret-token'];
+const expectedSignature = crypto.createHmac('sha256', sharedSecret)
+  .update(JSON.stringify(req.body))
+  .digest('hex');
+// If attacker knows sharedSecret, they can forge messages for ANY bot
+```
+
+Attacker sends fake booking cancellations, confirmations, or payment notifications to any bot in your system.
 
 **Why it happens:**
-Developers assume free tier is "unlimited" or test locally without simulating real load. Rate limits are per project (not per API key), so adding more keys does NOT increase quota. By the time you realize the limit is hit, users are already experiencing failures.
+Developers assume one shared secret is simpler. They don't realize that secrets must be unique per bot or that Telegram's header name is generic (doesn't hint at per-bot uniqueness). The security implication isn't obvious until after implementation.
 
-**How to avoid:**
-- **Load test early:** Simulate 15–20 concurrent booking requests before shipping. You will hit rate limits.
-- **Implement exponential backoff with jitter:** If Gemini returns 429, retry with increasing delays (1s, 2s, 4s, 8s, etc.). Do NOT retry immediately.
-- **Circuit breaker pattern:** If rate limit is hit twice in 1 minute, switch to a fallback (e.g., "Sorry, I'm handling lots of bookings; can you try in 2 minutes?" or queue the request).
-- **Upgrade plan:** Gemini free tier is NOT suitable for production. Budget for Gemini's paid tier ($15+/month) before launch, or implement a secondary LLM provider (e.g., Claude API) for fallback.
-- **Monitor quota usage:** Use the Gemini API Studio dashboard and set up alerts for reaching 80% of daily quota.
-- **Disable retry loops in LLM:** Do NOT let the LLM retry function calls infinitely on rate limit; it wastes quota and confuses the conversation.
+**Consequences:**
+- Forged webhooks: attacker sends fake cancellations, bookings, or payments
+- Business reputation: customers see malicious or false messages
+- Financial impact: fake cancellations disrupt revenue
+- Regulatory: GDPR violations if forged data incorrectly deletes customer records
 
-**Warning signs:**
-- Test with 10+ concurrent messages; if any return 429 errors, you've hit the limit.
-- Logs show "rate limit exceeded" without retry logic.
-- API response includes headers like `x-ratelimit-remaining-requests: 0`.
-- Users report that bookings sometimes work, sometimes hang.
+**Prevention:**
+1. **Generate unique secret token per bot.** When onboarding a business, create a random secret:
+   ```typescript
+   const botSecret = crypto.randomBytes(32).toString('hex');
+   await db.saveBotConfig({
+     business_id,
+     bot_token,
+     bot_secret_token: botSecret  // Store securely in Neon
+   });
+   ```
 
-**Phase to address:**
-Phase 2 (AI Agent): Implement rate-limit detection and fallback strategy. Phase 3 (Load Testing): Stress-test the entire system with realistic concurrency.
+2. **Bind secret verification to the bot_token in request.** Extract bot_id from URL, look up its secret, verify with that secret:
+   ```typescript
+   app.post('/webhooks/telegram/:botId', async (req, res) => {
+     const botConfig = await db.getBotConfig(req.params.botId);
+     const receivedSignature = req.headers['x-telegram-bot-api-secret-token'];
+     const expectedSignature = crypto
+       .createHmac('sha256', botConfig.bot_secret_token)
+       .update(JSON.stringify(req.body))
+       .digest('hex');
+     
+     // Constant-time comparison (prevents timing attacks)
+     if (!crypto.timingSafeEqual(
+       Buffer.from(receivedSignature),
+       Buffer.from(expectedSignature)
+     )) {
+       return res.status(401).send('Unauthorized');
+     }
+   });
+   ```
+
+3. **Use constant-time comparison** (`crypto.timingSafeEqual`) to prevent timing attacks.
+
+4. **Log verification failures** with botId, but never log the secret itself:
+   ```typescript
+   if (verificationFailed) {
+     logger.warn('Webhook signature verification failed', {
+       botId: req.params.botId,
+       receivedSignaturePrefix: receivedSignature.substring(0, 8),
+       reason: 'signature_mismatch'  // Don't log actual values
+     });
+   }
+   ```
+
+5. **Rotate secrets if exposed.** Call `setWebhook()` again with a new secret.
+
+**Detection:**
+- Alert on verification failure spikes (401 Unauthorized responses)
+- Rate of failed signatures per botId
+- Unexpected bot behavior (messages from unknown sources)
+- Review webhook logs for unsigned or incorrectly-signed requests
+
+**Phase:** Phase 2 (Multi-Bot Routing) — Implement per-token signature verification BEFORE handling any webhooks. Make this part of the webhook registration checklist.
 
 ---
 
-### Pitfall 5: Multi-Tenant Business Disambiguation Context Loss
+### Pitfall 5: Owner Onboarding State Machine — Incomplete State & Dropout Recovery
 
 **What goes wrong:**
-A client sends "I want to book a pilates class" on the shared WhatsApp number. Your bot queries the database without filtering by tenant/business context and returns availability for ALL businesses, or books to the wrong one. Or: a business owner sends a message that should configure THEIR schedule, but the bot applies it to a different business because tenant context was lost between the message route and the database query.
+Owner begins onboarding via chat:
+1. "Hi, I want to set up my business"
+2. Bot: "What's your business name?"
+3. Owner: "Pilates Athens"
+4. Bot: "What are your hours?"
+5. **Owner closes chat, forgets, comes back 2 hours later**
+6. Owner: "Monday to Friday, 9am-6pm"
+7. Bot **doesn't know if this is continuing the old conversation or starting fresh.** It may:
+   - Ask for the business name again (confusing)
+   - Ignore the hours because it lost the onboarding state
+   - Partially save data, leaving the database in an undefined state
+
+Also: what if the same message arrives twice (network retry)? The bot might execute onboarding twice, creating duplicate business configs.
 
 **Why it happens:**
-The shared-number architecture requires every action to carry a tenant ID (business ID). If the tenant context is not propagated through the LLM function-calling loop to the database, every query and write becomes a data leak risk. This is especially dangerous because it's silent—no error is thrown, but data goes to the wrong place.
+Stateless webhook handlers don't track where in the onboarding flow the owner is. Each message is processed independently. No resumption logic; no idempotency. The onboarding "flow" is implicit in the code, not explicitly modeled.
 
-**How to avoid:**
-- **Tenant ID in headers:** Extract tenant context from the message metadata (WhatsApp Business Account ID or a business code embedded in the incoming message) and store it in a request-scoped context (e.g., Node.js AsyncLocalStorage).
-- **Enforce tenant filtering at database layer:** Every query must include `WHERE tenant_id = ?`. Use an ORM hook or database view to make this automatic, so developers cannot forget it.
-- **LLM tool definitions:** Include tenant_id as a required parameter (not optional) in every function definition the LLM can call. The LLM should receive tenant_id once and use it in all function calls.
-- **Message routing:** Map incoming WhatsApp messages to a tenant BEFORE they reach the LLM. If you cannot determine the tenant (e.g., new client, no business code in message), ask the user to clarify ("Which business are you booking with?") before proceeding.
-- **Audit log:** Log every database read/write with the tenant_id used. Periodically audit for cross-tenant access patterns.
+**Consequences:**
+- Owner frustration: repeated questions, unclear progress
+- Data corruption: partial business configs, duplicate services/hours
+- Abandoned onboarding: owners give up and never complete setup
+- Silent failures: database has incomplete/inconsistent owner data
 
-**Warning signs:**
-- A business owner reports that another business's bookings appeared in their calendar.
-- Database queries run successfully but return data for the wrong business.
-- The LLM calls a booking function but does not include business_id in the parameters.
-- Client data appears mixed across businesses in logs.
+**Prevention:**
+1. **Model onboarding as explicit state machine:**
+   ```typescript
+   enum OnboardingState {
+     Started = 'started',
+     AwaitingBusinessName = 'awaiting_business_name',
+     AwaitingHours = 'awaiting_hours',
+     AwaitingServices = 'awaiting_services',
+     Completed = 'completed'
+   }
 
-**Phase to address:**
-Phase 1 (Architecture): Design multi-tenancy from the start. This is a structural issue that is expensive to retrofit. Include a multi-tenancy audit in the Phase 1 completion checklist.
+   interface OnboardingSession {
+     owner_id: string;
+     bot_id: string;
+     state: OnboardingState;
+     business_name?: string;
+     hours?: string;
+     services?: string[];
+     started_at: Date;
+     last_message_at: Date;
+   }
+   ```
+
+2. **Persist state in database.** On each message, load session state, process message, update state, save:
+   ```typescript
+   const session = await db.getOnboardingSession(ownerId);
+   if (!session) throw new Error('Onboarding not started');
+   
+   switch (session.state) {
+     case OnboardingState.AwaitingBusinessName:
+       session.business_name = req.body.message.text;
+       session.state = OnboardingState.AwaitingHours;
+       break;
+     // ... other states
+   }
+   await db.saveOnboardingSession(session);
+   ```
+
+3. **Implement idempotent state transitions.** Detect duplicate messages and don't update state twice:
+   ```typescript
+   const dedupeKey = `onboarding:${ownerId}:${messageId}`;
+   const alreadyProcessed = await redis.get(dedupeKey);
+   if (alreadyProcessed) {
+     return res.status(200).send('Already processed');
+   }
+   // Process the message...
+   await redis.setex(dedupeKey, 3600, 'done');  // 1-hour expiry
+   ```
+
+4. **Add timeout for incomplete onboarding.** If an owner hasn't progressed in 7 days, reset and ask to restart.
+
+5. **Provide resume/status command.** Owner types `/status` to see where they are and skip completed steps.
+
+6. **Log state transitions.** Audit trail: who started, who completed, what data was saved.
+
+**Detection:**
+- Onboarding sessions in "awaiting_*" state for >24 hours
+- Duplicate onboarding sessions for the same owner
+- Business configs with missing required fields
+- Error log spike during onboarding flows
+
+**Phase:** Phase 3 (Owner Onboarding) — Implement state machine and database persistence BEFORE handling first owner message. State machine is the foundation; retrofit is expensive.
 
 ---
 
-### Pitfall 6: Greek Date/Time Parsing Fails for Relative Expressions
+### Pitfall 6: Token Registration Race — Duplicate Bot Claims
 
 **What goes wrong:**
-Client writes "αύριο στις 5" (tomorrow at 5) or "την Παρασκευή" (Friday). Your NLP date parser (or LLM) misinterprets this, resulting in bookings for the wrong day or no day at all. In Greek, relative temporal expressions (αύριο, μεθαύριο, προχθές) have no standardized parsing outside of general-purpose NLP libraries, and generic parsers often fail on colloquial phrasing.
+Two owners try to register the same bot token simultaneously:
+
+1. Owner A: "Set up my bot @mybusiness_bot" → provides token: `123:ABCDEF`
+2. Owner B: "Set up my bot" → provides the same token: `123:ABCDEF`
+3. Both requests hit your API at the same time.
+4. Both check: `SELECT * FROM bots WHERE bot_token = '123:ABCDEF'` — both see it's free.
+5. Both call `setWebhook()` and save to the database.
+6. Now two business rows point to the same bot token. Webhook requests are routed to the first business (A), but business B thinks they own the token and can manage the bot.
 
 **Why it happens:**
-Developers assume generic NLP libraries (like dateparser) or the LLM's built-in date understanding will handle Greek seamlessly. They don't; Greek morphology is complex, and relative expressions require context (what is "today" in the user's timezone?). Timezone is Europe/Athens, but the LLM may not know that.
+Check-then-act is not atomic. Time-of-check to time-of-act window allows concurrent registrations. No database uniqueness constraint. Developers assume sequential webhook processing.
 
-**How to avoid:**
-- **Pre-process Greek temporal expressions:** Before sending user input to the LLM, use a Greek-specific NLP library (e.g., gr-nlp-toolkit) or implement a simple mapping for common phrases:
-  - "αύριο" → tomorrow (system date + 1 day)
-  - "μεθαύριο" → day after tomorrow (system date + 2 days)
-  - "πρόχθες" → day before yesterday
-  - Days of the week: "Παρασκευή", "Σάββατο", etc. → next occurrence of that weekday
-- **Enforce Europe/Athens timezone:** Store all times in UTC internally, but always parse user input as Europe/Athens. When displaying times back to users, convert to Europe/Athens.
-- **Confirmation pattern:** After the LLM extracts a date, always confirm with the user: "Καταλαβαίνω ότι θέλεις Παρασκευή 4 Ιουλίου, 5 π.μ., σωστά;" (I understand you want Friday, July 4 at 5 a.m., correct?). Let them correct if wrong.
-- **Test thoroughly:** Build a test corpus of Greek temporal phrases and verify the parser handles them correctly. This is not a generic NLP problem; it requires domain-specific tuning.
+**Consequences:**
+- Bot token belongs to business A in the database, but business B thinks they own it.
+- Webhook routing sends B's customers' messages to A's handlers.
+- Ownership confusion: both businesses claim ownership; resolving requires manual intervention.
+- Data corruption: a booking from B's customer is stored under A's business.
 
-**Warning signs:**
-- Bookings are consistently for the wrong day or time when clients use relative phrases.
-- The LLM asks clarifying questions about dates repeatedly because it's uncertain.
-- Users report that they booked "αύριο" but the system showed a different date.
+**Prevention:**
+1. **Add UNIQUE database constraint on bot_token:**
+   ```sql
+   CREATE UNIQUE INDEX idx_bot_token_unique ON bots(bot_token);
+   ```
+   This ensures the database rejects duplicate tokens at the storage layer.
 
-**Phase to address:**
-Phase 2 (AI Agent): Implement Greek-specific date parsing before the first user test. Test with real Greek temporal phrases from your target audience.
+2. **Use atomic upsert or INSERT with conflict handling:**
+   ```typescript
+   const result = await db
+     .insert(bots)
+     .values({ bot_token, business_id, bot_secret_token })
+     .onConflict('bot_token')
+     .doThrow();  // Throw error if token already registered
+   if (!result) {
+     throw new Error('Bot token already in use');
+   }
+   ```
+
+3. **Verify token ownership with Telegram API.** After registration, call `getMe()` to validate:
+   ```typescript
+   const botMe = await bot.getMe();  // Validates token and gets bot info
+   if (!botMe.username) throw new Error('Invalid bot token');
+   ```
+
+4. **Return clear error to owner if token is in use:**
+   ```
+   Sorry, this bot token is already registered by another business.
+   Please contact support or create a new bot in BotFather.
+   ```
+
+5. **Implement distributed lock for registration if needed.** Use Redis SETNX or database transaction lock:
+   ```typescript
+   const lock = await redis.set(
+     `bot_registration_lock:${botToken}`,
+     '1',
+     'NX',
+     'EX',
+     30  // 30-second lock
+   );
+   if (!lock) {
+     throw new Error('Registration in progress; please try again');
+   }
+   ```
+
+**Detection:**
+- Database uniqueness constraint violations in error logs
+- Duplicate bot_token entries (run audit query)
+- Mismatches between expected and actual bot ownership
+
+**Phase:** Phase 3 (Owner Onboarding) — Add uniqueness constraint BEFORE owner registration logic. Also verify token ownership with Telegram API.
 
 ---
 
-### Pitfall 7: Google Calendar Sync Fails Under Timezone/Timezone Conflicts
+### Pitfall 7: Migration from Single Shared Bot — Existing Clients Orphaned
 
 **What goes wrong:**
-A business owner's appointment is booked at 5 p.m. (Europe/Athens, UTC+3). The event is synced to Google Calendar, but it appears at 3 p.m. or 7 p.m. due to timezone mismatch. Or: you attempt to update an existing event (based on event ID), but the update creates a duplicate event instead because the sync token is stale or the event ID mapping is lost.
+v1.0 operated with a single shared bot token. In v1.1, each business has its own bot. You deploy the per-business bot architecture. But the old shared bot is still running or clients still have the old chat link.
+
+Result:
+- Existing clients continue messaging the old shared bot, expecting it to work.
+- The old bot is no longer maintained; messages go unanswered or are processed by stale code.
+- New clients don't know about the per-business bots.
+- Confusion: which bot should I use?
 
 **Why it happens:**
-Google Calendar API requires explicit timezone handling. If you don't specify `timeZone: "Europe/Athens"` in the API call, the API assumes the calendar's default timezone (which may be different). Recurring events require timezone in the recurrence rule. If you don't track event IDs correctly, you lose the ability to update existing events.
+Big-bang migration: v1.0 is shut down completely, v1.1 deployed. No dual-mode operation. No migration messaging. The platform assumes all clients will switch overnight.
 
-**How to avoid:**
-- **Always specify timezone:** Every calendar.events.insert() or update() call must include `timeZone: "Europe/Athens"` in the eventDateTime.
-- **Store event IDs:** When syncing a booking to Google Calendar, store the Google Calendar event ID in your database, keyed to the booking ID. Never rely on reconstructing the event ID later.
-- **Use sync tokens:** For incremental sync (checking for owner-side changes), use Google's syncToken mechanism to efficiently detect changes without polling all events.
-- **Handle recurring events:** If a business offers recurring services, the recurrence rule must include the timezone. Do NOT omit timezone from recurrence rules.
-- **Conflict detection:** Before inserting an event, query the calendar for overlapping events in the same time slot. Google Calendar does NOT enforce no-conflicts on insert; you must.
-- **Test timezone edge cases:** Create bookings around timezone transition dates (DST changes in Greece, which occur in late March and late October). Verify times are correct before/after transitions.
+**Consequences:**
+- Customer support burden: existing clients confused why the old bot doesn't respond
+- Lost bookings: clients give up and use competitors
+- Reputation damage: perceived service outage or abandonment
+- Data loss: if the old shared bot's database is shut down, existing bookings orphaned
 
-**Warning signs:**
-- Events appear at different times in Google Calendar vs. your WhatsApp booking message.
-- After updating a booking, two calendar events exist (old and new) instead of one updated event.
-- Event ID lookups fail because the stored ID doesn't match the Calendar API ID.
-- Recurring bookings have timezone mismatches between the recurrence rule and event times.
+**Prevention:**
+1. **Operate both architectures in parallel during transition.** Keep the old shared bot active for 2–4 weeks after deploying v1.1 per-business bots.
 
-**Phase to address:**
-Phase 3 (Google Calendar Sync): Implement with timezone testing from day one. This is NOT a cosmetic issue; it breaks the core value of "owner's calendar updates automatically."
+2. **Detect old shared bot messages and redirect:**
+   ```typescript
+   // In old shared bot handler:
+   if (clientKnownToBusiness && businessNowHasPerBotId) {
+     return bot.sendMessage(chatId, `
+       We've upgraded! Your business now has a dedicated bot:
+       @${business.per_bot_username}
+       Click to switch: [link to new bot]
+       All your bookings have been moved.
+     `);
+   }
+   ```
+
+3. **Migrate existing bookings to per-business schema.** Write a migration script:
+   ```sql
+   -- Copy bookings from old shared bot table to new per-business schema
+   INSERT INTO bookings (business_id, customer_id, slot_time, status, created_at)
+   SELECT b.business_id, c.customer_id, b.slot_time, b.status, b.created_at
+   FROM legacy_bookings b
+   JOIN customers c ON b.customer_phone = c.phone
+   WHERE b.migrated_at IS NULL;
+   UPDATE legacy_bookings SET migrated_at = NOW() WHERE migrated_at IS NULL;
+   ```
+
+4. **Send migration message to all existing clients** via the old bot:
+   ```
+   Your booking bot has moved to a new dedicated number!
+   We've moved your bookings to: @${business.per_bot_username}
+   All your appointments are safe; no action needed.
+   ```
+
+5. **Support dual-mode during transition.** The old shared bot can query the database and forward relevant messages to the new per-business bot, so clients aren't completely orphaned.
+
+6. **Monitor old bot usage.** Track how many clients are still messaging the old bot. Set a deadline for shutdown (e.g., 4 weeks after migration).
+
+**Detection:**
+- Spike in "bot not responding" support tickets
+- Drop in booking activity during migration period
+- Orphaned bookings (bookings with business_id but no corresponding per_bot)
+
+**Phase:** Phase 2 (Multi-Bot Routing) — Plan migration messaging and backward compatibility BEFORE per-business bot launch. Migration is critical to avoid user churn.
 
 ---
 
-### Pitfall 8: Scheduled Reminder Jobs on fly.io Miss Runs or Send Duplicates
+## Moderate Pitfalls
+
+These mistakes cause data inconsistency or service degradation but are recoverable.
+
+### Pitfall 8: GDPR Deletion — Cascade Delete Breaks Audit Trails
 
 **What goes wrong:**
-You set up a cron job on fly.io to send daily reminder messages (e.g., 8 a.m. each day for appointments that day). On some days, the job doesn't run at all, or it runs twice, sending duplicate reminders to clients. Machine resumes from suspend cause clock skew, causing the job to fire at the wrong time. Timezone handling is broken; the job runs at UTC but your business is in Europe/Athens, so reminders arrive at the wrong time.
+A customer requests deletion under GDPR. Your code deletes the customer record via:
+```sql
+DELETE FROM customers WHERE customer_id = ?;
+```
+
+This cascades to delete all bookings, reviews, and audit logs for that customer. Later, a business owner disputes a chargeback or questions a booking. You can't prove the booking existed or was completed—the audit trail is gone. Or: a government audit requires proof of deletion compliance, but you have no record of *what* was deleted *when*.
 
 **Why it happens:**
-fly.io's edge network doesn't guarantee exactly-once execution for cron jobs without explicit coordination. When a Machine resumes from suspend, its system clock is temporarily out-of-sync, breaking time-based triggers. Developers often don't implement idempotency for scheduled jobs, assuming "it's just scheduled once," but fly.io's infrastructure can execute the job multiple times.
+Developers use `DELETE ... CASCADE` as a shortcut. They conflate "personal data deletion" with "all traces of the person must vanish." They don't realize that audit/compliance requires historical records of deleted data.
 
-**How to avoid:**
-- **Use fly.io Cron Manager (recommended):** fly.io's "batteries-included" solution spins up isolated Machines for each cron job, preventing configuration drift and duplicate executions. This is the safest approach for a production system.
-- **Idempotency for cron jobs:** If implementing your own cron (e.g., node-cron), every job run must be idempotent. Before sending reminders, check if reminders were already sent for that date. Use a database table to track "reminder_job_run" with date + business_id + job_type to prevent duplicates.
-- **Timezone handling:** Store the job's execution time in Europe/Athens, not UTC. Use a library like date-fns or day.js with timezone support to compute the next run time correctly.
-- **Monitor and alert:** Log every cron job execution (start time, end time, number of reminders sent). Set up alerts if a job doesn't run for 24+ hours or if more reminders are sent than expected.
-- **Graceful degradation:** If the reminder job fails, do NOT silently ignore it. Log the error and implement retry logic (but only after the 24-hour window is guaranteed to have closed).
+**Consequences:**
+- Lost audit trail: no proof of deletion compliance
+- Chargeback disputes: no historical evidence
+- Regulatory penalties: EDPB or HDPA fines for incomplete audit logs
+- Business risk: can't defend against false claims
 
-**Warning signs:**
-- A cron job scheduled for 8 a.m. runs at 7 a.m. or 9 a.m. on some days.
-- Clients receive the same reminder message twice.
-- Logs show the job was triggered multiple times in a single 5-minute period.
-- The job doesn't run for a full day, then runs with a backlog of delayed messages.
+**Prevention:**
+1. **Use soft deletes (logical deletion), not hard deletes:**
+   ```sql
+   ALTER TABLE customers ADD COLUMN deleted_at TIMESTAMP;
+   UPDATE customers SET deleted_at = NOW() WHERE customer_id = ?;
+   -- When querying: WHERE deleted_at IS NULL
+   ```
 
-**Phase to address:**
-Phase 3 (Reminders & Notifications): Use fly.io Cron Manager from day one. Do NOT implement custom cron on fly.io; the built-in solution is purpose-built to avoid these pitfalls.
+2. **Maintain separate deletion audit log:**
+   ```sql
+   CREATE TABLE deletion_audit_log (
+     id UUID PRIMARY KEY,
+     deleted_entity_type VARCHAR,  -- 'customer', 'booking'
+     deleted_entity_id UUID,
+     deleted_by VARCHAR,  -- 'customer_request', 'admin'
+     deleted_at TIMESTAMP,
+     reason TEXT,
+     retained_fields JSONB  -- Store critical data (booking_id, date) before deletion
+   );
+   ```
+
+3. **Retain minimal data for compliance:**
+   - Delete PII (name, phone, email)
+   - Retain anonymous booking history (dates, times, prices) for audit
+   - Separate tables: `customers_pii` (deleted) vs. `bookings` (retained with nulled customer_id)
+
+4. **Don't cascade deletes through business relationships.** If customer deletes their account:
+   - Delete: customer name, phone, email, payment info
+   - Retain: booking records (with customer_id nulled), timestamps
+
+5. **Create deletion report for compliance.** Log every deletion:
+   ```
+   2026-07-10 15:30: Customer deletion request for customer_id=abc123
+   Deleted: name, email, phone, payment methods
+   Retained: 5 bookings (2026-06-01 to 2026-07-01)
+   Erasure confirmed via audit_log/uuid-xyz
+   ```
+
+**Detection:**
+- Compare deletion requests to deletion audit log; alert on mismatches
+- Monthly audit: verify all requested deletions are logged
+- Check for orphaned bookings (booking with no customer record)
+
+**Phase:** Phase 5 (GDPR Deletion) — Design soft-delete strategy BEFORE implementing deletion logic. Retrofitting soft deletes is expensive.
 
 ---
 
-### Pitfall 9: GDPR Non-Compliance for Greek Client Data
+### Pitfall 9: GDPR Deletion — Backup Restoration Undoes Deletions
 
 **What goes wrong:**
-You store Greek clients' phone numbers, booking history, and personal preferences in your Neon database without documenting a lawful basis for processing (e.g., consent, contract), without implementing access controls, and without a data retention policy. If a user asks for their data (Article 15 right of access) or requests deletion (Article 17 right to erasure), your system has no way to comply within 30 days. Or: a data breach occurs, and you have no incident response plan. The Hellenic Data Protection Authority (HDPA) fines you €5,000–€20 million.
+Customer requests deletion on 2026-07-10. Your system deletes the record and logs it. Later that day, you restore a backup from 2026-07-09 to fix a corruption issue. The "forgotten" customer's data is restored into the live database.
+
+Now the customer's data is back—you've violated GDPR's "Right to be Forgotten."
 
 **Why it happens:**
-Developers focus on features and assume compliance is a "legal team problem." GDPR applies immediately to any EU-resident personal data processing, including Greek phone numbers. The law requires compliance from day one, not after launch. Small businesses often lack legal resources, so they assume "it's okay" until enforcement.
+Backup restoration is not coordinated with deletion tracking. DBAs restore from backup unaware of deletion requests. No pre-restore check against the deletion audit log.
 
-**How to avoid:**
-- **Document lawful basis:** Your PoC needs a lawful basis for processing client data. Options:
-  - **Consent:** Add a WhatsApp message during onboarding: "I consent to store my phone number for booking management." Only proceed after explicit consent.
-  - **Contract:** If clients are entering into a booking contract, processing the phone number to fulfill that contract is lawful.
-  - **Legitimate interest:** You could argue that storing phone numbers is necessary for your business (sending reminders), but this is weaker and requires a balancing test.
-- **Data minimization:** Only store fields you actually need. Do NOT store browser history, IP addresses, or other tracking data.
-- **Retention policy:** Define how long you keep booking data (e.g., 1 year after the appointment, then delete). Implement this in code (e.g., automated deletion job).
-- **User rights implementation:** Implement endpoints/flows for data access (Article 15) and deletion (Article 17). Users should be able to request their data and get a JSON export within 30 days.
-- **Breach notification:** Set up a procedure for notifying the HDPA (within 72 hours) and affected users if data is compromised.
-- **No DPO required (probably):** You likely don't need a Data Protection Officer unless you're processing large-scale special categories of data or systematic monitoring. But read the GDPR to confirm.
-- **Privacy policy:** Publish a privacy policy on your website (or in WhatsApp) explaining what data you collect, why, how long you keep it, and what rights users have.
+**Consequences:**
+- GDPR violation: data subject's data re-appears without consent
+- Regulatory penalties: fines up to 4% of global revenue
+- Customer breach notification required
+- Loss of trust
 
-**Warning signs:**
-- No documentation of lawful basis or consent flow.
-- Data retention is indefinite ("we keep everything").
-- A user requests data deletion and you have no process to handle it.
-- No privacy policy published anywhere.
+**Prevention:**
+1. **Query deletion audit log before restoring:**
+   ```bash
+   # Before restore:
+   SELECT COUNT(*) FROM deletion_audit_log 
+   WHERE deleted_at > backup_timestamp;
+   # If count > 0, alert and require manual review
+   ```
 
-**Phase to address:**
-Phase 1 (Architecture & Setup): Define GDPR compliance framework before building the system. Add consent flow to Phase 2 (Message Flow). Implement data deletion jobs in Phase 3 (Admin & Maintenance). This is not deferrable; it's a legal requirement.
+2. **Use point-in-time recovery aware deletion.** If restoring to time T:
+   - Restore database to time T
+   - Re-apply all deletions that occurred after T from the audit log
 
----
+3. **Archive deletion audit logs separately** (Cloudflare R2, S3) so they survive a full database restore.
 
-## Technical Debt Patterns
+4. **Create erasure retention marker.** Mark customers as `erasure_requested_at`. During backup restoration, automatically re-delete records with erasure_requested_at < restore_time.
 
-| Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
-|----------|-------------------|----------------|-----------------|
-| Skip Meta verification until "almost launch" | Faster prototyping | 1–6 week delay at critical moment, kills launch timeline | Never — start verification immediately |
-| Implement custom cron jobs instead of fly.io Cron Manager | Avoid dependency on fly.io tool | Duplicate job runs, missed runs, timezone bugs, on-call incidents | Never — use Cron Manager |
-| Omit idempotency keys in booking functions | Simpler code | Double-booking, data corruption under load | Never — idempotency is core |
-| Store all data indefinitely (no retention policy) | No deletion logic needed | GDPR violation, audit/compliance nightmare, storage bloat | Never for production; at most for PoC with disclosure |
-| Use Gemini free tier without rate-limit fallback | No cost | Silent failures under realistic load, user experience collapse | Only for proof-of-concept with <5 daily active users; upgrade before scaling |
-| Assume LLM handles all date parsing (no pre-processing) | Fewer code paths | Frequent booking-time errors, poor UX | Never — implement Greek-specific preprocessing |
+5. **Manual approval for backup restores.** Require a compliance lead to approve restores from before a deletion date.
+
+**Detection:**
+- Alert if soft-deleted customer suddenly has active bookings
+- Audit: scan for customers with both deleted_at timestamp and active data
+- Deletion log audit: verify no customer appears in active tables after deletion_at
+
+**Phase:** Phase 5 (GDPR Deletion) — Coordinate backup strategy with deletion tracking BEFORE handling any deletions. This is a legal requirement, not optional.
 
 ---
 
-## Integration Gotchas
+### Pitfall 10: Gemini Rate Limiting — Naive Exponential Backoff Without Jitter
 
-| Integration | Common Mistake | Correct Approach |
-|-------------|----------------|------------------|
-| **WhatsApp Cloud API** | Assume message delivery is guaranteed; don't track sent/delivered status | Implement webhook for delivery confirmations; log and retry failed messages |
-| **WhatsApp Cloud API** | Send reminders outside 24-hour window without approved templates | Pre-create and test all template approval flows; implement template fallback |
-| **Gemini API** | Retry rate-limit errors immediately without backoff | Implement exponential backoff with jitter; track quota usage in real-time |
-| **Gemini API** | Pass user input directly to LLM without pre-processing Greek dates | Pre-process relative temporal expressions; confirm dates with user |
-| **Google Calendar** | Omit `timeZone` parameter in API calls | Always include `timeZone: "Europe/Athens"` in event operations |
-| **Google Calendar** | Lose track of event IDs and reconstruct them later | Store event IDs in database keyed to booking ID; never reconstruct |
-| **Neon PostgreSQL** | Trust LLM to construct SQL or sanitize queries | Use parameterized queries always; never interpolate user input |
-| **fly.io** | Schedule cron jobs with node-cron or setInterval | Use fly.io Cron Manager; implement idempotency if rolling your own |
+**What goes wrong:**
+Your app hits Gemini rate limit (429 RESOURCE_EXHAUSTED). Your code retries with exponential backoff:
 
----
+```typescript
+let delay = 1000;  // 1 second
+for (let attempt = 0; attempt < maxRetries; attempt++) {
+  try {
+    return await gemini.generateContent(prompt);
+  } catch (error) {
+    if (error.status === 429) {
+      await sleep(delay);
+      delay *= 2;  // 1s, 2s, 4s, 8s, ...
+    }
+  }
+}
+```
 
-## Performance Traps
+With one instance, this works fine. But with 10 concurrent instances (fly.io autoscale), all hit the rate limit at the same time. All wait 1 second, then retry at the same millisecond. All retry together at 2s, then 4s. This creates a **thundering herd**—the rate limiter never recovers.
 
-| Trap | Symptoms | Prevention | When It Breaks |
-|------|----------|------------|----------------|
-| LLM function-call loops without concurrency control | Sequential messaging works; parallel requests corrupt data | Implement database transactions and row-level locks | >5 concurrent booking requests |
-| Polling Google Calendar every message instead of webhooks | Increased API quota usage; slow message responses | Use Google Calendar push notifications (webhooks) for real-time sync | >10 bookings per day |
-| Storing large context windows in memory per request | Memory usage grows with number of concurrent clients | Implement request-scoped context (AsyncLocalStorage); do not retain state between requests | >20 concurrent messages |
-| No caching of business profile/availability data | Every booking query re-fetches from database | Cache business config in-memory or Redis with 5-min TTL; invalidate on updates | >50 bookings per hour |
-| Checking Gemini rate limits only on error | Silent failures when approaching quota | Proactively check quota headers; switch to fallback mode at 80% usage | >100 messages per day to LLM |
+**Why it happens:**
+Developers assume exponential backoff is sufficient. They don't consider multiple app instances retrying in lockstep. The algorithm is correct for single-client but amplifies with multiple clients.
 
----
+**Consequences:**
+- Bookings fail or are delayed by minutes
+- Rate limit window extends (more retries = more 429s)
+- Customer experience: booking is slow; they cancel and try competitors
+- Operational: rapid alert spam (all instances triggering rate-limit alarms)
 
-## Security Mistakes
+**Prevention:**
+1. **Add jitter (randomization) to backoff delays.** Full jitter strategy:
+   ```typescript
+   // Full jitter: random delay between 0 and (2^attempt - 1)
+   const maxJitter = Math.pow(2, attempt) - 1;
+   const jitterMs = Math.random() * maxJitter * 1000;
+   await sleep(jitterMs);
+   ```
 
-| Mistake | Risk | Prevention |
-|---------|------|------------|
-| Storing phone numbers and booking data without encryption at rest | Data breach exposes PII; GDPR violation; loss of customer trust | Encrypt sensitive fields at rest (e.g., AES-256 in Neon); use HTTPS for all transport |
-| No input validation on business configuration (hours, prices, etc.) | LLM can be tricked into booking invalid times; injection attacks | Validate all user-provided config data against strict schemas; reject malformed input |
-| Tenant context not enforced in database queries | Cross-tenant data leaks; one business sees another's bookings | Make tenant filtering automatic at ORM/database layer; audit all queries for `WHERE tenant_id` |
-| Storing Gemini/Google API keys in environment variables without rotation | Leaked keys allow attacker to impersonate your service | Use fly.io secrets for API keys; rotate quarterly; monitor for unusual API usage |
-| No rate limiting on WhatsApp message sends | Attacker floods a business number, causing spam; account flagged by Meta | Implement per-business rate limiting (e.g., max 100 messages/hour); add WhatsApp abuse reporting |
+2. **Respect Retry-After header if provided:**
+   ```typescript
+   if (error.status === 429) {
+     const retryAfter = error.headers['retry-after'] || '60';
+     await sleep(parseInt(retryAfter) * 1000);
+   }
+   ```
 
----
+3. **Use circuit breaker pattern.** If 429s persist, stop retrying and return user-facing error:
+   ```typescript
+   const breaker = new CircuitBreaker({
+     timeout: 30000,
+     errorThresholdPercentage: 50,
+     resetTimeout: 60000
+   });
+   await breaker.fire(async () => gemini.generateContent(prompt));
+   ```
 
-## UX Pitfalls
+4. **Queue requests locally to avoid thundering herd.** Serialize requests:
+   ```typescript
+   const queue = new PQueue({ concurrency: 1 });  // One at a time
+   queue.add(() => gemini.generateContent(prompt));
+   ```
 
-| Pitfall | User Impact | Better Approach |
-|---------|-------------|-----------------|
-| Ambiguous business disambiguation (user doesn't know the business code) | Client gets lost; can't book anything; tries other platforms | Provide clear deep links with embedded business code; include business name in greeting message |
-| Booking time displayed in UTC instead of Europe/Athens | Clients book wrong time; miss appointments; frustration | Always display times in user's timezone (Europe/Athens); confirm time with user before booking |
-| No confirmation after booking | User unsure if booking succeeded; may re-book; double-booking | Send WhatsApp confirmation message immediately with booking details (date, time, business) |
-| LLM asking the same clarifying question repeatedly | Frustrating conversation; users abandon; poor perceived AI quality | Store conversation context; implement memory of what's already been established; don't re-ask |
-| Reminder message arrives at wrong time | Users miss appointments; no-show rate increases | Use fly.io Cron Manager with Europe/Athens timezone; test reminder delivery times |
+5. **Log every rate limit.** Track the rate and alert when it exceeds a threshold (e.g., >10/minute).
 
----
+**Detection:**
+- Alert on rate-limit error spike (429s per minute)
+- Correlation: rate-limit errors spike when concurrent requests spike
+- Slow booking confirmations during peak load
 
-## "Looks Done But Isn't" Checklist
-
-- [ ] **Meta Verification:** Verify all four touchpoints match exactly (Meta Business Info, legal registration, website, address proof). Do NOT proceed to production without approved verification.
-- [ ] **WhatsApp Message Templates:** Confirm all templates (confirmation, reminder, cancellation, daily agenda) are approved, not just submitted. Test template variables with real booking data.
-- [ ] **Booking Concurrency:** Test with 10+ simultaneous booking requests to the same time slot. Verify only one books successfully; others fail gracefully. Automate this test.
-- [ ] **Gemini Rate Limiting:** Simulate 20 concurrent messages and verify system degrades gracefully (does not silently fail or hang). Measure time to rate-limit error.
-- [ ] **Date Parsing:** Test 20+ Greek temporal expressions (αύριο, Παρασκευή, "στις 3 μ.μ.", "αύριο το πρωί") and verify correctness. Do NOT ship without testing real Greek input.
-- [ ] **Multi-Tenant Isolation:** Manually query the database and verify business A cannot see business B's bookings. Test with two businesses sharing the platform.
-- [ ] **Google Calendar Sync:** Create a test booking, verify it appears in Google Calendar at the correct time (Europe/Athens), update the booking, verify calendar event updates (no duplicate). Test during DST transition.
-- [ ] **Cron Job Reliability:** Run the reminder job 7 days in a row; verify each day it runs exactly once (no skips, no duplicates). Verify reminders arrive at the correct Europe/Athens time.
-- [ ] **GDPR Consent:** Verify new users see a consent message before their data is stored. Test data export (Article 15) and deletion (Article 17) flows; verify they complete within 30 days.
-- [ ] **Error Logging:** Verify all integration failures (WhatsApp send failure, Gemini 429, Google Calendar 403) are logged with full context (tenant ID, booking ID, error message). Do NOT rely on user reports to find errors.
-
----
-
-## Recovery Strategies
-
-| Pitfall | Recovery Cost | Recovery Steps |
-|---------|---------------|----------------|
-| Meta verification rejected | MEDIUM (1–2 weeks) | 1. Audit name mismatches, 2. Resubmit with corrected documents, 3. Be prepared to change business registration if legal structure is root cause |
-| Double-booking already occurred | HIGH (data integrity cleanup) | 1. Manually identify conflicting bookings in database, 2. Cancel one and notify affected client via WhatsApp, 3. Refund if applicable, 4. Implement concurrency control for future bookings |
-| Gemini quota exhausted mid-day | MEDIUM (1–2 hours) | 1. Implement fallback response ("We're handling lots of bookings; please try again in 1 hour"), 2. Upgrade to Gemini paid tier, 3. Monitor quota usage daily going forward |
-| Google Calendar sync broken (events missing) | MEDIUM (1–2 days) | 1. Query database for bookings without calendar event IDs, 2. Manually sync missing events, 3. Verify event ID mapping is correct, 4. Test sync end-to-end |
-| Cron job sent duplicate reminders | MEDIUM (1–2 days) | 1. Query database for duplicate reminder records, 2. Do NOT re-send duplicates, 3. Implement idempotency checks, 4. Switch to fly.io Cron Manager if rolling your own |
-| GDPR deletion request received, no deletion tool exists | HIGH (1–2 weeks) | 1. Manually delete user data from database, 2. Verify deletion in backups, 3. Implement automated deletion flow, 4. Document procedure for future requests |
+**Phase:** Phase 4 (Resilience) — Implement jitter and circuit breaker BEFORE high-load testing.
 
 ---
 
-## Pitfall-to-Phase Mapping
+### Pitfall 11: Gemini Rate Limiting — Context Window Loss on Retry
 
-| Pitfall | Prevention Phase | Verification Method |
-|---------|------------------|------------|
-| Meta verification delays | Phase 1 (Setup) | Approval email from Meta received; business account marked "verified" in Meta Business Manager |
-| WhatsApp 24-hour window breaks reminders | Phase 2 (Message Flow) | All templates approved; test reminder delivery to 3 test numbers at known times |
-| LLM double-booking | Phase 2 (Booking Flow) | Automate test: 10 concurrent requests to same slot; verify 1 books, others fail gracefully |
-| Gemini free-tier rate limits | Phase 2 (AI Agent) | Load test with 20 concurrent messages; verify no silent failures; quota headers monitored |
-| Greek date parsing fails | Phase 2 (AI Agent) | Test 20+ Greek temporal expressions; verify correct date/time in bookings |
-| Multi-tenant context loss | Phase 1 (Architecture) | Manual audit: query database for cross-tenant data access; unit tests enforce tenant filtering |
-| Google Calendar sync breaks | Phase 3 (Calendar Sync) | Create booking, verify calendar event at correct Europe/Athens time; update booking, verify no duplicates |
-| Cron jobs miss runs or duplicate | Phase 3 (Reminders) | Run cron job 7 consecutive days; verify 1 run per day, no skips or duplicates |
-| GDPR non-compliance | Phase 1 (Setup) | Document lawful basis; implement consent flow; verify data deletion in Phase 3 (Admin) |
+**What goes wrong:**
+Your booking bot sends a multi-turn prompt to Gemini with full context (business hours, available slots, customer preferences). Gemini starts responding. While processing, Gemini throws a 429. Your code retries, but on retry, you send a minimal prompt:
+
+```typescript
+// WRONG: Lost context
+const retryPrompt = `Please try again.`;  // Context is gone!
+await gemini.generateContent(retryPrompt);
+```
+
+Gemini has no knowledge of the customer, business, or available slots. It responds with a generic error. The customer is confused; conversation coherence breaks.
+
+**Why it happens:**
+Developers assume Gemini conversations are stateful (like ChatGPT) and that retrying with a minimal prompt will pick up where it left off. But Gemini is stateless; each request is independent. On retry, you must send the full original prompt—but many codebases lose the prompt context during error handling.
+
+**Consequences:**
+- Booking fails: Gemini doesn't understand the context
+- Customer sees incoherent bot responses
+- User trust: bot appears broken or confused
+- Hidden race: conversation is partially processed; retrying with different context creates unpredictable behavior
+
+**Prevention:**
+1. **Cache the original request immutably.** Don't modify the prompt between retries:
+   ```typescript
+   const originalRequest = {
+     prompt: fullPromptWithContext,
+     generationConfig: { ... },
+     timestamp: Date.now()
+   };
+
+   let attempt = 0;
+   while (attempt < maxRetries) {
+     try {
+       return await gemini.generateContent(originalRequest);  // Full context
+     } catch (error) {
+       if (error.status === 429) {
+         attempt++;
+         await sleep(jitter(attempt));
+       }
+     }
+   }
+   ```
+
+2. **Make prompts idempotent.** If the same prompt is sent twice, response should be identical:
+   ```typescript
+   const prompt = `
+   [System instructions]
+   Request ID: ${requestId}  // Gemini can deduplicate
+   [rest of prompt]
+   `;
+   ```
+
+3. **Never strip context on retry.** If you need to simplify the prompt for token limits, do so BEFORE the initial request, not during retry.
+
+4. **Use idempotency keys in your database.** Before retrying, check if the exact request was already processed:
+   ```typescript
+   const requestHash = sha256(JSON.stringify(originalRequest));
+   const cached = await db.getCachedGeminiResponse(requestHash);
+   if (cached) return cached.response;  // Return cached result, no retry needed
+   ```
+
+**Detection:**
+- Incoherent bot responses (Gemini response doesn't match context)
+- Alert on retries followed by different response content
+- User feedback: "bot forgot my request details"
+
+**Phase:** Phase 4 (Resilience) — Implement immutable request caching BEFORE retry logic.
+
+---
+
+### Pitfall 12: Gemini Rate Limiting — Queue Ordering Guarantees Lost
+
+**What goes wrong:**
+Your booking system queues requests to handle rate limits. Customer A sends: "Book me Friday 3pm". Customer B sends: "Book me Friday 3pm". Both hit rate limit and are queued.
+
+But due to async or race conditions, they may process out of order. Customer B's booking is processed first, consuming the Friday 3pm slot. Then Customer A's booking fails.
+
+But Customer A's message was sent *first*. They should have priority.
+
+**Why it happens:**
+The queue doesn't enforce strict ordering. Async operations are processed in parallel. Or: the queue is per-bot, not per-business, so different businesses' requests are interleaved.
+
+**Consequences:**
+- Unfair bookings: customer who asked second gets the slot instead of customer who asked first
+- Customer complaints: "I clearly asked first"
+- Double-booking: both customers think they booked the same slot (queue corruption)
+- Revenue loss: unfair slot allocation damages reputation
+
+**Prevention:**
+1. **Enforce sequential processing per business.** Use a distributed lock or queue:
+   ```typescript
+   // Process one booking at a time for each business
+   const queue = new PQueue({ concurrency: 1 });
+   const queueKey = `booking:${business_id}`;
+   queue.add(() => processBooking(...), { priority: message.timestamp });
+   ```
+
+2. **Use message timestamps as tiebreaker.** If two requests arrive simultaneously:
+   ```typescript
+   const bookings = [
+     { customer_a, slot: 'friday_3pm', timestamp: 1000 },
+     { customer_b, slot: 'friday_3pm', timestamp: 1001 }
+   ].sort((a, b) => a.timestamp - b.timestamp);
+   // customer_a processed first
+   ```
+
+3. **Verify bookings atomically in database.** Use a UNIQUE constraint to ensure only one booking per slot:
+   ```sql
+   CREATE UNIQUE INDEX idx_booking_slot 
+     ON bookings(business_id, calendar_date, calendar_time) 
+     WHERE status = 'confirmed';
+   ```
+
+4. **Persist queue state.** If the app restarts, the queue is lost. Store pending bookings in database:
+   ```sql
+   CREATE TABLE booking_queue (
+     id UUID PRIMARY KEY,
+     business_id UUID,
+     customer_message TEXT,
+     requested_at TIMESTAMP,
+     status VARCHAR,  -- 'pending', 'processing', 'confirmed', 'failed'
+     retry_count INT
+   );
+   ```
+
+5. **Test with concurrent requests.** Simulate multiple customers booking the same slot; verify FIFO order.
+
+**Detection:**
+- Alert on double-bookings (two confirmed bookings for same slot)
+- Audit: compare message timestamp order vs. booking confirmation order
+- User complaints about unfair slot allocation
+
+**Phase:** Phase 4 (Resilience) — Implement sequential-per-business processing BEFORE handling multiple concurrent bookings.
+
+---
+
+## Minor Pitfalls
+
+### Pitfall 13: Onboarding Timeout — Incomplete Setup Lingers in Database
+
+If an owner starts onboarding but never completes, the database is left with a partially initialized business. After 7+ days, manual cleanup is needed or stale records clutter reports.
+
+**Prevention:**
+- Add `onboarding_expires_at` timestamp to onboarding session.
+- Write a cron job (Supercronic on fly.io) that cleans up expired sessions daily.
+- Send "resume onboarding?" reminder after 24 hours of inactivity.
+
+**Phase:** Phase 3 (Owner Onboarding).
+
+---
+
+### Pitfall 14: Telegram Chat History Lost on Client Reset
+
+If a customer resets their Telegram app or switches devices, they lose chat history with the bot. They won't see previous booking confirmation or cancellation.
+
+**Prevention:**
+- Send booking confirmations via message AND store in database.
+- Provide `/history` command so customers can retrieve past bookings.
+- Include booking reference code in confirmation: "Ref: BOOK-2026-07-001".
+
+**Phase:** Phase 2 (Messaging).
+
+---
+
+### Pitfall 15: Gemini Token Limit — Prompt Gets Truncated
+
+If your prompt is very long (large list of services, availability, history), it may exceed Gemini's token limit (1M tokens for Flash-Lite), failing silently or being truncated.
+
+**Prevention:**
+- Monitor token usage via `getTokenCount()` before sending to Gemini.
+- Summarize or paginate large lists (show top 5 services, not all 100).
+- Implement fallback: if prompt is too large, use simpler query.
+
+**Phase:** Phase 4 (Resilience).
+
+---
+
+## Phase-Specific Warnings
+
+| Phase | Topic | Likely Pitfall | Mitigation |
+|-------|-------|----------------|-----------|
+| **Phase 1: Infra Setup** | Token storage | Token exposure via URL or logs | Environment variables, secret masking, git-secrets scanning |
+| **Phase 1: Infra Setup** | Webhook setup | Webhook conflicts (another webhook is active) | Delete old webhook, verify via getWebhookInfo(), per-env tokens |
+| **Phase 2: Multi-Bot Routing** | Express routing | Shared state leaking across bots | Request-scoped context (res.locals), no global variables, isolation tests |
+| **Phase 2: Multi-Bot Routing** | Signature verification | Wrong secret per token | Unique secret per bot, bind verification to token, constant-time comparison |
+| **Phase 2: Multi-Bot Routing** | Migration | Existing clients orphaned | Dual-mode operation, migration messages, booking migration script |
+| **Phase 3: Owner Onboarding** | State machine | Incomplete state, dropout, no resume | Explicit state model, database persistence, idempotency keys, timeout cleanup |
+| **Phase 3: Owner Onboarding** | Token registration | Duplicate claims, race condition | UNIQUE constraint, atomic upsert, token validation via getMe() |
+| **Phase 4: Resilience** | Gemini retry | Naive backoff, thundering herd | Exponential backoff + full jitter, circuit breaker, queue limits |
+| **Phase 4: Resilience** | Gemini context | Context loss on retry | Immutable request cache, idempotent prompts, request deduplication |
+| **Phase 4: Resilience** | Booking ordering | Out-of-order processing, unfair slot allocation | Sequential per-business, timestamp tiebreaker, DB uniqueness constraint |
+| **Phase 5: GDPR Deletion** | Cascade delete | Audit trail loss | Soft delete, separate audit log, retain anonymized bookings |
+| **Phase 5: GDPR Deletion** | Backup restore | Un-erased data restored | Pre-restore deletion audit check, point-in-time recovery, erasure retention markers |
+
+---
+
+## Confidence Assessment
+
+| Area | Confidence | Notes |
+|------|------------|-------|
+| **Telegram Token Exposure** | HIGH | Token security is well-documented in Telegram Bot API and security literature; URL exposure is a known anti-pattern. |
+| **Webhook Conflicts** | HIGH | "another webhook is active" is a common error in Telegram forums and GitHub issues; setWebhook API docs are clear. |
+| **Multi-Bot Express Routing** | HIGH | Shared state isolation is a fundamental async/Node.js pattern; tested across frameworks. |
+| **Signature Verification** | HIGH | HMAC-SHA256 verification is standard; per-token binding is explicit in webhook security best practices. |
+| **Onboarding State Machine** | MEDIUM-HIGH | State machine pitfalls are well-known in distributed systems; application-specific patterns vary. Recommendation is sound. |
+| **Token Registration Race** | HIGH | Check-then-act race conditions are classic database concurrency issues; UNIQUE constraints are proven mitigations. |
+| **Migration & Backward Compatibility** | MEDIUM | Migration strategies depend on business context; dual-mode operation is standard. |
+| **GDPR Deletion (Cascade)** | HIGH | EDPB Feb 2026 report confirms cascade-delete-related compliance failures; soft delete is recommended. |
+| **GDPR Deletion (Backup)** | HIGH | GDPR compliance guide on backups is explicit; backup restoration + deletion is a known gap. |
+| **Gemini Rate Limiting (Jitter)** | HIGH | Exponential backoff + jitter is industry standard (AWS, Stripe, Google docs). |
+| **Gemini Rate Limiting (Context)** | MEDIUM-HIGH | Context loss on retry is specific to stateless LLM APIs; recommendation is sound but requires implementation testing. |
+| **Gemini Rate Limiting (Queue Ordering)** | MEDIUM | Ordering guarantees depend on queue implementation; FIFO + DB constraints are proven. Implementation complexity varies. |
+
+---
+
+## Gaps to Address
+
+- **Token rotation testing:** How to test token rotation without disrupting live service? Need a testing strategy.
+- **Migration window duration:** How long to keep dual-mode operation? No clear industry standard; suggest 2–4 weeks.
+- **Deletion audit compliance:** What format should the deletion audit log take for regulatory approval? Consult with legal.
+- **Rate-limit monitoring dashboard:** What metrics matter most? Recommend: 429 rate, retry latency, queue depth, Gemini quota usage.
 
 ---
 
 ## Sources
 
-### Meta Business Verification & WhatsApp Cloud API
-- [Meta Business Verification for WhatsApp API | 2026 Fix Guide](https://zaple.ai/blog/meta-business-verification-whatsapp/)
-- [WhatsApp Business API Compliance 2026 - Simple Guide](https://gmcsco.com/your-simple-guide-to-whatsapp-api-compliance-2026/)
-- [WhatsApp Cloud API Get Started - Meta for Developers](https://developers.facebook.com/documentation/business-messaging/whatsapp/get-started)
-
-### WhatsApp 24-Hour Window & Message Templates
-- [WhatsApp API Message Templates: Complete Guide [2026]](https://gurusup.com/blog/whatsapp-api-message-templates)
-- [WhatsApp Business API: What is a Customer Care Window?](https://www.saysimple.com/blog/whatsapp-business-api-what-is-a-customer-care-window)
-- [Template messages - Meta for Developers](https://developers.facebook.com/documentation/business-messaging/whatsapp/messages/template-messages/)
-
-### LLM Function Calling & Race Conditions
-- [LLM Function Calling Explained — The $47k Mistake We Made | TheCodeForge](https://thecodeforge.io/ml-ai/llm-function-calling-explained/)
-- [Handling Race Conditions in Multi-Agent Orchestration - MachineLearningMastery](https://machinelearningmastery.com/handling-race-conditions-in-multi-agent-orchestration/)
-- [Race Conditions in Hotel Booking Systems](https://amitavroy.com/articles/race-conditions-in-hotel-booking-systems-why-your-technology-choice-matters-more-than-you-think)
-
-### Gemini API Rate Limits
-- [Gemini API Free Tier Limits 2026](https://yingtu.ai/en/blog/gemini-api-free-tier)
-- [Rate limits | Gemini API | Google AI for Developers](https://ai.google.dev/gemini-api/docs/rate-limits)
-
-### Greek Language & Timezone Handling
-- [Local time in Greece](https://nationsgeo.com/time/europe/gr/)
-- [Reading Dates and Days of the Week in Greek - GreekPod101](https://www.greekpod101.com/blog/2019/12/20/dates-in-greek/)
-- [GR-NLP-TOOLKIT: Greek NLP for Python](https://github.com/nlpaueb/gr-nlp-toolkit)
-
-### Multi-Tenant SaaS Isolation
-- [Architecting SaaS Multi-Tenancy for Isolation and Scale - Educative](https://www.educative.io/newsletter/system-design/architecting-saas-multi-tenancy-for-isolation-and-scale)
-- [Data isolation in multi-tenant SaaS - Redis](https://redis.io/blog/data-isolation-multi-tenant-saas/)
-- [Tenant isolation in multi-tenant application - Logto blog](https://blog.logto.io/tenant-isolation)
-
-### GDPR & Greek Data Protection
-- [Data Protection Laws in Greece - DLP Piper](https://www.dlapiperdataprotection.com/?t=law&c=GR)
-- [Data Protection & GDPR Compliance in Greece - Kanellos Legal](https://kanelloslegal.com/gdpr-compliance-greece/)
-
-### Google Calendar API
-- [Google Calendar API Timezone issue - GitHub](https://github.com/googleapis/google-api-php-client/issues/2468)
-- [How to Avoid Cross-Country Time Zone Confusion in Google Calendar Events](https://lifetips.alibaba.com/tech-efficiency/google-calendars-event-time-zones-avoid-cross-country-t)
-- [Calendars & events | Google Calendar | Google for Developers](https://developers.google.com/workspace/calendar/api/concepts/events-calendars)
-
-### fly.io Cron & Scheduled Jobs
-- [Task scheduling guide with Cron Manager - Fly Docs](https://fly.io/docs/blueprints/task-scheduling/)
-- [Fly.io Cron Jobs Made Simple - Schedo.dev](https://www.schedo.dev/fly)
-- [GitHub - fly-apps/cron-manager](https://github.com/fly-apps/cron-manager)
+- [Telegram Bot Security Best Practices (2025)](https://alexhost.com/faq/what-are-the-best-practices-for-building-secure-telegram-bots/)
+- [Secure Telegram Bots: API Key Protection Guide](https://www.bitget.com/academy/12560603879287)
+- [Telegram Bot Webhooks Guide (Official)](https://core.telegram.org/bots/webhooks)
+- [Telegram Bot FAQ (Official)](https://core.telegram.org/bots/faq)
+- [Webhook Security Best Practices](https://hooque.io/guides/webhook-security/)
+- [GitHub Webhook Signature Verification](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries)
+- [State Machine Pitfalls in Embedded Systems](https://www.archimetric.com/common-pitfalls-state-machine-diagrams-embedded-systems/)
+- [Why Users Drop Off During Onboarding](https://www.saasfactor.co/blogs/why-users-drop-off-during-onboarding-and-how-to-fix-it)
+- [Best Practices for GDPR-Compliant Data Deletion](https://www.reform.app/blog/best-practices-gdpr-compliant-data-deletion)
+- [GDPR and Backups: Right to be Forgotten](https://www.struto.io/blog/gdpr-and-backups-how-to-restore-data-without-breaking-the-right-to-be-forgotten)
+- [GDPR Compliance Audit Failures 2026](https://www.red-gate.com/simple-talk/databases/its-2026-why-are-databases-still-failing-gdpr-compliance-audits/)
+- [Gemini API Rate Limits Guide](https://blog.laozhang.ai/en/posts/gemini-api-rate-limits-guide)
+- [Gemini API 429 RESOURCE_EXHAUSTED Fix (2026)](https://www.aifreeapi.com/en/posts/gemini-api-error-429-resource-exhausted-fix)
+- [Google Cloud: Handle 429 Resource Exhaustion Errors](https://cloud.google.com/blog/products/ai-machine-learning/learn-how-to-handle-429-resource-exhaustion-errors-in-your-llms)
+- [API Rate Limiting: 2026 Engineering Reference](https://www.digitalapplied.com/blog/api-rate-limiting-strategies-2026-engineering-reference/)
+- [API Rate Limiting at Scale: Patterns & Strategies](https://www.gravitee.io/blog/rate-limiting-apis-scale-patterns-strategies)
+- [GitHub Bot User to GitHub App Migration (2026)](https://brtkwr.com/posts/2026-01-06-migrating-from-github-bot-user-to-github-app/)
+- [Chatbot Platform Migration Guide](https://seamly.ai/resources/switching-from-one-chatbot-platform-to-another-heres-how-to-migrate-effortlessly)
+- [Multi-Tenant Webhook Security](https://instatunnel.substack.com/p/from-proxy-to-gateway-managing-multi)
 
 ---
 
-*Pitfalls research for: WhatsApp-native multi-tenant appointment booking platform for Greek service businesses*
-*Researched: 2026-07-03*
+*Pitfalls research for: v1.1 multi-bot Telegram migration with owner onboarding, multi-tenant isolation, GDPR deletion, and rate-limit resilience*
+*Researched: 2026-07-10*
 *Overall confidence: HIGH*
