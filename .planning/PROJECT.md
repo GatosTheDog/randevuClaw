@@ -10,6 +10,19 @@ A WhatsApp-native appointment booking platform for Greek service businesses (pil
 
 A client can book or cancel an appointment with a Greek business entirely through a chat conversation, in Greek, with zero friction — and the owner's calendar updates automatically.
 
+## Current Milestone: v1.1 Per-Business Bots & Telegram PoC Completion
+
+**Goal:** Pivot from a shared platform bot to per-business Telegram bots, enable owner self-serve onboarding via chat, and close out the Telegram PoC with GDPR compliance and production resilience — no Meta/WhatsApp work.
+
+**Target features:**
+- Per-business Telegram bot architecture (each business gets their own `@BotUsername`; platform routes via `/webhooks/telegram/:botToken`)
+- Owner self-serve onboarding via chat (bot token → webhook registration → business config: name, hours, services, prices)
+- Multi-tenant safety (two+ businesses, zero cross-tenant data leakage)
+- Client/owner data deletion on request via chat (GDPR COMP-02)
+- Graceful Gemini rate-limit handling under burst load (backoff/queueing)
+
+**Explicitly out of scope for v1.1:** Meta Business Verification, WhatsApp activation (deferred to v1.2+)
+
 ## Requirements
 
 ### Validated
@@ -90,4 +103,4 @@ A client can book or cancel an appointment with a Greek business entirely throug
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-09 after v1.0 milestone*
+*Last updated: 2026-07-10 — v1.1 milestone started*
