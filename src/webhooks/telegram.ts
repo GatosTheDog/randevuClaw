@@ -1,5 +1,4 @@
 import express, { Router, Request, Response } from 'express';
-import { config } from '../config';
 import { logger } from '../utils/logger';
 import { extractAndNormalizeAllBusinessCodeCandidates } from '../business/resolver';
 import {
@@ -204,7 +203,11 @@ export async function handleTelegramWebhookPost(req: Request, res: Response): Pr
   try {
     const headerValue = req.headers['x-telegram-bot-api-secret-token'] as string | undefined;
 
-    if (!verifyTelegramSecretToken(headerValue, config.telegramWebhookSecret)) {
+    // Phase 04 bridge (D-08): config.telegramWebhookSecret removed in Plan 04-01.
+    // Plan 04-02 replaces this with per-bot DB lookup + crypto.timingSafeEqual
+    // against businesses.webhook_secret. Until then, read the global env var
+    // directly so existing tests and deployments continue to work.
+    if (!verifyTelegramSecretToken(headerValue, process.env.TELEGRAM_WEBHOOK_SECRET ?? '')) {
       res.status(403).send('Forbidden');
       return;
     }

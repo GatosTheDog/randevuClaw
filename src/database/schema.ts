@@ -27,6 +27,19 @@ export const businesses = pgTable('businesses', {
   // local date the daily agenda was last sent for this business. null means
   // never sent. Advanced only via the atomic claimAgendaSlot query.
   agendaSentDate: text('agenda_sent_date'),
+  // Phase 4 (nullable — D-07): per-bot Telegram bot token, stored DB-side.
+  // Never logged; only read by src/webhooks/telegram.ts for routing.
+  // Added as nullable to follow the established multi-phase schema convention
+  // (table is non-empty; NOT NULL requires a default on existing rows).
+  botToken: text('bot_token'),
+  // Phase 4 (nullable — D-07): UUID-keyed webhook routing path (e.g.,
+  // /webhooks/telegram/:webhookId). The actual bot token never appears in logs
+  // or URL paths (STATE.md blocker, D-04). UNIQUE constraint enforces one
+  // webhookId per registered bot at the DB level.
+  webhookId: text('webhook_id').unique(),
+  // Phase 4 (nullable — D-07): HMAC secret for webhook signature verification
+  // via constant-time comparison (crypto.timingSafeEqual, D-06).
+  webhookSecret: text('webhook_secret'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 

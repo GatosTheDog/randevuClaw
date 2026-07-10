@@ -17,8 +17,8 @@ describe('config', () => {
     process.env.WHATSAPP_PHONE_NUMBER_ID = 'test-phone-number-id';
     process.env.DATABASE_URL = 'postgresql://user:pass@localhost:5432/testdb?sslmode=require';
     process.env.GEMINI_API_KEY = 'test-gemini-key';
-    process.env.TELEGRAM_BOT_TOKEN = 'test-telegram-bot-token';
-    process.env.TELEGRAM_WEBHOOK_SECRET = 'test-telegram-webhook-secret';
+    // TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET omitted (D-08, Phase 04):
+    // config no longer validates or exposes these global Telegram vars.
     process.env.OWNER_TELEGRAM_ID = '999999999';
     process.env.GOOGLE_CLIENT_ID = 'test-google-client-id';
     process.env.GOOGLE_CLIENT_SECRET = 'test-google-client-secret';
@@ -26,6 +26,7 @@ describe('config', () => {
     delete process.env.PORT;
     delete process.env.LOG_LEVEL;
     delete process.env.NODE_ENV;
+    delete process.env.DATABASE_APP_URL;
 
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { config } = require('../src/config');
@@ -38,8 +39,11 @@ describe('config', () => {
       'postgresql://user:pass@localhost:5432/testdb?sslmode=require'
     );
     expect(config.geminiApiKey).toBe('test-gemini-key');
-    expect(config.telegramBotToken).toBe('test-telegram-bot-token');
-    expect(config.telegramWebhookSecret).toBe('test-telegram-webhook-secret');
+    // Phase 04 (D-08): telegramBotToken and telegramWebhookSecret no longer on config
+    expect((config as Record<string, unknown>).telegramBotToken).toBeUndefined();
+    expect((config as Record<string, unknown>).telegramWebhookSecret).toBeUndefined();
+    // Phase 04 (D-11): databaseAppUrl is optional; undefined when DATABASE_APP_URL unset
+    expect(config.databaseAppUrl).toBeUndefined();
     expect(config.ownerTelegramId).toBe('999999999');
     expect(config.googleClientId).toBe('test-google-client-id');
     expect(config.googleClientSecret).toBe('test-google-client-secret');

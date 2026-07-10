@@ -7,14 +7,22 @@ export const logger = pino({
   // this prevents an accidental future `logger.info(config)` from leaking secrets.
   redact: {
     paths: [
-      'appSecret', 'databaseUrl', 'whatsappAccessToken', 'webhookVerifyToken',
-      'geminiApiKey', 'telegramBotToken', 'telegramWebhookSecret', 'googleClientSecret',
+      // Config-level secrets
+      'appSecret', 'databaseUrl', 'databaseAppUrl', 'whatsappAccessToken', 'webhookVerifyToken',
+      'geminiApiKey', 'googleClientSecret',
+      // Phase 04 (D-07, T-04-01): per-bot credentials stored on businesses rows;
+      // redacted at all path levels so logger.info({ business }) never leaks them.
+      'botToken', 'webhookSecret',
+      // DB-level
       'googleRefreshToken',
-      '*.appSecret', '*.databaseUrl', '*.whatsappAccessToken', '*.webhookVerifyToken',
-      '*.geminiApiKey', '*.telegramBotToken', '*.telegramWebhookSecret', '*.googleClientSecret',
+      // Nested object paths (e.g. logger.info({ config }) or logger.info({ business }))
+      '*.appSecret', '*.databaseUrl', '*.databaseAppUrl', '*.whatsappAccessToken', '*.webhookVerifyToken',
+      '*.geminiApiKey', '*.googleClientSecret',
+      '*.botToken', '*.webhookSecret',
       '*.googleRefreshToken',
-      'config.appSecret', 'config.databaseUrl', 'config.whatsappAccessToken', 'config.webhookVerifyToken',
-      'config.geminiApiKey', 'config.telegramBotToken', 'config.telegramWebhookSecret', 'config.googleClientSecret',
+      // Explicit config.* namespace
+      'config.appSecret', 'config.databaseUrl', 'config.databaseAppUrl', 'config.whatsappAccessToken', 'config.webhookVerifyToken',
+      'config.geminiApiKey', 'config.googleClientSecret',
     ],
     censor: '[REDACTED]',
   },

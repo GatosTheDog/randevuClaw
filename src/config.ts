@@ -23,8 +23,9 @@ const EnvSchema = z.object({
   WHATSAPP_PHONE_NUMBER_ID: z.string().min(1),
   DATABASE_URL: z.string().min(1),
   GEMINI_API_KEY: z.string().min(1),
-  TELEGRAM_BOT_TOKEN: z.string().min(1),
-  TELEGRAM_WEBHOOK_SECRET: z.string().min(1),
+  // TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET removed (D-08, Phase 04):
+  // all bot token/secret config is now DB-driven. Per-bot tokens and secrets
+  // are stored in businesses.bot_token and businesses.webhook_secret.
   OWNER_TELEGRAM_ID: z.string().min(1),
   GOOGLE_CLIENT_ID: z.string().min(1),
   GOOGLE_CLIENT_SECRET: z.string().min(1),
@@ -36,6 +37,17 @@ const EnvSchema = z.object({
   // actually cares about is derived below, treating anything other than
   // 'production' as 'development' (including 'test' and an omitted value).
   NODE_ENV: z.string().default('development'),
+  // Phase 04 (D-11): optional app-role connection string for randevuclaw_app.
+  // Falls back to DATABASE_URL if unset (development/tests without the role).
+  DATABASE_APP_URL: z.string().optional(),
+  // Phase 04 (D-09): optional test-bot env vars used by seed.ts to populate
+  // bot_token, webhook_id, and webhook_secret for the two fixture businesses.
+  TEST_BOT_1_TOKEN: z.string().optional(),
+  TEST_BOT_1_WEBHOOK_SECRET: z.string().optional(),
+  TEST_BOT_1_WEBHOOK_ID: z.string().optional(),
+  TEST_BOT_2_TOKEN: z.string().optional(),
+  TEST_BOT_2_WEBHOOK_SECRET: z.string().optional(),
+  TEST_BOT_2_WEBHOOK_ID: z.string().optional(),
 });
 
 export interface Config {
@@ -44,9 +56,12 @@ export interface Config {
   whatsappAccessToken: string;
   whatsappPhoneNumberId: string;
   databaseUrl: string;
+  // Phase 04 (D-11): optional connection string for randevuclaw_app role.
+  // Used by appDb (db.ts) for RLS-enforced conversation queries.
+  databaseAppUrl?: string;
   geminiApiKey: string;
-  telegramBotToken: string;
-  telegramWebhookSecret: string;
+  // telegramBotToken and telegramWebhookSecret removed (D-08, Phase 04).
+  // All bot token/secret config is now DB-driven (businesses table).
   ownerTelegramId: string;
   googleClientId: string;
   googleClientSecret: string;
@@ -66,9 +81,9 @@ export const config: Config = {
   whatsappAccessToken: env.WHATSAPP_ACCESS_TOKEN,
   whatsappPhoneNumberId: env.WHATSAPP_PHONE_NUMBER_ID,
   databaseUrl: env.DATABASE_URL,
+  databaseAppUrl: env.DATABASE_APP_URL,
   geminiApiKey: env.GEMINI_API_KEY,
-  telegramBotToken: env.TELEGRAM_BOT_TOKEN,
-  telegramWebhookSecret: env.TELEGRAM_WEBHOOK_SECRET,
+  // telegramBotToken and telegramWebhookSecret removed (D-08, Phase 04).
   ownerTelegramId: env.OWNER_TELEGRAM_ID,
   googleClientId: env.GOOGLE_CLIENT_ID,
   googleClientSecret: env.GOOGLE_CLIENT_SECRET,

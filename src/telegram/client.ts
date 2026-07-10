@@ -1,4 +1,3 @@
-import { config } from '../config';
 import { logger } from '../utils/logger';
 
 export interface SendMessageResult {
@@ -14,7 +13,10 @@ interface TelegramApiResponse<T> {
 }
 
 async function callTelegramApi<T>(method: string, body: Record<string, unknown>): Promise<T> {
-  const url = `https://api.telegram.org/bot${config.telegramBotToken}/${method}`;
+  // Phase 04 bridge (D-08): config.telegramBotToken removed in Plan 04-01.
+  // Plan 04-02 replaces this single global token with per-bot token routing
+  // (looked up from businesses.bot_token via callTelegramApi's botToken param).
+  const url = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN ?? ''}/${method}`;
 
   logger.debug({ method }, 'Calling Telegram API');
 
