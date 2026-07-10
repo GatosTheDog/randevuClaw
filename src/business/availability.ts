@@ -42,6 +42,7 @@ export async function checkAvailability(
 
   const service = await findServiceById(businessId, serviceId);
   if (!service) {
+    logger.warn({ businessId, serviceId }, 'check_availability: service_not_found');
     return { availableSlots: [], closed: false, error: 'service_not_found' };
   }
 

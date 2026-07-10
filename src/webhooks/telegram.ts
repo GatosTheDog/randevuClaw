@@ -5,6 +5,7 @@ import { extractAndNormalizeAllBusinessCodeCandidates } from '../business/resolv
 import {
   Business,
   findBusinessBySlug,
+  findLatestBusinessForClient,
   findBookingByIdUnscoped,
   findBusinessById,
   findServiceById,
@@ -214,11 +215,14 @@ export async function handleTelegramWebhookPost(req: Request, res: Response): Pr
       update.message?.from.id ?? update.callback_query?.from.id ?? ''
     );
 
+    const updateType = update.message ? 'message' : 'callback_query';
+    logger.info({ updateId, senderTelegramId, updateType }, 'Telegram update received');
+
     const dedupResult = await insertOrIgnoreTelegramUpdate(
       updateId,
       null,
       senderTelegramId,
-      update.message ? 'message' : 'callback_query'
+      updateType
     );
 
     if (dedupResult === 'ignored') {
@@ -239,12 +243,26 @@ export async function handleTelegramWebhookPost(req: Request, res: Response): Pr
       let business: Business | null = null;
       for (const candidate of candidates) {
         business = await findBusinessBySlug(candidate);
-        if (business) break;
+        if (business) {
+          logger.info({ updateId, slug: candidate, businessId: business.id }, 'Business resolved by slug');
+          break;
+        }
+      }
+
+      // No slug in this message — fall back to the client's existing relationship.
+      // This is what makes follow-up messages ("νεα κρατηση", "ακυρωση" etc.)
+      // work without repeating the business code every time.
+      if (!business) {
+        business = await findLatestBusinessForClient(senderTelegramId);
+        if (business) {
+          logger.info({ updateId, businessId: business.id }, 'Business resolved via client relationship fallback');
+        }
       }
 
       if (business) {
         await handleFoundBusiness(updateId, business, senderTelegramId, messageText);
       } else {
+        logger.info({ updateId, senderTelegramId }, 'No business resolved, sending not-found reply');
         await handleNotFoundBusiness(senderTelegramId);
       }
     }

@@ -7,10 +7,7 @@ import { logger } from '../utils/logger';
 
 const ai = new GoogleGenAI({ apiKey: config.geminiApiKey });
 
-// Latest production model per AI-SPEC Section 4; fall back to
-// 'gemini-2.5-flash-lite' if 'gemini-3.5-flash' is unavailable in-region.
-// Runtime model-fallback branching is explicitly out of scope for this task.
-const GEMINI_MODEL = 'gemini-3.5-flash';
+const GEMINI_MODEL = 'gemini-3.1-flash-lite';
 
 // CR-01: generous upper bound for a single conversation turn; prevents a
 // stuck Gemini tool-call loop from hanging the webhook request that awaits it.
@@ -277,6 +274,12 @@ export async function aiBookingAgent(
     }
 
     if (functionCalls.length === 0) {
+      if (!interaction.output_text) {
+        logger.error(
+          { requestId, round, interactionId: currentInteractionId, steps: interaction.steps },
+          'Gemini returned no output_text and no function calls'
+        );
+      }
       return {
         text: interaction.output_text ?? 'Συγγνώμη, κάτι πήγε στραβά.',
         interactionId: currentInteractionId,

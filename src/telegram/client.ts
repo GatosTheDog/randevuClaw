@@ -1,4 +1,5 @@
 import { config } from '../config';
+import { logger } from '../utils/logger';
 
 export interface SendMessageResult {
   messageId: number;
@@ -15,6 +16,8 @@ interface TelegramApiResponse<T> {
 async function callTelegramApi<T>(method: string, body: Record<string, unknown>): Promise<T> {
   const url = `https://api.telegram.org/bot${config.telegramBotToken}/${method}`;
 
+  logger.debug({ method }, 'Calling Telegram API');
+
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -27,7 +30,9 @@ async function callTelegramApi<T>(method: string, body: Record<string, unknown>)
   const data = (await response.json()) as TelegramApiResponse<T>;
 
   if (!response.ok || !data.ok) {
-    throw new Error(data.description ?? `Telegram API error: ${response.status}`);
+    const description = data.description ?? `Telegram API error: ${response.status}`;
+    logger.error({ method, status: response.status, description }, 'Telegram API call failed');
+    throw new Error(description);
   }
 
   return data.result as T;
@@ -38,6 +43,7 @@ export async function sendTelegramMessage(chatId: string, text: string): Promise
     chat_id: chatId,
     text,
   });
+  logger.info({ chatId, messageId: result.message_id }, 'Telegram message sent');
   return { messageId: result.message_id };
 }
 
@@ -51,6 +57,7 @@ export async function sendTelegramMessageWithKeyboard(
     text,
     reply_markup: { inline_keyboard: inlineKeyboard },
   });
+  logger.info({ chatId, messageId: result.message_id }, 'Telegram message with keyboard sent');
   return { messageId: result.message_id };
 }
 
@@ -62,6 +69,7 @@ export async function answerCallbackQuery(callbackQueryId: string, text?: string
   if (text !== undefined) body.text = text;
 
   await callTelegramApi<unknown>('answerCallbackQuery', body);
+  logger.debug({ callbackQueryId }, 'Answered callback query');
 }
 
 export async function editTelegramMessageReplyMarkup(
@@ -74,4 +82,5 @@ export async function editTelegramMessageReplyMarkup(
     message_id: messageId,
     reply_markup: { inline_keyboard: inlineKeyboard },
   });
+  logger.debug({ chatId, messageId }, 'Cleared inline keyboard');
 }

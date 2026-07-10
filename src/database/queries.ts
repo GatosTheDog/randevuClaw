@@ -69,6 +69,20 @@ export async function markMessageProcessed(whatsappMessageId: string): Promise<v
     .where(eq(messages.whatsappMessageId, whatsappMessageId));
 }
 
+export async function findLatestBusinessForClient(
+  senderPhone: string
+): Promise<Business | null> {
+  const rows = await db
+    .select({ business: businesses })
+    .from(clientBusinessRelationships)
+    .innerJoin(businesses, eq(clientBusinessRelationships.businessId, businesses.id))
+    .where(eq(clientBusinessRelationships.senderPhone, senderPhone))
+    .orderBy(desc(clientBusinessRelationships.createdAt))
+    .limit(1);
+
+  return rows[0]?.business ?? null;
+}
+
 export async function findClientBusinessRelationship(
   businessId: number,
   senderPhone: string

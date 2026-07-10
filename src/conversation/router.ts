@@ -2,6 +2,7 @@ import { Business, findLatestConversationTurn, insertConversationTurn } from '..
 import { getOrCreateClientRelationship, CONSENT_NOTICE_GREEK_TEMPLATE } from '../consent/checker';
 import { resolveGreekTemporalExpressions } from './greek-preprocessor';
 import { aiBookingAgent } from './ai-agent';
+import { logger } from '../utils/logger';
 
 export interface ConversationChannel {
   sendMessage(chatId: string, text: string): Promise<{ messageId: number }>;
@@ -18,7 +19,11 @@ export async function routeConversationMessage(
   rawMessageText: string,
   channel: ConversationChannel
 ): Promise<void> {
+  logger.info({ businessId: business.id, senderId }, 'Routing conversation message');
+
   const { isFirstContact } = await getOrCreateClientRelationship(business.id, senderId);
+  if (isFirstContact) logger.info({ businessId: business.id, senderId }, 'First contact — consent notice will prepend');
+
   const previousTurn = await findLatestConversationTurn(business.id, senderId);
   const { annotatedText } = resolveGreekTemporalExpressions(rawMessageText, new Date());
 
@@ -27,6 +32,11 @@ export async function routeConversationMessage(
     business,
     senderId,
     previousTurn?.interactionId ?? null
+  );
+
+  logger.info(
+    { businessId: business.id, senderId, requestId: result.requestId, toolCalls: result.toolCalls.map((t) => t.name) },
+    'AI agent turn completed'
   );
 
   // Persist the RAW message text (never the Gemini-facing annotated
@@ -47,4 +57,5 @@ export async function routeConversationMessage(
     : result.text;
 
   await channel.sendMessage(senderId, finalText);
+  logger.info({ businessId: business.id, senderId }, 'Message sent to client');
 }

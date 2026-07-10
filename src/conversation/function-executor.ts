@@ -69,7 +69,10 @@ export async function executeTool(
   // T-02-12: single dispatcher-level cross-tenant check, before any per-tool
   // logic runs, regardless of what Gemini requested (defense-in-depth
   // against prompt injection attempting to target a different business).
+  logger.info({ tool: name, args }, 'Executing tool');
+
   if ('business_id' in args && args.business_id !== context.business.id) {
+    logger.warn({ tool: name, argsBusinessId: args.business_id, contextBusinessId: context.business.id }, 'cross_tenant_denied');
     return { error: 'cross_tenant_denied' };
   }
 
@@ -87,6 +90,7 @@ export async function executeTool(
         return { error: `Tool '${name}' not found` };
     }
   } catch (error) {
+    logger.error({ err: error, tool: name, args }, 'Tool execution threw unexpectedly');
     return { error: (error as Error).message || 'internal_error' };
   }
 }
@@ -167,7 +171,14 @@ async function bookAppointmentTool(
   });
 
   if (booking) {
-    await alertOwnerNewBooking(booking, service, context.business);
+    // CR-03c: same contract as CR-03b — DB mutation committed, so a
+    // Telegram alert failure must never surface as a tool error or Gemini
+    // will retry the booking in a loop until MAX_TOOL_ROUNDS fires.
+    try {
+      await alertOwnerNewBooking(booking, service, context.business);
+    } catch (err) {
+      logger.error({ err, bookingId: booking.id }, 'Booking created but owner alert failed');
+    }
     return { success: true, booking_id: booking.id, status: booking.bookingStatus };
   }
 
