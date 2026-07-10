@@ -3,7 +3,7 @@
 ## Milestones
 
 - ✅ **v1.0 MVP** — Phases 1-3 (shipped 2026-07-09)
-- 📋 **v1.1** — Phases 4-5 (planned)
+- 📋 **v1.1** — Phases 4-6 (planned)
 
 ## Phases
 
@@ -20,39 +20,48 @@ See: `.planning/milestones/v1.0-ROADMAP.md`
 
 ### 📋 v1.1 (Planned)
 
-- [ ] **Phase 4: Owner Self-Serve Onboarding & Multi-Tenancy** — Owners configure their business entirely via chat; multiple businesses coexist safely on one shared number.
-- [ ] **Phase 5: Compliance & Production Readiness** — Data-deletion requests, verification/template completion, and load-tested reliability close out the PoC.
+- [ ] **Phase 4: Per-Bot Foundation** — Telegraf migration, per-token webhook routing, HMAC secret verification, and PostgreSQL RLS establish the infrastructure every v1.1 feature depends on.
+- [ ] **Phase 5: Owner Self-Serve Onboarding** — Owners register their bot, complete guided business setup, and maintain their config entirely through chat; fixtures are removed.
+- [ ] **Phase 6: GDPR Compliance & Rate-Limit Resilience** — Data-deletion rights via chat, 30-day hard-delete job, audit trail, and p-queue Gemini resilience close out the Telegram PoC.
 
 ## Phase Details
 
-### Phase 4: Owner Self-Serve Onboarding & Multi-Tenancy
+### Phase 4: Per-Bot Foundation
 
-**Goal**: A business owner can set up and maintain their entire business profile through a chat conversation with no manual database step, and multiple businesses can safely share the one platform number with zero cross-tenant data leakage.
-**Mode**: mvp
-**Depends on**: Phase 1, Phase 2
-**Requirements**: OWNR-01
+**Goal**: The Telegram layer is migrated to Telegraf and supports per-business webhook routing with tenant isolation enforced at the database layer — every v1.1 feature builds on this.
+**Depends on**: Phase 1, Phase 2, Phase 3
+**Requirements**: BOT-02, BOT-03, BOT-04, BOT-05
 **Success Criteria** (what must be TRUE):
-
-  1. A new business owner can complete full setup (business name, hours, services, prices, shared schedule) entirely through a chat conversation, replacing the fixture/seed businesses used to test Phases 1-3.
-  2. After onboarding, the business immediately has a working deep link/business code that clients can use to reach it.
-  3. With two distinct businesses onboarded, a client using Business A's deep link never sees Business B's hours, services, or bookings, and vice versa (verified via a deliberate cross-tenant query attempt, not just the happy path).
-  4. Owner can update previously configured hours, services, or prices via chat after initial onboarding, and changes take effect immediately for new bookings.
-
+  1. A Telegraf-based webhook at `/webhooks/telegram/:botToken` routes incoming messages to the correct business by token lookup; all 208 existing tests continue to pass unchanged.
+  2. Two distinct bot tokens can receive messages simultaneously; each request is matched to its correct business tenant with no cross-contamination of data or conversation state.
+  3. Every incoming webhook request is verified against a per-bot HMAC secret using constant-time comparison; requests with invalid or missing secrets are rejected with 401.
+  4. Attempting to read another business's rows in a Drizzle transaction (without a business_id filter) fails at the PostgreSQL RLS layer, not only at the application level.
 **Plans**: TBD
 
-### Phase 5: Compliance & Production Readiness
+### Phase 5: Owner Self-Serve Onboarding
 
-**Goal**: Clients and owners can exercise their data-deletion rights, Meta verification and message templates are fully live (not sandbox-restricted), and the platform stays responsive under realistic concurrent load — closing the PoC out as production-ready rather than demo-only.
-**Mode**: mvp
-**Depends on**: Phase 1, Phase 2, Phase 3, Phase 4
-**Requirements**: COMP-02
+**Goal**: A business owner can register their Telegram bot and configure their entire business profile through a guided chat conversation, with no manual database intervention required.
+**Depends on**: Phase 4
+**Requirements**: BOT-01, ONB-01, ONB-02, ONB-03, ONB-04
 **Success Criteria** (what must be TRUE):
+  1. An owner submits their bot token via chat; the platform validates it via `getMe()`, calls `setWebhook` automatically, and replies with activation confirmation in Greek.
+  2. An owner completes the full guided setup (business name, weekly hours, services with prices and durations) entirely through chat; the resulting business is immediately bookable by clients.
+  3. An owner who drops off mid-setup can resume exactly where they left off in a later session without restarting the flow from the beginning.
+  4. An owner can update any part of their configuration (hours, services, prices) via chat after initial onboarding; changes take effect immediately for new bookings.
+  5. No hardcoded fixture or seed businesses exist in the system; every business record is the result of an owner completing the onboarding flow.
+**Plans**: TBD
 
-  1. A client or owner can request data deletion via chat (e.g., "διαγράψτε τα δεδομένα μου") and receives confirmation once it's done.
-  2. After a deletion request is fulfilled, no booking history or phone number for that client remains queryable anywhere in the system.
-  3. Meta Business Verification is fully approved and the platform WhatsApp number is live, not sandbox-restricted — confirmed by the owner.
-  4. Under a burst of 15-20 simultaneous client messages, the bot degrades gracefully (backoff/queueing on the Gemini free-tier rate limit) rather than dropping messages or crashing.
+### Phase 6: GDPR Compliance & Rate-Limit Resilience
 
+**Goal**: Clients and owners can exercise data deletion rights via chat, every deletion is audited and eventually hard-deleted, and the platform absorbs Gemini API rate-limit bursts without dropping messages.
+**Depends on**: Phase 5
+**Requirements**: COMP-02, COMP-03, COMP-04, RESIL-01
+**Success Criteria** (what must be TRUE):
+  1. A client or owner sends "διαγράψτε τα δεδομένα μου" (or equivalent phrasing); the system soft-deletes their data and replies with confirmation in Greek.
+  2. After a deletion request, the subject's booking history and contact details are no longer returned by any booking query or AI agent response.
+  3. A deletion audit log record is created for every deletion request; the record survives independently even after the target data is permanently removed.
+  4. A background job permanently removes soft-deleted records 30 days after the deletion request date and runs automatically without manual intervention.
+  5. Under a burst of 15+ simultaneous client messages, all Gemini calls are queued via p-queue; no messages are dropped and rate-limit errors are absorbed without crashing.
 **Plans**: TBD
 
 ## Progress
@@ -62,5 +71,6 @@ See: `.planning/milestones/v1.0-ROADMAP.md`
 | 1. Foundation, Webhook & Business Resolution | v1.0 | 3/4 | Complete | 2026-07-07 |
 | 2. AI Booking Conversations & Owner Alerts | v1.0 | 9/9 | Complete | 2026-07-08 |
 | 3. Calendar Sync, Agenda & Reminders | v1.0 | 6/6 | Complete | 2026-07-09 |
-| 4. Owner Self-Serve Onboarding & Multi-Tenancy | v1.1 | 0/TBD | Not started | - |
-| 5. Compliance & Production Readiness | v1.1 | 0/TBD | Not started | - |
+| 4. Per-Bot Foundation | v1.1 | 0/TBD | Not started | - |
+| 5. Owner Self-Serve Onboarding | v1.1 | 0/TBD | Not started | - |
+| 6. GDPR Compliance & Rate-Limit Resilience | v1.1 | 0/TBD | Not started | - |

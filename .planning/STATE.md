@@ -6,7 +6,7 @@ status: planning
 last_updated: "2026-07-10T14:14:44.147Z"
 last_activity: 2026-07-10
 progress:
-  total_phases: 0
+  total_phases: 3
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -20,14 +20,18 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-09 after v1.0)
 
 **Core value:** A client can book or cancel an appointment with a Greek business entirely through a chat conversation, in Greek, with zero friction — and the owner's calendar updates automatically.
-**Current focus:** Planning next milestone (v1.1)
+**Current focus:** Phase 4 — Per-Bot Foundation (Telegraf migration, per-token webhook routing, RLS)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: Phase 4 — Per-Bot Foundation
 Plan: —
-Status: Defining requirements
-Last activity: 2026-07-10 — Milestone v1.1 started
+Status: Ready to plan
+Last activity: 2026-07-10 — v1.1 roadmap created (3 phases: 4, 5, 6)
+
+```
+[░░░░░░░░░░░░░░░░░░░░] 0% — Phase 4/6 not started
+```
 
 ## Performance Metrics
 
@@ -88,6 +92,10 @@ Recent decisions affecting current work:
 - [Phase 03]: Read-before-claim ordering (listBookingsForDate -> claimAgendaSlot -> sendTelegramMessage) established as the pattern for any future Phase 3 idempotent-send poller
 - [Phase ?]: [Phase 03]: 15-minute default poller interval (D-10, locked) for the reminder sweep -- not discretionary unlike the agenda poller's D-09 discretion
 - [Phase ?]: [Phase 03]: jest.setSystemTime() chosen over jest.spyOn(global, Date) for reminder sweep tests -- spyOn caused recursive stack overflow
+- [Roadmap v1.1]: 3 phases derived from 13 requirements — Phase 4 (infrastructure), Phase 5 (onboarding), Phase 6 (GDPR + resilience)
+- [Roadmap v1.1]: BOT-04 (Telegraf migration) placed first in Phase 4 as the foundational prerequisite for all per-bot routing
+- [Roadmap v1.1]: BOT-01 placed in Phase 5 (not Phase 4) because setWebhook automation is user-facing onboarding behavior, not infrastructure
+- [Roadmap v1.1]: RESIL-01 grouped with GDPR in Phase 6 — both are PoC-completion concerns that do not block the core onboarding path
 
 ### Pending Todos
 
@@ -99,6 +107,10 @@ None yet.
 - [Phase 2]: Greek date/time parsing needs a validated test corpus (20+ colloquial phrases) before booking is trusted.
 - [Phase 2]: Gemini free-tier rate limit is 15 req/min — needs backoff/circuit breaker and load testing before relying on it.
 - [Phase 3]: WhatsApp template approval SLA is opaque (Meta review); plan for possible re-submissions before reminders can ship.
+- [Phase 4]: Bot token must never appear in logs or URL paths — use UUID-keyed lookup; redact from all structured log output.
+- [Phase 4]: Telegraf migration must keep all 208 tests green — run full suite before marking Phase 4 complete.
+- [Phase 5]: deleteWebhook must be called before setWebhook on any re-registration to prevent "another webhook is active" conflicts.
+- [Phase 6]: GDPR cascade must cover ALL tables holding user data — document full cascade chain before implementing.
 
 ## Deferred Items
 
@@ -118,10 +130,10 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-07-09:
 ## Session Continuity
 
 Last session: 2026-07-10T14:06:42.655Z
-Stopped at: context exhaustion at 75% (2026-07-10)
+Stopped at: v1.1 roadmap created — ready to plan Phase 4
 Resume file: 
 None
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Plan Phase 4 with /gsd-plan-phase 4

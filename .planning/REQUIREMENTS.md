@@ -66,20 +66,18 @@
 
 ## Traceability
 
-*Filled by roadmapper — maps each REQ-ID to the phase that implements it.*
-
 | REQ-ID | Phase | Plan |
 |--------|-------|------|
-| BOT-01 | — | — |
-| BOT-02 | — | — |
-| BOT-03 | — | — |
-| BOT-04 | — | — |
-| BOT-05 | — | — |
-| ONB-01 | — | — |
-| ONB-02 | — | — |
-| ONB-03 | — | — |
-| ONB-04 | — | — |
-| COMP-02 | — | — |
-| COMP-03 | — | — |
-| COMP-04 | — | — |
-| RESIL-01 | — | — |
+| BOT-01 | Phase 5 | — |
+| BOT-02 | Phase 4 | — |
+| BOT-03 | Phase 4 | — |
+| BOT-04 | Phase 4 | — |
+| BOT-05 | Phase 4 | — |
+| ONB-01 | Phase 5 | — |
+| ONB-02 | Phase 5 | — |
+| ONB-03 | Phase 5 | — |
+| ONB-04 | Phase 5 | — |
+| COMP-02 | Phase 6 | — |
+| COMP-03 | Phase 6 | — |
+| COMP-04 | Phase 6 | — |
+| RESIL-01 | Phase 6 | — |
