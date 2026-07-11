@@ -1,35 +1,34 @@
 ---
 phase: 04-per-bot-foundation
-reviewed: 2026-07-11T00:00:00Z
+reviewed: 2026-07-11T12:00:00Z
 depth: standard
 files_reviewed: 25
 files_reviewed_list:
   - migrations/0003_phase4_per_bot.sql
-  - package.json
-  - src/config.ts
-  - src/database/db.ts
-  - src/database/queries.ts
   - src/database/schema.ts
-  - src/database/seed.ts
+  - src/database/db.ts
+  - src/config.ts
   - src/telegram/client.ts
-  - src/telegram/registry.ts
-  - src/utils/logger.ts
   - src/webhooks/telegram.ts
+  - src/utils/logger.ts
+  - tests/config.test.ts
+  - src/telegram/registry.ts
+  - tests/jest.setup.ts
+  - src/database/queries.ts
   - tests/ai-agent.test.ts
   - tests/calendar-poller.test.ts
   - tests/calendar-sync.test.ts
-  - tests/config.test.ts
   - tests/consent.test.ts
   - tests/conversation-router.test.ts
   - tests/expiry-poller.test.ts
-  - tests/fixtures.test.ts
   - tests/function-executor.test.ts
   - tests/idempotency.test.ts
-  - tests/jest.setup.ts
-  - tests/rls-enforcement.test.ts
   - tests/scheduler-agenda.test.ts
   - tests/telegram-webhook.test.ts
   - tests/webhook.test.ts
+  - src/database/seed.ts
+  - tests/fixtures.test.ts
+  - tests/rls-enforcement.test.ts
 findings:
   critical: 3
   warning: 4
@@ -47,41 +46,63 @@ status: issues_found
 
 ## Summary
 
-Phase 04 introduces per-bot multi-tenant infrastructure: each business gets its own Telegram bot token and webhook URL, RLS is tightened with a `randevuclaw_app` database role, and the webhook handler is refactored to route by `webhookId` UUID. The architecture design is sound — `botTokenStore` + `withBusinessContext` + `AsyncLocalStorage` is the right shape for per-request token isolation, and the constant-time HMAC secret check is implemented correctly.
+Phase 04 introduces per-bot multi-tenant infrastructure: each business gets its own Telegram bot token and webhook URL, a `randevuclaw_app` database role enforces RLS, and the webhook handler routes by opaque `webhookId` UUID. The core architecture — `botTokenStore` + `withBusinessContext` + `AsyncLocalStorage` + constant-time HMAC verification — is correctly designed.
 
-Three blockers are present, all of which are invisible to the test suite because tests mock both `queries` and `telegramClient` in full:
+Three blockers are present. Two are rooted in the migration (`telegram_updates` permissions gap, hardcoded credential). The third affects every poller-initiated Telegram notification (expired booking alerts, daily agenda): `sendTelegramMessage` is called without a `botTokenStore` context, causing a silent "Not Found" failure on every outbound poller message. All three are invisible in CI because the test suite fully mocks `queries` and `telegramClient` modules and never exercises the `appDb` transaction path end-to-end.
 
-1. The migration is missing a `GRANT` on `telegram_updates` for the new `randevuclaw_app` role, causing a `permission denied` crash on every Telegram webhook in production once `DATABASE_APP_URL` is configured.
-2. Both background pollers (`expiry-poller`, `agenda`) call `sendTelegramMessage` without setting `botTokenStore` context, so all owner/client notifications from pollers silently fail in production with a confusing "Not Found" response from Telegram.
-3. The migration hardcodes the literal string `'CHANGE_ME_USE_FLY_SECRETS'` as the `randevuclaw_app` password in version-controlled SQL.
+Four warnings follow, including a false confirmation acknowledgment visible to non-owners, a nullable-typed return from `insertConversationTurn`, unhandled Telegram update types producing corrupted DB records, and dead production code left over from the Phase 2/3 webhook design.
 
 ---
 
 ## Critical Issues
 
-### CR-01: `telegram_updates` table missing from `randevuclaw_app` GRANTs — all Telegram webhook processing fails in production
+### CR-01: `telegram_updates` table missing from `randevuclaw_app` GRANTs — every Telegram webhook silently fails in production
 
 **File:** `migrations/0003_phase4_per_bot.sql:168-174`
 
-**Issue:** Section 4 of the migration grants SELECT/INSERT/UPDATE/DELETE on seven tables to `randevuclaw_app`, but `telegram_updates` is not among them. The comment in Section 2 explains that `telegram_updates` is excluded from RLS policies (intentional), but there is no corresponding explanation for why it is also absent from the GRANT block — and that absence is a bug, not a design choice.
+**Issue:** Section 4 of the migration grants SELECT/INSERT/UPDATE/DELETE on seven tables to `randevuclaw_app`, but `telegram_updates` is absent from the GRANT block. Section 2 explains that `telegram_updates` is excluded from RLS policies (intentional), but there is no corresponding reason to also withhold table-level permissions from the app role.
 
-In `src/database/queries.ts`, both `insertOrIgnoreTelegramUpdate` (line 473) and `markTelegramUpdateProcessed` (line 503) call `getConn()`. Inside `withBusinessContext`, `getConn()` returns the live `appDb` transaction, which runs as `randevuclaw_app`. In `src/webhooks/telegram.ts`, these functions are called on lines 253 and 58 respectively — both inside the `withBusinessContext(business.id, ...)` callback at line 243. PostgreSQL will throw `ERROR: permission denied for table telegram_updates` on the very first business-logic call (`insertOrIgnoreTelegramUpdate`) for every incoming Telegram update.
+In `src/database/queries.ts`, both `insertOrIgnoreTelegramUpdate` (line 473) and `markTelegramUpdateProcessed` (line 503) use `getConn()`. Inside `withBusinessContext`, `getConn()` returns the live `appDb` transaction, which runs as `randevuclaw_app`. In `src/webhooks/telegram.ts`, `insertOrIgnoreTelegramUpdate` is called at line 253 inside `withBusinessContext(business.id, ...)` at line 243. PostgreSQL raises `ERROR: permission denied for table telegram_updates` on the very first DB call for every incoming Telegram update.
 
-The outer try/catch at line 283 of `telegram.ts` catches this exception and logs "Telegram webhook handler failed", and the `finally` block returns 200 to Telegram. Telegram receives 200, marks the update as delivered, and never retries. **Every Telegram webhook is silently consumed and discarded.**
+The outer `try/catch` at `telegram.ts:283` catches this exception, logs "Telegram webhook handler failed", and the `finally` block returns 200 to Telegram. Telegram receives 200, marks the update as delivered, and never retries. Every Telegram webhook is silently swallowed with zero business logic executed.
 
-This is invisible in CI because `tests/telegram-webhook.test.ts` mocks `withBusinessContext` to call through synchronously (line 169) and mocks all of `queries`, so the actual `appDb` transaction is never exercised. The bug only manifests when `DATABASE_APP_URL` is configured — the intended production state for this phase.
+This is invisible in CI because `tests/telegram-webhook.test.ts` mocks `withBusinessContext` to call through synchronously (line 169) and mocks all of `queries` at line 10, so the actual `appDb` transaction is never exercised. The bug only manifests when `DATABASE_APP_URL` is configured — the intended production state for this phase.
 
 **Fix:**
 ```sql
 -- Add after line 174 in migrations/0003_phase4_per_bot.sql
+-- telegram_updates: excluded from RLS (nullable businessId), but app role still needs CRUD.
 GRANT SELECT, INSERT, UPDATE, DELETE ON telegram_updates TO randevuclaw_app;
 ```
 
-Also add a test to `tests/rls-enforcement.test.ts` that exercises `insertOrIgnoreTelegramUpdate` via `appDb` to prevent regression.
+Also add a case to `tests/rls-enforcement.test.ts` that inserts into `telegram_updates` via `appDb` to prevent future regressions (see IN-03).
 
 ---
 
-### CR-02: All background pollers send Telegram messages without `botTokenStore` context — all poller-initiated notifications silently fail
+### CR-02: Hardcoded placeholder credential for `randevuclaw_app` committed to version control
+
+**File:** `migrations/0003_phase4_per_bot.sql:26`
+
+**Issue:**
+```sql
+CREATE ROLE randevuclaw_app WITH LOGIN PASSWORD 'CHANGE_ME_USE_FLY_SECRETS';
+```
+The literal string `'CHANGE_ME_USE_FLY_SECRETS'` is the initial password for the application database role, committed in version-controlled SQL. Anyone with repository read access — now or in perpetuity — knows this credential. If a developer applies the migration on a fresh Neon database without separately running `ALTER ROLE randevuclaw_app PASSWORD '...'`, the role is left with this publicly-known credential in production. The `IF NOT EXISTS` guard means the mistake is permanent until explicitly corrected; re-running the migration does not fix it.
+
+**Fix:** Remove the `PASSWORD` clause from the `CREATE ROLE` statement and provision the credential exclusively at deployment time, outside version control:
+```sql
+-- migrations/0003_phase4_per_bot.sql line 26: replace with:
+CREATE ROLE randevuclaw_app WITH LOGIN;
+```
+Then provision the password as a deployment step:
+```bash
+# Run once after migration, using a value stored only in fly secrets:
+psql "$DATABASE_URL" -c "ALTER ROLE randevuclaw_app PASSWORD '$DATABASE_APP_PASSWORD';"
+```
+
+---
+
+### CR-03: Background pollers call `sendTelegramMessage` without `botTokenStore` context — all poller-initiated Telegram notifications fail silently in production
 
 **Root cause file:** `src/telegram/client.ts:23`
 
@@ -90,68 +111,143 @@ Also add a test to `tests/rls-enforcement.test.ts` that exercises `insertOrIgnor
 const botToken = botTokenStore.getStore() ?? '';
 const url = `https://api.telegram.org/bot${botToken}/${method}`;
 ```
-When no context is set, the URL becomes `https://api.telegram.org/bot/sendMessage`. The Telegram API returns `{"ok":false,"description":"Not Found"}` with HTTP 404. The exception is caught by each poller's per-business `try/catch` and logged as `'Expiry sweep failed for business'` / `'Agenda sweep failed for business'` — without any indication of the true cause.
+When no `botTokenStore.run()` context is active, the URL becomes `https://api.telegram.org/bot/sendMessage`. Telegram returns HTTP 404 with `{"ok":false,"description":"Not Found"}`. The exception propagates into each poller's per-business `try/catch`, which logs a sweep failure with no indication of the true root cause, increments no counter, and continues to the next business.
 
-Both pollers confirmed affected:
-- `src/conversation/expiry-poller.ts:41` — `sendTelegramMessage(booking.clientPhone, ...)` with no `botTokenStore.run()` wrapper
-- `src/scheduler/agenda.ts:89` — `sendTelegramMessage(business.ownerTelegramId, ...)` with no `botTokenStore.run()` wrapper
+Evidence that the background pollers do not wrap their Telegram calls in `botTokenStore.run()` is structural: `tests/expiry-poller.test.ts` and `tests/scheduler-agenda.test.ts` both auto-mock `telegramClient` entirely via `jest.mock('../src/telegram/client')`. Under this auto-mock, `botTokenStore.run` becomes a `jest.fn()` that does nothing (does not invoke the callback). If the production poller code wrapped `sendTelegramMessage` inside `botTokenStore.run(business.botToken, callback)`, the mock would suppress the callback and `sendTelegramMessage` would never be called — but the tests assert it IS called. The tests pass only because the production code calls `sendTelegramMessage` directly, outside any `botTokenStore.run()` context.
 
-The test suites mock `telegramClient` entirely (`jest.mock('../src/telegram/client')`) so the empty-token path is never reached in CI.
-
-In the per-bot architecture, each business has a distinct `botToken` on its row. The pollers already retrieve the business object (and thus have access to `business.botToken`). The missing step is wrapping the send with `botTokenStore.run(business.botToken, ...)`.
+In production with `DATABASE_APP_URL` set and per-bot tokens live, the following are silently broken:
+- All expired-booking client notifications (`expiry-poller.ts` `sendTelegramMessage(booking.clientPhone, ...)`)
+- All inline-keyboard button-clearing calls (`editTelegramMessageReplyMarkup`)
+- All daily agenda messages to owners (`agenda.ts` `sendTelegramMessage(business.ownerTelegramId, ...)`)
 
 **Fix — two parts:**
 
-Part 1 — fail fast in `src/telegram/client.ts:23` to make miscalls obvious:
+Part 1 — fail fast in `src/telegram/client.ts:23` to surface miscalls immediately:
 ```typescript
 const botToken = botTokenStore.getStore();
 if (!botToken) {
   throw new Error(
-    'Bot token missing: callTelegramApi must be called inside botTokenStore.run()'
+    'callTelegramApi called without botTokenStore context — wrap the call in botTokenStore.run(business.botToken, ...)'
   );
 }
 const url = `https://api.telegram.org/bot${botToken}/${method}`;
 ```
 
-Part 2 — in `expiry-poller.ts` and `agenda.ts`, wrap Telegram calls with the business's token:
+Part 2 — in `expiry-poller.ts` and `agenda.ts`, wrap each Telegram send with the business's token retrieved from the `findBusinessById` result already in scope:
 ```typescript
-// After: const business = await findBusinessById(businessId);
-if (!business?.botToken) continue; // skip if no bot configured
+// Business row is already available; wrap the send block:
+if (!business?.botToken) {
+  logger.warn({ businessId }, 'No bot token for business, skipping Telegram notification');
+  continue;
+}
 await botTokenStore.run(business.botToken, async () => {
   await sendTelegramMessage(booking.clientPhone, EXPIRY_NOTICE_GREEK);
-  // ... edit markup ...
+  if (booking.ownerTelegramMessageId) {
+    await editTelegramMessageReplyMarkup(ownerTelegramId, booking.ownerTelegramMessageId, []);
+  }
 });
-```
-
----
-
-### CR-03: Hardcoded placeholder credential for `randevuclaw_app` in version-controlled migration
-
-**File:** `migrations/0003_phase4_per_bot.sql:26`
-
-**Issue:**
-```sql
-CREATE ROLE randevuclaw_app WITH LOGIN PASSWORD 'CHANGE_ME_USE_FLY_SECRETS';
-```
-The literal string `'CHANGE_ME_USE_FLY_SECRETS'` is checked into the repository as the initial password for the application database role. Anyone with read access to the repository — now or in the future — knows this password. If a developer applies the migration on a fresh Neon database without separately issuing `ALTER ROLE randevuclaw_app PASSWORD '...'`, the role is left with this widely-known credential in production. The `IF NOT EXISTS` guard means the mistake is permanent until explicitly corrected; re-running the migration does not fix it.
-
-**Fix:** Remove the `PASSWORD` clause from the `CREATE ROLE` statement. Document a mandatory post-migration step in a separate script or README section:
-```sql
--- In migrations/0003_phase4_per_bot.sql, replace line 26 with:
-CREATE ROLE randevuclaw_app WITH LOGIN;
-```
-Then provision the password exclusively at deployment time:
-```bash
-# fly.io deployment — run once after migration:
-psql "$DATABASE_URL" -c "ALTER ROLE randevuclaw_app PASSWORD '$DATABASE_APP_PASSWORD';"
-# where DATABASE_APP_PASSWORD is stored only in fly secrets
 ```
 
 ---
 
 ## Warnings
 
-### WR-01: Dead `TELEGRAM_WEBHOOK_SECRET` env var and stale comment in test setup
+### WR-01: `answerCallbackQuery` sends action-specific text to the caller before ownership is verified
+
+**File:** `src/webhooks/telegram.ts:96-107`
+
+**Issue:**
+```typescript
+await answerCallbackQuery(
+  callbackQuery.id,
+  parsed ? (parsed.action === 'approve' ? OWNER_APPROVE_ACK_GREEK : OWNER_REJECT_ACK_GREEK) : undefined
+);
+```
+`OWNER_APPROVE_ACK_GREEK` is "Το ραντεβού επιβεβαιώθηκε." The ownership check happens afterwards (lines 119-127). A non-owner who crafts a callback query with `approve_42` data sees "The appointment was confirmed" in the Telegram spinner popup before the handler has verified they own the booking. The booking itself is safe — `updateBookingStatusIfPending` is never reached — but the visual acknowledgment is false and misleading.
+
+**Fix:** Dismiss the spinner with no text first, then send the action-specific text only after the atomic update confirms the caller won the race:
+```typescript
+// Dismiss spinner immediately — no text until ownership + CAS both succeed
+await answerCallbackQuery(callbackQuery.id);
+if (!parsed) { logger.warn(...); return; }
+
+// ... ownership check ... updateBookingStatusIfPending ...
+// After `updated` is confirmed non-null:
+// (Note: a second answerCallbackQuery on the same callback_query_id replaces the first popup)
+```
+
+---
+
+### WR-02: `insertConversationTurn` declares a non-nullable return type but `rows[0]` can be `undefined`
+
+**File:** `src/database/queries.ts:463-464`
+
+**Issue:**
+```typescript
+const rows = await getConn().insert(conversationTurns).values(values).returning();
+return rows[0];
+```
+The function signature is `Promise<ConversationTurn>`. `rows[0]` is `ConversationTurn | undefined` at runtime. If the INSERT produces an empty `RETURNING` array — e.g., a future unique constraint is added to `conversation_turns`, a trigger silently discards the row, or a Drizzle version change alters `RETURNING` behavior — `rows[0]` is `undefined` while TypeScript reports `ConversationTurn`. Every caller receives an `undefined` object typed as a concrete struct; dereferences of `.id`, `.interactionId`, etc. are silent crashes.
+
+**Fix:**
+```typescript
+const rows = await getConn().insert(conversationTurns).values(values).returning();
+if (!rows[0]) throw new Error('insertConversationTurn: INSERT returned no row — constraint violation or trigger?');
+return rows[0];
+```
+
+---
+
+### WR-03: Unhandled Telegram update types produce an empty `senderTelegramId` and a misclassified `updateType` in `telegram_updates`
+
+**File:** `src/webhooks/telegram.ts:244-249`
+
+**Issue:**
+```typescript
+const senderTelegramId = String(
+  update.message?.from.id ?? update.callback_query?.from.id ?? ''
+);
+const updateType = update.message ? 'message' : 'callback_query';
+```
+Telegram delivers update types beyond `message` and `callback_query`: `edited_message`, `channel_post`, `inline_query`, `poll`, `my_chat_member`, etc. For any of these, both optional chains resolve to `undefined`, so `senderTelegramId` becomes `''` and `updateType` becomes `'callback_query'` (the else branch of the ternary). The row inserted into `telegram_updates` has a blank sender ID and the wrong type, corrupting the dedup log. If any such update has an `update_id` that collides with a legitimate update (unlikely but possible in edge cases), the dedup logic would suppress processing of the real update.
+
+The schema marks `senderTelegramId` as `notNull()` but permits the empty string, so the INSERT succeeds silently.
+
+**Fix:** Add an early guard before the dedup INSERT to reject or log-and-skip unsupported update types:
+```typescript
+if (!update.message && !update.callback_query) {
+  logger.info({ updateId, updateType: Object.keys(update).filter(k => k !== 'update_id') },
+    'Unsupported Telegram update type, ignoring');
+  res.status(200).send('OK');
+  return;
+}
+```
+
+---
+
+### WR-04: Dead function and stale imports in `telegram.ts` from the Phase 2/3 business-resolution design
+
+**File:** `src/webhooks/telegram.ts:4-9, 64-70`
+
+**Issue:** Three imports are never used in the Phase 4 webhook handler:
+```typescript
+import { extractAndNormalizeAllBusinessCodeCandidates } from '../business/resolver'; // line 4
+import {
+  findBusinessBySlug,          // line 8 — Phase 4 routes by webhookId, not slug
+  findLatestBusinessForClient, // line 9 — not called anywhere in this file
+  ...
+} from '../database/queries';
+```
+
+Additionally, `handleNotFoundBusiness` (lines 64-70) is defined but never called. In Phase 4, an unknown `webhookId` returns 404 immediately (line 212); the "business not found" reply is only relevant for WhatsApp, not the per-bot Telegram flow. The dead function, if called by a future developer unfamiliar with the refactor, would attempt to send a message using the current `botTokenStore` context — but only if called from within `botTokenStore.run()`, making its behavior context-dependent and confusing.
+
+**Fix:** Remove the three unused imports and the `handleNotFoundBusiness` function. If a "bot not found" message to the end user is ever desired, that logic belongs inside the handler at the point where the 404 is returned, not in a dead helper.
+
+---
+
+## Info
+
+### IN-01: Stale `TELEGRAM_WEBHOOK_SECRET` env var and misleading comment in `tests/jest.setup.ts`
 
 **File:** `tests/jest.setup.ts:13-16`
 
@@ -162,13 +258,13 @@ psql "$DATABASE_URL" -c "ALTER ROLE randevuclaw_app PASSWORD '$DATABASE_APP_PASS
 // reads process.env.TELEGRAM_WEBHOOK_SECRET as a bridge (D-08 comment in telegram.ts).
 process.env.TELEGRAM_WEBHOOK_SECRET ??= 'test-telegram-webhook-secret';
 ```
-Phase 04 is complete. `src/webhooks/telegram.ts` no longer reads `process.env.TELEGRAM_WEBHOOK_SECRET` at any point. No production code references this variable. The comment describes a transition state that no longer exists. This dead configuration misleads future maintainers into believing a global Telegram secret is still in use.
+Phase 04 is complete. `src/webhooks/telegram.ts` no longer reads `process.env.TELEGRAM_WEBHOOK_SECRET` at any point; per-bot secrets are loaded from the DB via `findBusinessByWebhookId`. The comment describes a transition state that no longer exists. This dead configuration misleads future maintainers into believing a global Telegram webhook secret is still in use somewhere in the codebase.
 
-**Fix:** Remove lines 13-16 entirely.
+**Fix:** Remove lines 13-16 from `tests/jest.setup.ts`.
 
 ---
 
-### WR-02: `withBusinessContext` uses `as unknown as typeof db` to erase incompatible types
+### IN-02: `withBusinessContext` uses a double type-erasing cast to thread a `PgTransaction` as `NodePgDatabase`
 
 **File:** `src/database/queries.ts:83`
 
@@ -176,107 +272,47 @@ Phase 04 is complete. `src/webhooks/telegram.ts` no longer reads `process.env.TE
 ```typescript
 return currentTx.run(tx as unknown as typeof db, callback);
 ```
-`tx` is a Drizzle `PgTransaction` (returned by `appDb.transaction()`), while `currentTx` is typed as `AsyncLocalStorage<typeof db>` (`NodePgDatabase`). The two are structurally different: `PgTransaction` exposes nested-transaction methods (`savepoint`, `rollback`) that do not exist on `NodePgDatabase`. The `as unknown as` double cast bypasses TypeScript's structural compatibility check. If a query function were to access a property that exists on `NodePgDatabase` but behaves differently on `PgTransaction` (or vice versa), TypeScript would provide no warning.
+`tx` is a Drizzle `PgTransaction`; `currentTx` is typed as `AsyncLocalStorage<typeof db>` (`NodePgDatabase`). `PgTransaction` and `NodePgDatabase` are not assignable because `PgTransaction` exposes savepoint/rollback APIs absent on `NodePgDatabase`. The `as unknown as` double-cast bypasses TypeScript's structural compatibility check. If a future query function accessed a property that behaves differently on the two types, TypeScript would provide no warning.
 
-**Fix:** Declare a shared interface type that both `NodePgDatabase` and `PgTransaction` satisfy, and type `currentTx` against that interface rather than the concrete pool type:
+**Fix:** Declare a minimal shared interface that both types satisfy and type `currentTx` against it:
 ```typescript
-// Both NodePgDatabase and PgTransaction implement these methods
 type QueryRunner = Pick<typeof db, 'select' | 'insert' | 'update' | 'delete' | 'execute'>;
 const currentTx = new AsyncLocalStorage<QueryRunner>();
 ```
 
 ---
 
-### WR-03: `answerCallbackQuery` fires before ownership check, sending false confirmation text to non-owners
+### IN-03: `rls-enforcement.test.ts` truncates all businesses and messages without a guard against production `DATABASE_URL`
 
-**File:** `src/webhooks/telegram.ts:99-107`
-
-**Issue:** For a valid `approve_42` payload, `answerCallbackQuery` is called with `OWNER_APPROVE_ACK_GREEK` ("Το ραντεβού επιβεβαιώθηκε.") before the booking lookup or ownership verification happens. If a non-owner's Telegram client somehow sends this callback — or if `senderTelegramId` is spoofed — the user sees "The appointment was confirmed" in the Telegram spinner, even though the ownership check subsequently blocks all mutations and no booking is confirmed. The booking is safe (the atomic `updateBookingStatusIfPending` is never reached), but the visible acknowledgment text is false.
-
-**Fix:** Answer with no text unconditionally, then show the action-specific text only once ownership is confirmed and the atomic update succeeds:
-```typescript
-// Dismiss the spinner immediately with no text
-await answerCallbackQuery(callbackQuery.id);
-if (!parsed) { logger.warn(...); return; }
-
-// ... ownership check + updateBookingStatusIfPending ...
-// Only if updated is non-null (won the race):
-await answerCallbackQuery(
-  callbackQuery.id,
-  parsed.action === 'approve' ? OWNER_APPROVE_ACK_GREEK : OWNER_REJECT_ACK_GREEK
-);
-```
-Note: Telegram's `answerCallbackQuery` can be called multiple times on the same `callback_query_id`; the last one with a non-empty text wins.
-
----
-
-### WR-04: `insertConversationTurn` returns `rows[0]` typed as non-nullable but can be `undefined`
-
-**File:** `src/database/queries.ts:463-464`
+**File:** `tests/rls-enforcement.test.ts:48-53`
 
 **Issue:**
 ```typescript
-const rows = await getConn().insert(conversationTurns).values(values).returning();
-return rows[0];
+beforeEach(async () => {
+  await db.delete(messages);
+  await db.delete(businesses);
+});
 ```
-The declared return type is `Promise<ConversationTurn>`. `rows[0]` is `ConversationTurn | undefined`. If the INSERT returns an empty array (e.g., a future unique constraint is added to `conversation_turns`, or a bug causes a silent conflict), `rows[0]` is `undefined` at runtime but typed as `ConversationTurn`. Every caller will dereference `undefined` without TypeScript warning.
+These are unbounded deletes on `db` (the admin/superuser connection from `DATABASE_URL`). The `DATABASE_APP_URL` skip guard at lines 37-46 prevents the RLS tests from running if the app-role URL is absent, but it does not prevent the destructive `beforeEach` from running if `DATABASE_URL` happens to point at the same Neon project used for production. A developer who sets `DATABASE_APP_URL` to a dedicated test role string but leaves `DATABASE_URL` pointing at the shared project DB would silently truncate all production businesses and messages.
 
-**Fix:**
+**Fix:** Add an explicit assertion that `DATABASE_URL` contains a test-scoped indicator before proceeding with integration test cleanup:
 ```typescript
-if (!rows[0]) throw new Error('insertConversationTurn: INSERT returned no row');
-return rows[0];
+beforeAll(() => {
+  if (!process.env.DATABASE_URL?.includes('test') && !process.env.DATABASE_URL?.includes('local')) {
+    throw new Error(
+      'RLS integration tests require a test-scoped DATABASE_URL (must contain "test" or "local")'
+    );
+  }
+});
 ```
+Alternatively, use a separate `TEST_DATABASE_URL` environment variable for integration tests, decoupled from `DATABASE_URL` entirely.
 
----
-
-## Info
-
-### IN-01: `generateSlug` replaces Greek characters with hyphens — `remove-accents` is unused
-
-**File:** `src/database/seed.ts:12-29`
-
-**Issue:** The slug generator applies `/[^a-z0-9]+/g` after `.toLowerCase()`. Greek characters (e.g., "Πιλάτες Αθήνα") survive `.toLowerCase()` as Unicode but are all replaced by hyphens, producing an empty base slug after `/^-+|-+$/g` trims them. The `remove-accents` package is listed in `package.json:29` but is never imported in this file. Phase 4 uses English fixture names, so no failure is observed, but any production business with a Greek name will get a broken slug.
-
-**Fix:**
+Additionally, add a test case to this file that verifies `randevuclaw_app` can INSERT into `telegram_updates` (exercising the GRANT gap in CR-01):
 ```typescript
-import removeAccents from 'remove-accents';
-// In generateSlug:
-const base = removeAccents(name)
-  .toLowerCase()
-  .trim()
-  .replace(/[^a-z0-9]+/g, '-')
-  .replace(/^-+|-+$/g, '');
-```
-
----
-
-### IN-02: `bot.handleUpdate(update as any)` is a no-op with a suppressed type error
-
-**File:** `src/webhooks/telegram.ts:268`
-
-**Issue:**
-```typescript
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-await bot.handleUpdate(update as any);
-```
-No Telegraf middleware is attached in Phase 4, making this a guaranteed no-op that still makes an async call. The `as any` cast silences a legitimate TypeScript error: the locally-defined `TelegramUpdate` interface is not structurally compatible with Telegraf's internal `Update` type. The comment claims this "validates the update structure," but Telegraf's `handleUpdate` does not reject structurally invalid payloads — it just dispatches middleware. With no middleware, the call does nothing.
-
-**Fix:** Remove the call entirely. If Telegraf's dispatch is genuinely needed for a future middleware, import and use Telegraf's `Update` type to eliminate the `any` cast at that point.
-
----
-
-### IN-03: `rls-enforcement.test.ts` does not test `telegram_updates` table permissions
-
-**File:** `tests/rls-enforcement.test.ts`
-
-**Issue:** The two integration tests cover RLS isolation for `messages` and `businesses` only. The missing GRANT on `telegram_updates` (CR-01) is not tested. A minimal additional test case that calls `insertOrIgnoreTelegramUpdate` via `appDb` (or attempts a direct INSERT into `telegram_updates` as `randevuclaw_app`) would have caught this regression before ship.
-
-**Fix:** Add a third test case within the `DATABASE_APP_URL` guard:
-```typescript
-test('randevuclaw_app can INSERT into telegram_updates (no RLS, but grant required)', async () => {
+test('randevuclaw_app can INSERT into telegram_updates (GRANT required, no RLS policy)', async () => {
   await expect(
     appDb.insert(telegramUpdates).values({
-      updateId: 'rls-t3-tg-1',
+      updateId: 'rls-t3-tg-grant-check',
       businessId: null,
       senderTelegramId: '555',
       updateType: 'message',
