@@ -6,14 +6,14 @@ current_phase: 04
 current_phase_name: per-bot-foundation
 status: executing
 stopped_at: Phase 4 context gathered
-last_updated: "2026-07-11T00:41:42.575Z"
+last_updated: "2026-07-11T00:57:39.526Z"
 last_activity: 2026-07-10
 last_activity_desc: Phase 04 execution started
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 5
-  completed_plans: 2
+  completed_plans: 3
   percent: 0
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-09 after v1.0)
 ## Current Position
 
 Phase: 04 (per-bot-foundation) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Ready to execute
 Last activity: 2026-07-10 — Phase 04 execution started
 
@@ -67,6 +67,7 @@ Last activity: 2026-07-10 — Phase 04 execution started
 | Phase 03 P05 | 5min | 2 tasks | 3 files |
 | Phase 04 P01 | 8 | 2 tasks | 7 files |
 | Phase 04 P02 | 73 | 2 tasks | 5 files |
+| Phase 04 P03 | 8 | 2 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -105,6 +106,7 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 04-01]: telegramBotToken and telegramWebhookSecret removed from config (D-08)
 - [Phase ?]: [Phase 04-01]: appDb falls back to databaseUrl when DATABASE_APP_URL unset — keeps dev/test workflows working without randevuclaw_app role (D-11)
 - [Phase ?]: [Phase 04-01]: telegram_updates excluded from RLS — nullable business_id makes FOR ALL INSERT policy incompatible with dedup-INSERT flow (D-12)
+- [Phase ?]: .planning/phases/04-per-bot-foundation/04-03-SUMMARY.md
 
 ### Pending Todos
 
@@ -138,7 +140,7 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-07-09:
 
 ## Session Continuity
 
-Last session: 2026-07-11T00:41:42.569Z
+Last session: 2026-07-11T00:57:39.521Z
 Stopped at: Phase 4 context gathered
 Resume file: 
 None
