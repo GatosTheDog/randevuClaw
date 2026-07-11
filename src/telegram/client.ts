@@ -1,4 +1,11 @@
+import { AsyncLocalStorage } from 'async_hooks';
 import { logger } from '../utils/logger';
+
+// Per-request Telegram bot token store (D-02, D-04).
+// Set by the webhook handler via botTokenStore.run(business.botToken, ...) before
+// calling withBusinessContext. Read by callTelegramApi for each outbound API call.
+// Never falls back to a global env var — the token must be present in the store.
+export const botTokenStore = new AsyncLocalStorage<string>();
 
 export interface SendMessageResult {
   messageId: number;
@@ -13,10 +20,8 @@ interface TelegramApiResponse<T> {
 }
 
 async function callTelegramApi<T>(method: string, body: Record<string, unknown>): Promise<T> {
-  // Phase 04 bridge (D-08): config.telegramBotToken removed in Plan 04-01.
-  // Plan 04-02 replaces this single global token with per-bot token routing
-  // (looked up from businesses.bot_token via callTelegramApi's botToken param).
-  const url = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN ?? ''}/${method}`;
+  const botToken = botTokenStore.getStore() ?? '';
+  const url = `https://api.telegram.org/bot${botToken}/${method}`;
 
   logger.debug({ method }, 'Calling Telegram API');
 
