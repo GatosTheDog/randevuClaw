@@ -172,3 +172,5 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON business_hours TO randevuclaw_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON client_business_relationships TO randevuclaw_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON conversation_turns TO randevuclaw_app;
 GRANT SELECT, UPDATE ON businesses TO randevuclaw_app;
+-- telegram_updates: excluded from RLS (nullable businessId), but app role still needs CRUD.
+GRANT SELECT, INSERT, UPDATE, DELETE ON telegram_updates TO randevuclaw_app;
