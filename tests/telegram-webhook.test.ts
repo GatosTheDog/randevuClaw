@@ -4,14 +4,19 @@ import * as queries from '../src/database/queries';
 import * as telegramClient from '../src/telegram/client';
 import * as router from '../src/conversation/router';
 import * as calendarSync from '../src/calendar/sync';
+import * as registryModule from '../src/telegram/registry';
 import { parseCallbackData } from '../src/webhooks/telegram';
 
 jest.mock('../src/database/queries');
 jest.mock('../src/telegram/client');
 jest.mock('../src/conversation/router');
 jest.mock('../src/calendar/sync');
+// Phase 4: mock registry to prevent real Telegraf bot from making network calls
+// (bot.handleUpdate calls getMe on the Telegram API which fails in test env)
+jest.mock('../src/telegram/registry');
 
-const SECRET = 'test-telegram-webhook-secret';
+// Phase 4: per-bot secret (matches TEST_BOT_1_WEBHOOK_SECRET default in jest.setup.ts)
+const SECRET = 'test-bot-1-webhook-secret';
 
 const KNOWN_BUSINESS = {
   id: 1,
@@ -21,9 +26,25 @@ const KNOWN_BUSINESS = {
   ownerTelegramId: '999999999',
   googleRefreshToken: null,
   agendaSentDate: null,
-  botToken: null,
-  webhookId: null,
-  webhookSecret: null,
+  // Phase 4 per-bot fields — match TEST_BOT_1_* defaults from jest.setup.ts
+  botToken: 'test-bot-1-token',
+  webhookId: 'test-webhook-id-1',
+  webhookSecret: 'test-bot-1-webhook-secret',
+  createdAt: new Date(),
+};
+
+// Second test bot — matches TEST_BOT_2_* defaults from jest.setup.ts (BOT-02)
+const KNOWN_BUSINESS_2 = {
+  id: 2,
+  name: 'Hair Salon Athens',
+  slug: 'hair-salon-athens',
+  phoneNumberId: null,
+  ownerTelegramId: '999999999',
+  googleRefreshToken: null,
+  agendaSentDate: null,
+  botToken: 'test-bot-2-token',
+  webhookId: 'test-webhook-id-2',
+  webhookSecret: 'test-bot-2-webhook-secret',
   createdAt: new Date(),
 };
 
@@ -69,6 +90,19 @@ const mockedSyncBookingToCalendar = calendarSync.syncBookingToCalendar as jest.M
 const mockedDeleteBookingFromCalendar = calendarSync.deleteBookingFromCalendar as jest.MockedFunction<
   typeof calendarSync.deleteBookingFromCalendar
 >;
+// Phase 4: per-bot routing mocks (D-04, BOT-02)
+const mockedFindBusinessByWebhookId = queries.findBusinessByWebhookId as jest.MockedFunction<
+  typeof queries.findBusinessByWebhookId
+>;
+const mockedWithBusinessContext = queries.withBusinessContext as jest.MockedFunction<
+  typeof queries.withBusinessContext
+>;
+// Phase 4: registry mock — prevents real Telegraf bot from calling Telegram API during tests
+const mockedGetOrCreateBotInstance = registryModule.getOrCreateBotInstance as jest.MockedFunction<
+  typeof registryModule.getOrCreateBotInstance
+>;
+// Mock Telegraf bot that does nothing in handleUpdate (no real API calls)
+const mockBot = { handleUpdate: jest.fn().mockResolvedValue(undefined) };
 
 function makeMessageUpdate(updateId: number, text: string, fromId = 111222333) {
   return {
@@ -99,29 +133,46 @@ function makeCallbackQueryUpdate(
   };
 }
 
+// Phase 4: postWebhook now routes to /:webhookId (D-04).
 // `secret` uses `null` (not `undefined`) as the "omit the header" sentinel:
 // a default parameter is only substituted when the caller omits the argument
 // or passes `undefined` explicitly, so passing `undefined` here would
 // silently fall back to SECRET instead of testing the missing-header case.
-async function postWebhook(body: object, secret: string | null = SECRET) {
-  const req = request(app).post('/webhooks/telegram').set('Content-Type', 'application/json');
+async function postWebhook(
+  webhookId: string = 'test-webhook-id-1',
+  body: object,
+  secret: string | null = SECRET
+) {
+  const req = request(app)
+    .post(`/webhooks/telegram/${webhookId}`)
+    .set('Content-Type', 'application/json');
   if (secret !== null) req.set('X-Telegram-Bot-Api-Secret-Token', secret);
   return req.send(body);
 }
 
-describe('POST /webhooks/telegram', () => {
+describe('POST /webhooks/telegram/:webhookId', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockedInsertOrIgnoreTelegramUpdate.mockResolvedValue('inserted');
     mockedMarkTelegramUpdateProcessed.mockResolvedValue(undefined);
     mockedSendTelegramMessage.mockResolvedValue({ messageId: 999 });
     mockedRouteConversationMessage.mockResolvedValue(undefined);
+    // Phase 4: per-bot routing defaults (BOT-02, D-04)
+    mockedFindBusinessByWebhookId.mockResolvedValue(KNOWN_BUSINESS);
+    // Telegraf registry: return mock bot so handleUpdate is a no-op (no real API calls)
+    mockedGetOrCreateBotInstance.mockReturnValue(mockBot as any);
+    // botTokenStore.run must call through so inner handler logic executes
+    (telegramClient.botTokenStore.run as jest.Mock).mockImplementation(
+      (_value: string, callback: () => Promise<unknown>) => callback()
+    );
+    // withBusinessContext must call through so RLS-wrapped inner logic executes
+    mockedWithBusinessContext.mockImplementation((_businessId, callback) => callback());
   });
 
   it('Test 1: recognized business code -> 200 + routeConversationMessage called with the channel adapter, not a direct reply', async () => {
     mockedFindBusinessBySlug.mockResolvedValue(KNOWN_BUSINESS);
 
-    const res = await postWebhook(makeMessageUpdate(1, 'pilates-athens'));
+    const res = await postWebhook('test-webhook-id-1', makeMessageUpdate(1, 'pilates-athens'));
 
     expect(res.status).toBe(200);
     expect(mockedRouteConversationMessage).toHaveBeenCalledTimes(1);
@@ -134,15 +185,13 @@ describe('POST /webhooks/telegram', () => {
     expect(mockedMarkTelegramUpdateProcessed).toHaveBeenCalledWith('1', 1);
   });
 
-  it('Test 2: unrecognized business code -> 200 + BUSINESS_NOT_FOUND_REPLY_GREEK direct reply, routeConversationMessage never called', async () => {
-    mockedFindBusinessBySlug.mockResolvedValue(null);
+  it('Test 2: unknown webhookId -> 404, no sendTelegramMessage, no routeConversationMessage (BOT-02)', async () => {
+    mockedFindBusinessByWebhookId.mockResolvedValueOnce(null);
 
-    const res = await postWebhook(makeMessageUpdate(2, 'unknown-business'));
+    const res = await postWebhook('unknown-webhook-id', makeMessageUpdate(2, 'some-text'));
 
-    expect(res.status).toBe(200);
-    expect(mockedSendTelegramMessage).toHaveBeenCalledTimes(1);
-    const [, replyText] = mockedSendTelegramMessage.mock.calls[0];
-    expect(replyText).toContain('Δεν αναγνωρίσαμε');
+    expect(res.status).toBe(404);
+    expect(mockedSendTelegramMessage).not.toHaveBeenCalled();
     expect(mockedRouteConversationMessage).not.toHaveBeenCalled();
   });
 
@@ -150,39 +199,72 @@ describe('POST /webhooks/telegram', () => {
     mockedFindBusinessBySlug.mockResolvedValue(KNOWN_BUSINESS);
 
     mockedInsertOrIgnoreTelegramUpdate.mockResolvedValueOnce('inserted');
-    await postWebhook(makeMessageUpdate(3, 'pilates-athens'));
+    await postWebhook('test-webhook-id-1', makeMessageUpdate(3, 'pilates-athens'));
 
     mockedInsertOrIgnoreTelegramUpdate.mockResolvedValueOnce('ignored');
-    await postWebhook(makeMessageUpdate(3, 'pilates-athens'));
+    await postWebhook('test-webhook-id-1', makeMessageUpdate(3, 'pilates-athens'));
 
     expect(mockedRouteConversationMessage).toHaveBeenCalledTimes(1);
   });
 
-  it('Test 4: missing/wrong secret token -> 403, neither sendTelegramMessage nor routeConversationMessage called', async () => {
+  it('Test 4: missing/wrong secret token -> 401, neither sendTelegramMessage nor routeConversationMessage called', async () => {
     mockedFindBusinessBySlug.mockResolvedValue(KNOWN_BUSINESS);
 
-    const resMissing = await postWebhook(makeMessageUpdate(4, 'pilates-athens'), null);
-    expect(resMissing.status).toBe(403);
+    const resMissing = await postWebhook('test-webhook-id-1', makeMessageUpdate(4, 'pilates-athens'), null);
+    expect(resMissing.status).toBe(401);
 
-    const resWrong = await postWebhook(makeMessageUpdate(5, 'pilates-athens'), 'wrong-secret');
-    expect(resWrong.status).toBe(403);
+    const resWrong = await postWebhook('test-webhook-id-1', makeMessageUpdate(5, 'pilates-athens'), 'wrong-secret');
+    expect(resWrong.status).toBe(401);
 
     expect(mockedSendTelegramMessage).not.toHaveBeenCalled();
     expect(mockedRouteConversationMessage).not.toHaveBeenCalled();
   });
 
   it('Test 6: callback_query update -> 200, no reply, no AI routing, still deduped by update_id', async () => {
-    const res = await postWebhook(makeCallbackQueryUpdate(7));
+    const res = await postWebhook('test-webhook-id-1', makeCallbackQueryUpdate(7));
 
     expect(res.status).toBe(200);
     expect(mockedSendTelegramMessage).not.toHaveBeenCalled();
     expect(mockedRouteConversationMessage).not.toHaveBeenCalled();
+    // Phase 4: business.id is now known from webhookId lookup (not null as in old global-token flow)
     expect(mockedInsertOrIgnoreTelegramUpdate).toHaveBeenCalledWith(
       '7',
-      null,
+      1,
       '111222333',
       'callback_query'
     );
+  });
+
+  it('Test: two distinct webhookIds each resolve to their own business, both return 200 (BOT-02)', async () => {
+    mockedFindBusinessByWebhookId
+      .mockResolvedValueOnce(KNOWN_BUSINESS)
+      .mockResolvedValueOnce(KNOWN_BUSINESS_2);
+
+    const res1 = await postWebhook('test-webhook-id-1', makeMessageUpdate(10, 'any-text'), 'test-bot-1-webhook-secret');
+    const res2 = await postWebhook('test-webhook-id-2', makeMessageUpdate(11, 'any-text'), 'test-bot-2-webhook-secret');
+
+    expect(res1.status).toBe(200);
+    expect(res2.status).toBe(200);
+    expect(mockedFindBusinessByWebhookId).toHaveBeenCalledTimes(2);
+    expect(mockedFindBusinessByWebhookId).toHaveBeenNthCalledWith(1, 'test-webhook-id-1');
+    expect(mockedFindBusinessByWebhookId).toHaveBeenNthCalledWith(2, 'test-webhook-id-2');
+  });
+
+  it('Test: valid webhookSecret returns 200; invalid or missing returns 401 (BOT-03, D-06)', async () => {
+    const correctSecret = 'correct-32-char-secret-here-xx';
+    mockedFindBusinessByWebhookId.mockResolvedValue({
+      ...KNOWN_BUSINESS,
+      webhookSecret: correctSecret,
+    });
+
+    const resValid = await postWebhook('test-webhook-id-1', makeMessageUpdate(20, 'some-text'), correctSecret);
+    expect(resValid.status).toBe(200);
+
+    const resInvalid = await postWebhook('test-webhook-id-1', makeMessageUpdate(21, 'some-text'), 'wrong-secret');
+    expect(resInvalid.status).toBe(401);
+
+    const resMissing = await postWebhook('test-webhook-id-1', makeMessageUpdate(22, 'some-text'), null);
+    expect(resMissing.status).toBe(401);
   });
 });
 
@@ -197,7 +279,7 @@ describe('parseCallbackData', () => {
   });
 });
 
-describe('POST /webhooks/telegram — callback_query owner approval (Plan 02-05)', () => {
+describe('POST /webhooks/telegram/:webhookId — callback_query owner approval (Plan 02-05)', () => {
   const PENDING_BOOKING = {
     id: 42,
     businessId: 1,
@@ -251,6 +333,13 @@ describe('POST /webhooks/telegram — callback_query owner approval (Plan 02-05)
     mockedFindServiceById.mockResolvedValue(SERVICE);
     mockedSyncBookingToCalendar.mockResolvedValue(true);
     mockedDeleteBookingFromCalendar.mockResolvedValue(true);
+    // Phase 4: per-bot routing defaults (all callback_query tests use KNOWN_BUSINESS as the webhook-level business)
+    mockedFindBusinessByWebhookId.mockResolvedValue(KNOWN_BUSINESS);
+    mockedGetOrCreateBotInstance.mockReturnValue(mockBot as any);
+    (telegramClient.botTokenStore.run as jest.Mock).mockImplementation(
+      (_value: string, callback: () => Promise<unknown>) => callback()
+    );
+    mockedWithBusinessContext.mockImplementation((_businessId, callback) => callback());
   });
 
   it('Test 5: approves a pending booking — acks first, confirms, notifies client, clears buttons', async () => {
@@ -261,7 +350,7 @@ describe('POST /webhooks/telegram — callback_query owner approval (Plan 02-05)
       bookingStatus: 'confirmed',
     });
 
-    const res = await postWebhook(makeCallbackQueryUpdate(100, 'owner1', 'approve_42'));
+    const res = await postWebhook('test-webhook-id-1', makeCallbackQueryUpdate(100, 'owner1', 'approve_42'));
 
     expect(res.status).toBe(200);
     expect(mockedAnswerCallbackQuery).toHaveBeenCalledWith('cbq-1', expect.any(String));
@@ -290,7 +379,7 @@ describe('POST /webhooks/telegram — callback_query owner approval (Plan 02-05)
       bookingStatus: 'rejected',
     });
 
-    const res = await postWebhook(makeCallbackQueryUpdate(101, 'owner1', 'reject_42'));
+    const res = await postWebhook('test-webhook-id-1', makeCallbackQueryUpdate(101, 'owner1', 'reject_42'));
 
     expect(res.status).toBe(200);
     expect(mockedUpdateBookingStatusIfPending).toHaveBeenCalledWith(42, 'rejected');
@@ -310,7 +399,7 @@ describe('POST /webhooks/telegram — callback_query owner approval (Plan 02-05)
       bookingStatus: 'confirmed',
     });
 
-    await postWebhook(makeCallbackQueryUpdate(102, 'owner1', 'approve_99'));
+    await postWebhook('test-webhook-id-1', makeCallbackQueryUpdate(102, 'owner1', 'approve_99'));
 
     expect(mockedUpdateBookingStatusIfPending).toHaveBeenCalledWith(99, 'confirmed');
     expect(mockedUpdateBookingStatus).toHaveBeenCalledWith(42, 'cancelled');
@@ -325,14 +414,14 @@ describe('POST /webhooks/telegram — callback_query owner approval (Plan 02-05)
       bookingStatus: 'rejected',
     });
 
-    await postWebhook(makeCallbackQueryUpdate(103, 'owner1', 'reject_99'));
+    await postWebhook('test-webhook-id-1', makeCallbackQueryUpdate(103, 'owner1', 'reject_99'));
 
     expect(mockedUpdateBookingStatusIfPending).toHaveBeenCalledWith(99, 'rejected');
     expect(mockedUpdateBookingStatus).not.toHaveBeenCalled();
   });
 
   it('Test 9: malformed callback data — acks (dismiss spinner) but never looks up or mutates a booking', async () => {
-    const res = await postWebhook(makeCallbackQueryUpdate(104, 'owner1', 'garbage'));
+    const res = await postWebhook('test-webhook-id-1', makeCallbackQueryUpdate(104, 'owner1', 'garbage'));
 
     expect(res.status).toBe(200);
     expect(mockedAnswerCallbackQuery).toHaveBeenCalledWith('cbq-1', undefined);
@@ -343,7 +432,7 @@ describe('POST /webhooks/telegram — callback_query owner approval (Plan 02-05)
   it('Test 10: nonexistent booking id — no crash, no mutation, still 200', async () => {
     mockedFindBookingByIdUnscoped.mockResolvedValue(null);
 
-    const res = await postWebhook(makeCallbackQueryUpdate(105, 'owner1', 'approve_9999'));
+    const res = await postWebhook('test-webhook-id-1', makeCallbackQueryUpdate(105, 'owner1', 'approve_9999'));
 
     expect(res.status).toBe(200);
     expect(mockedUpdateBookingStatus).not.toHaveBeenCalled();
@@ -353,7 +442,7 @@ describe('POST /webhooks/telegram — callback_query owner approval (Plan 02-05)
     mockedFindBookingByIdUnscoped.mockResolvedValue(PENDING_BOOKING);
     mockedFindBusinessById.mockResolvedValue(OWNER_BUSINESS);
 
-    const res = await postWebhook(makeCallbackQueryUpdate(106, 'someone-else', 'approve_42'));
+    const res = await postWebhook('test-webhook-id-1', makeCallbackQueryUpdate(106, 'someone-else', 'approve_42'));
 
     expect(res.status).toBe(200);
     expect(mockedUpdateBookingStatus).not.toHaveBeenCalled();
@@ -367,7 +456,7 @@ describe('POST /webhooks/telegram — callback_query owner approval (Plan 02-05)
     // booking was already resolved by a prior tap.
     mockedUpdateBookingStatusIfPending.mockResolvedValue(null);
 
-    const res = await postWebhook(makeCallbackQueryUpdate(107, 'owner1', 'approve_42'));
+    const res = await postWebhook('test-webhook-id-1', makeCallbackQueryUpdate(107, 'owner1', 'approve_42'));
 
     expect(res.status).toBe(200);
     expect(mockedUpdateBookingStatusIfPending).toHaveBeenCalledWith(42, 'confirmed');
@@ -387,8 +476,8 @@ describe('POST /webhooks/telegram — callback_query owner approval (Plan 02-05)
       .mockResolvedValueOnce(null);
 
     const [firstRes, secondRes] = await Promise.all([
-      postWebhook(makeCallbackQueryUpdate(200, 'owner1', 'approve_42')),
-      postWebhook(makeCallbackQueryUpdate(201, 'owner1', 'approve_42')),
+      postWebhook('test-webhook-id-1', makeCallbackQueryUpdate(200, 'owner1', 'approve_42')),
+      postWebhook('test-webhook-id-1', makeCallbackQueryUpdate(201, 'owner1', 'approve_42')),
     ]);
 
     expect(firstRes.status).toBe(200);
@@ -405,7 +494,7 @@ describe('POST /webhooks/telegram — callback_query owner approval (Plan 02-05)
       bookingStatus: 'confirmed',
     });
 
-    const res = await postWebhook(makeCallbackQueryUpdate(300, 'owner1', 'approve_42'));
+    const res = await postWebhook('test-webhook-id-1', makeCallbackQueryUpdate(300, 'owner1', 'approve_42'));
 
     expect(res.status).toBe(200);
     expect(mockedSyncBookingToCalendar).toHaveBeenCalledTimes(1);
@@ -429,7 +518,7 @@ describe('POST /webhooks/telegram — callback_query owner approval (Plan 02-05)
       bookingStatus: 'confirmed',
     });
 
-    const res = await postWebhook(makeCallbackQueryUpdate(301, 'owner1', 'approve_99'));
+    const res = await postWebhook('test-webhook-id-1', makeCallbackQueryUpdate(301, 'owner1', 'approve_99'));
 
     expect(res.status).toBe(200);
     expect(mockedDeleteBookingFromCalendar).toHaveBeenCalledWith(originalBooking, OWNER_BUSINESS);
@@ -449,7 +538,7 @@ describe('POST /webhooks/telegram — callback_query owner approval (Plan 02-05)
     });
     mockedSyncBookingToCalendar.mockRejectedValueOnce(new Error('unexpected bug'));
 
-    const res = await postWebhook(makeCallbackQueryUpdate(302, 'owner1', 'approve_42'));
+    const res = await postWebhook('test-webhook-id-1', makeCallbackQueryUpdate(302, 'owner1', 'approve_42'));
 
     expect(res.status).toBe(200);
     const [clientId, clientText] = mockedSendTelegramMessage.mock.calls[0];
