@@ -23,6 +23,7 @@ export const logger = pino({
       // Explicit config.* namespace
       'config.appSecret', 'config.databaseUrl', 'config.databaseAppUrl', 'config.whatsappAccessToken', 'config.webhookVerifyToken',
       'config.geminiApiKey', 'config.googleClientSecret',
+      'config.botToken', 'config.webhookSecret',
     ],
     censor: '[REDACTED]',
   },
