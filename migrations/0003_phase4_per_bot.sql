@@ -23,7 +23,7 @@
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'randevuclaw_app') THEN
-    CREATE ROLE randevuclaw_app WITH LOGIN PASSWORD 'CHANGE_ME_USE_FLY_SECRETS';
+    CREATE ROLE randevuclaw_app WITH LOGIN;
   END IF;
 END
 $$;
