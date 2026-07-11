@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import express, { Router, Request, Response } from 'express';
 import { logger } from '../utils/logger';
 import { extractAndNormalizeAllBusinessCodeCandidates } from '../business/resolver';
@@ -12,8 +13,11 @@ import {
   markTelegramUpdateProcessed,
   updateBookingStatus,
   updateBookingStatusIfPending,
+  findBusinessByWebhookId,
+  withBusinessContext,
 } from '../database/queries';
-import { answerCallbackQuery, editTelegramMessageReplyMarkup, sendTelegramMessage } from '../telegram/client';
+import { answerCallbackQuery, editTelegramMessageReplyMarkup, sendTelegramMessage, botTokenStore } from '../telegram/client';
+import { getOrCreateBotInstance } from '../telegram/registry';
 import { routeConversationMessage } from '../conversation/router';
 import { BUSINESS_NOT_FOUND_REPLY_GREEK } from './whatsapp';
 import { deleteBookingFromCalendar, syncBookingToCalendar } from '../calendar/sync';
@@ -39,17 +43,6 @@ interface TelegramUpdate {
   update_id: number;
   message?: TelegramMessage;
   callback_query?: TelegramCallbackQuery;
-}
-
-// Telegram's secret token is a simple shared-secret bearer-style header,
-// documented by Telegram itself as a direct string comparison — unlike
-// WhatsApp's HMAC signature, there is no timing-attack surface to defend
-// against here (no signature is being derived from a body + key).
-export function verifyTelegramSecretToken(
-  headerValue: string | undefined,
-  expectedToken: string
-): boolean {
-  return headerValue !== undefined && headerValue === expectedToken;
 }
 
 async function handleFoundBusiness(
@@ -197,88 +190,104 @@ async function handleCallbackQuery(
 }
 
 export async function handleTelegramWebhookPost(req: Request, res: Response): Promise<void> {
-  // Whole body wrapped in try/catch/finally, mirroring the WhatsApp webhook's
-  // "always return 200, never let Telegram retry a message we already
-  // handled" invariant.
+  // Whole body wrapped in try/catch/finally — always return 200 to Telegram
+  // so it never retries a message we already handled.
   try {
-    const headerValue = req.headers['x-telegram-bot-api-secret-token'] as string | undefined;
-
-    // Phase 04 bridge (D-08): config.telegramWebhookSecret removed in Plan 04-01.
-    // Plan 04-02 replaces this with per-bot DB lookup + crypto.timingSafeEqual
-    // against businesses.webhook_secret. Until then, read the global env var
-    // directly so existing tests and deployments continue to work.
-    if (!verifyTelegramSecretToken(headerValue, process.env.TELEGRAM_WEBHOOK_SECRET ?? '')) {
-      res.status(403).send('Forbidden');
+    // Step 1 — Extract webhookId from route parameter (D-04).
+    // req.params values are always strings in Express routing; cast to narrow the type.
+    const webhookId = req.params.webhookId as string | undefined;
+    if (!webhookId) {
+      res.status(400).send('Bad Request');
       return;
     }
 
+    // Step 2 — Business lookup (pre-auth, admin db — per D-04).
+    // findBusinessByWebhookId uses the admin db (bypasses RLS) so this lookup
+    // works before withBusinessContext is entered. Log only the opaque UUID —
+    // never the bot token or secret (STATE.md blocker: D-04).
+    const business = await findBusinessByWebhookId(webhookId);
+    if (!business || !business.webhookSecret || !business.botToken) {
+      logger.warn({ webhookId }, 'Webhook ID not found or bot credentials incomplete');
+      res.status(404).send('Not Found');
+      return;
+    }
+
+    // Step 3 — Constant-time HMAC verification (per D-06 / T-04-10).
+    // crypto.timingSafeEqual throws if buffers have different lengths, so the
+    // try/catch maps that case to secretValid=false without leaking timing info.
+    // Express headers can be string | string[] — coerce to string for Buffer.from.
+    const rawHeader = req.headers['x-telegram-bot-api-secret-token'];
+    const headerValue = Array.isArray(rawHeader) ? rawHeader[0] : rawHeader;
+    const headerBuffer = Buffer.from(headerValue ?? '');
+    const secretBuffer = Buffer.from(business.webhookSecret);
+    let secretValid: boolean;
+    try {
+      secretValid = crypto.timingSafeEqual(headerBuffer, secretBuffer);
+    } catch {
+      secretValid = false;
+    }
+    if (!secretValid) {
+      logger.warn({ webhookId }, 'Webhook secret verification failed');
+      res.status(401).send('Unauthorized');
+      return;
+    }
+
+    // Step 4 — Bot instance and update parsing.
     const update = req.body as TelegramUpdate;
-    const updateId = String(update.update_id);
-    const senderTelegramId = String(
-      update.message?.from.id ?? update.callback_query?.from.id ?? ''
-    );
+    const bot = getOrCreateBotInstance(webhookId, business.botToken);
 
-    const updateType = update.message ? 'message' : 'callback_query';
-    logger.info({ updateId, senderTelegramId, updateType }, 'Telegram update received');
+    // Step 5 — Per-request context: botTokenStore so callTelegramApi reads the
+    // correct bot token; withBusinessContext so all DB ops run under RLS for
+    // exactly this tenant (T-04-12).
+    await botTokenStore.run(business.botToken, async () => {
+      await withBusinessContext(business.id, async () => {
+        const updateId = String(update.update_id);
+        const senderTelegramId = String(
+          update.message?.from.id ?? update.callback_query?.from.id ?? ''
+        );
+        const updateType = update.message ? 'message' : 'callback_query';
 
-    const dedupResult = await insertOrIgnoreTelegramUpdate(
-      updateId,
-      null,
-      senderTelegramId,
-      updateType
-    );
+        // Log webhookId (opaque UUID), never botToken (D-04 / T-04-11).
+        logger.info({ updateId, webhookId, senderTelegramId, updateType }, 'Telegram update received');
 
-    if (dedupResult === 'ignored') {
-      logger.info({ updateId }, 'Duplicate Telegram update ignored');
-      res.status(200).send('OK');
-      return;
-    }
+        const dedupResult = await insertOrIgnoreTelegramUpdate(
+          updateId,
+          business.id,
+          senderTelegramId,
+          updateType
+        );
 
-    if (update.callback_query) {
-      await handleCallbackQuery(update.callback_query, senderTelegramId);
-      res.status(200).send('OK');
-      return;
-    }
-
-    if (update.message) {
-      const messageText = update.message.text ?? '';
-      const candidates = extractAndNormalizeAllBusinessCodeCandidates(messageText);
-      let business: Business | null = null;
-      for (const candidate of candidates) {
-        business = await findBusinessBySlug(candidate);
-        if (business) {
-          logger.info({ updateId, slug: candidate, businessId: business.id }, 'Business resolved by slug');
-          break;
+        if (dedupResult === 'ignored') {
+          logger.info({ updateId }, 'Duplicate Telegram update ignored');
+          return;
         }
-      }
 
-      // No slug in this message — fall back to the client's existing relationship.
-      // This is what makes follow-up messages ("νεα κρατηση", "ακυρωση" etc.)
-      // work without repeating the business code every time.
-      if (!business) {
-        business = await findLatestBusinessForClient(senderTelegramId);
-        if (business) {
-          logger.info({ updateId, businessId: business.id }, 'Business resolved via client relationship fallback');
+        // BOT-04: Telegraf as webhook adapter (D-03). No middleware attached in
+        // Phase 4 — validates the update structure; dispatch is explicit below.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await bot.handleUpdate(update as any);
+
+        if (update.callback_query) {
+          await handleCallbackQuery(update.callback_query, senderTelegramId);
+          return;
         }
-      }
 
-      if (business) {
-        await handleFoundBusiness(updateId, business, senderTelegramId, messageText);
-      } else {
-        logger.info({ updateId, senderTelegramId }, 'No business resolved, sending not-found reply');
-        await handleNotFoundBusiness(senderTelegramId);
-      }
-    }
+        if (update.message) {
+          await handleFoundBusiness(updateId, business, senderTelegramId, update.message.text ?? '');
+        }
+      });
+    });
 
+    // Step 6 — Always 200 to Telegram (success path).
     res.status(200).send('OK');
   } catch (err) {
-    logger.error({ err }, 'Unhandled error processing Telegram webhook');
+    logger.error({ err }, 'Telegram webhook handler failed');
   } finally {
     if (!res.headersSent) res.status(200).send('OK');
   }
 }
 
 const router = Router();
-router.post('/', express.json(), handleTelegramWebhookPost);
+router.post('/:webhookId', express.json(), handleTelegramWebhookPost);
 
 export default router;
