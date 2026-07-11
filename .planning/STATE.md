@@ -4,17 +4,17 @@ milestone: v1.1
 milestone_name: Per-Business Bots & Telegram PoC Completion
 current_phase: 04
 current_phase_name: per-bot-foundation
-status: executing
+status: verifying
 stopped_at: Phase 4 context gathered
-last_updated: "2026-07-11T01:09:33.367Z"
+last_updated: "2026-07-11T01:34:31.105Z"
 last_activity: 2026-07-10
 last_activity_desc: Phase 04 execution started
 progress:
   total_phases: 3
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 5
-  completed_plans: 4
-  percent: 0
+  completed_plans: 5
+  percent: 33
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-07-09 after v1.0)
 
 Phase: 04 (per-bot-foundation) — EXECUTING
 Plan: 5 of 5
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-10 — Phase 04 execution started
 
 ```
@@ -69,6 +69,7 @@ Last activity: 2026-07-10 — Phase 04 execution started
 | Phase 04 P02 | 73 | 2 tasks | 5 files |
 | Phase 04 P03 | 8 | 2 tasks | 13 files |
 | Phase 04 P04 | 8 | 2 tasks | 3 files |
+| Phase 04 P05 | 14 | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -110,6 +111,11 @@ Recent decisions affecting current work:
 - [Phase ?]: .planning/phases/04-per-bot-foundation/04-03-SUMMARY.md
 - [Phase ?]: [Phase 04-04]: verifyTelegramSecretToken removed; crypto.timingSafeEqual replaces string-equality (D-06/T-04-10)
 - [Phase ?]: [Phase 04-04]: bot.handleUpdate() called as Telegraf webhook adapter before explicit dispatch (D-03/BOT-04)
+- [Phase ?]: Rule 1 auto-fix
+- [Phase ?]: [Phase 04-05]: Test 2 replaced — slug-based not-found path gone in per-bot handler; replaced with unknown webhookId → 404
+- [Phase ?]: [Phase 04-05]: botTokenStore.run requires explicit call-through mock — Jest auto-mock of AsyncLocalStorage.run returns undefined; inner handler body skipped
+- [Phase ?]: [Phase 04-05]: Schema columns applied to live Neon DB via Node.js script — drizzle-kit push requires TTY for UNIQUE constraint prompt
+- [Phase ?]: [Phase 04-05]: RLS migration applied with dynamic DB name substitution — live Neon DB is neondb not randevuclaw as hardcoded in GRANT CONNECT
 
 ### Pending Todos
 
@@ -143,7 +149,7 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-07-09:
 
 ## Session Continuity
 
-Last session: 2026-07-11T01:09:25.694Z
+Last session: 2026-07-11T01:34:31.100Z
 Stopped at: Phase 4 context gathered
 Resume file: 
 None
