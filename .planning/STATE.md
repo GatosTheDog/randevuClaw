@@ -6,14 +6,14 @@ current_phase: 04
 current_phase_name: per-bot-foundation
 status: executing
 stopped_at: Phase 4 context gathered
-last_updated: "2026-07-11T00:57:39.526Z"
+last_updated: "2026-07-11T01:09:33.367Z"
 last_activity: 2026-07-10
 last_activity_desc: Phase 04 execution started
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 5
-  completed_plans: 3
+  completed_plans: 4
   percent: 0
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-09 after v1.0)
 ## Current Position
 
 Phase: 04 (per-bot-foundation) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
 Last activity: 2026-07-10 — Phase 04 execution started
 
@@ -68,6 +68,7 @@ Last activity: 2026-07-10 — Phase 04 execution started
 | Phase 04 P01 | 8 | 2 tasks | 7 files |
 | Phase 04 P02 | 73 | 2 tasks | 5 files |
 | Phase 04 P03 | 8 | 2 tasks | 13 files |
+| Phase 04 P04 | 8 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -107,6 +108,8 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 04-01]: appDb falls back to databaseUrl when DATABASE_APP_URL unset — keeps dev/test workflows working without randevuclaw_app role (D-11)
 - [Phase ?]: [Phase 04-01]: telegram_updates excluded from RLS — nullable business_id makes FOR ALL INSERT policy incompatible with dedup-INSERT flow (D-12)
 - [Phase ?]: .planning/phases/04-per-bot-foundation/04-03-SUMMARY.md
+- [Phase ?]: [Phase 04-04]: verifyTelegramSecretToken removed; crypto.timingSafeEqual replaces string-equality (D-06/T-04-10)
+- [Phase ?]: [Phase 04-04]: bot.handleUpdate() called as Telegraf webhook adapter before explicit dispatch (D-03/BOT-04)
 
 ### Pending Todos
 
@@ -140,7 +143,7 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-07-09:
 
 ## Session Continuity
 
-Last session: 2026-07-11T00:57:39.521Z
+Last session: 2026-07-11T01:09:25.694Z
 Stopped at: Phase 4 context gathered
 Resume file: 
 None

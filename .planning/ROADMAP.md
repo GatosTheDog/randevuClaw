@@ -38,13 +38,13 @@ See: `.planning/milestones/v1.0-ROADMAP.md`
   3. Every incoming webhook request is verified against a per-bot HMAC secret using constant-time comparison; requests with invalid or missing secrets are rejected with 401.
   4. Attempting to read another business's rows in a Drizzle transaction (without a business_id filter) fails at the PostgreSQL RLS layer, not only at the application level.
 
-**Plans**: 3/5 plans executed
+**Plans**: 4/5 plans executed
 Plans:
 
 - [x] 04-01-PLAN.md — Schema migration (0003 SQL), schema.ts, db.ts, config.ts
 - [x] 04-02-PLAN.md — Telegraf registry, logger redaction, jest.setup.ts test env
 - [x] 04-03-PLAN.md — queries.ts AsyncLocalStorage + withBusinessContext, client.ts botTokenStore
-- [ ] 04-04-PLAN.md — Express webhook handler /:webhookId, HMAC verification, seed.ts bot credentials
+- [x] 04-04-PLAN.md — Express webhook handler /:webhookId, HMAC verification, seed.ts bot credentials
 - [ ] 04-05-PLAN.md — Schema push [BLOCKING], telegram-webhook.test.ts patch, rls-enforcement.test.ts
 
 ### Phase 5: Owner Self-Serve Onboarding
@@ -84,6 +84,6 @@ Plans:
 | 1. Foundation, Webhook & Business Resolution | v1.0 | 3/4 | Complete | 2026-07-07 |
 | 2. AI Booking Conversations & Owner Alerts | v1.0 | 9/9 | Complete | 2026-07-08 |
 | 3. Calendar Sync, Agenda & Reminders | v1.0 | 6/6 | Complete | 2026-07-09 |
-| 4. Per-Bot Foundation | v1.1 | 3/5 | In Progress|  |
+| 4. Per-Bot Foundation | v1.1 | 4/5 | In Progress|  |
 | 5. Owner Self-Serve Onboarding | v1.1 | 0/TBD | Not started | - |
 | 6. GDPR Compliance & Rate-Limit Resilience | v1.1 | 0/TBD | Not started | - |
