@@ -1,5 +1,6 @@
+import { AsyncLocalStorage } from 'async_hooks';
 import { and, desc, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm';
-import { db } from './db';
+import { db, appDb } from './db';
 import {
   businesses,
   clientBusinessRelationships,
@@ -11,6 +12,16 @@ import {
   telegramUpdates,
 } from './schema';
 
+// Thread the current Drizzle transaction through the call stack transparently.
+// Within withBusinessContext, queries use the appDb transaction (RLS enforced).
+// Outside withBusinessContext (pollers, routing lookups), queries fall back to
+// admin db (superuser) which bypasses RLS — this is intentional for cross-tenant ops.
+const currentTx = new AsyncLocalStorage<typeof db>();
+
+function getConn(): typeof db {
+  return currentTx.getStore() ?? db;
+}
+
 export interface Business {
   id: number;
   name: string;
@@ -19,6 +30,9 @@ export interface Business {
   ownerTelegramId: string | null;
   googleRefreshToken: string | null;
   agendaSentDate: string | null;
+  botToken: string | null;
+  webhookId: string | null;
+  webhookSecret: string | null;
   createdAt: Date;
 }
 
@@ -32,7 +46,7 @@ export interface ClientBusinessRelationship {
 }
 
 export async function findBusinessBySlug(slug: string): Promise<Business | null> {
-  const rows = await db
+  const rows = await getConn()
     .select()
     .from(businesses)
     .where(eq(businesses.slug, slug))
@@ -41,13 +55,42 @@ export async function findBusinessBySlug(slug: string): Promise<Business | null>
   return rows[0] ?? null;
 }
 
+/**
+ * Pre-auth routing lookup. Uses admin db (bypasses businesses SELECT RLS) because
+ * businessId is not yet known at this call site. Only called in src/webhooks/telegram.ts
+ * before withBusinessContext is entered.
+ */
+export async function findBusinessByWebhookId(webhookId: string): Promise<Business | null> {
+  const rows = await db
+    .select()
+    .from(businesses)
+    .where(eq(businesses.webhookId, webhookId))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+/**
+ * Opens an appDb transaction, sets SET LOCAL app.current_business_id, and runs callback
+ * with the transaction threaded via AsyncLocalStorage (D-10). All query functions that
+ * use getConn() inside this context automatically see the RLS-enforced transaction.
+ */
+export async function withBusinessContext<T>(
+  businessId: string | number,
+  callback: () => Promise<T>
+): Promise<T> {
+  return appDb.transaction(async (tx) => {
+    await tx.execute(sql`SET LOCAL app.current_business_id = ${String(businessId)}`);
+    return currentTx.run(tx as unknown as typeof db, callback);
+  });
+}
+
 export async function insertOrIgnoreMessage(
   whatsappMessageId: string,
   businessId: number,
   senderPhone: string,
   messageBody: string
 ): Promise<'inserted' | 'ignored'> {
-  const result = await db
+  const result = await getConn()
     .insert(messages)
     .values({
       whatsappMessageId,
@@ -63,7 +106,7 @@ export async function insertOrIgnoreMessage(
 }
 
 export async function markMessageProcessed(whatsappMessageId: string): Promise<void> {
-  await db
+  await getConn()
     .update(messages)
     .set({ status: 'processed' })
     .where(eq(messages.whatsappMessageId, whatsappMessageId));
@@ -72,7 +115,7 @@ export async function markMessageProcessed(whatsappMessageId: string): Promise<v
 export async function findLatestBusinessForClient(
   senderPhone: string
 ): Promise<Business | null> {
-  const rows = await db
+  const rows = await getConn()
     .select({ business: businesses })
     .from(clientBusinessRelationships)
     .innerJoin(businesses, eq(clientBusinessRelationships.businessId, businesses.id))
@@ -87,7 +130,7 @@ export async function findClientBusinessRelationship(
   businessId: number,
   senderPhone: string
 ): Promise<ClientBusinessRelationship | null> {
-  const rows = await db
+  const rows = await getConn()
     .select()
     .from(clientBusinessRelationships)
     .where(
@@ -110,7 +153,7 @@ export async function insertClientBusinessRelationship(
   // (checker.ts): if a concurrent request already inserted the row, this
   // insert is a no-op (rows[0] undefined) and we re-fetch the winning row
   // instead of throwing an uncaught unique-violation error (CR-01).
-  const rows = await db
+  const rows = await getConn()
     .insert(clientBusinessRelationships)
     .values({
       businessId,
@@ -131,7 +174,7 @@ export async function insertClientBusinessRelationship(
 export async function findMessageByWhatsappId(
   whatsappMessageId: string
 ): Promise<{ id: number } | null> {
-  const rows = await db
+  const rows = await getConn()
     .select({ id: messages.id })
     .from(messages)
     .where(eq(messages.whatsappMessageId, whatsappMessageId))
@@ -199,14 +242,14 @@ export interface BookingSlot {
 }
 
 export async function listServicesForBusiness(businessId: number): Promise<Service[]> {
-  return db.select().from(services).where(eq(services.businessId, businessId));
+  return getConn().select().from(services).where(eq(services.businessId, businessId));
 }
 
 export async function findServiceById(
   businessId: number,
   serviceId: number
 ): Promise<Service | null> {
-  const rows = await db
+  const rows = await getConn()
     .select()
     .from(services)
     .where(and(eq(services.businessId, businessId), eq(services.id, serviceId)))
@@ -215,14 +258,14 @@ export async function findServiceById(
 }
 
 export async function listBusinessHours(businessId: number): Promise<BusinessHours[]> {
-  return db.select().from(businessHours).where(eq(businessHours.businessId, businessId));
+  return getConn().select().from(businessHours).where(eq(businessHours.businessId, businessId));
 }
 
 export async function findBusinessHoursForDay(
   businessId: number,
   dayOfWeek: number
 ): Promise<BusinessHours | null> {
-  const rows = await db
+  const rows = await getConn()
     .select()
     .from(businessHours)
     .where(
@@ -240,7 +283,7 @@ export async function findActiveBookingSlotsForDate(
   // caller's requested duration applies to existing rows (fixes the
   // "assume all bookings are durationMin" bug present in 02-RESEARCH.md's
   // pseudocode).
-  return db
+  return getConn()
     .select({
       calendarTime: bookings.calendarTime,
       durationMin: services.durationMin,
@@ -271,7 +314,7 @@ export async function insertBooking(values: {
   // (unique_active_slot_per_business vs unique_request_per_client) caused a
   // conflict — that disambiguation (check findBookingByRequestId first, then
   // insert) belongs to Plan 02-04's orchestration layer, not this query layer.
-  const result = await db
+  const result = await getConn()
     .insert(bookings)
     .values({
       businessId: values.businessId,
@@ -293,7 +336,7 @@ export async function findBookingByRequestId(
   clientPhone: string,
   requestId: string
 ): Promise<Booking | null> {
-  const rows = await db
+  const rows = await getConn()
     .select()
     .from(bookings)
     .where(and(eq(bookings.clientPhone, clientPhone), eq(bookings.requestId, requestId)))
@@ -305,7 +348,7 @@ export async function findBookingById(
   businessId: number,
   bookingId: number
 ): Promise<Booking | null> {
-  const rows = await db
+  const rows = await getConn()
     .select()
     .from(bookings)
     .where(and(eq(bookings.businessId, businessId), eq(bookings.id, bookingId)))
@@ -324,7 +367,11 @@ export async function findBookingByIdUnscoped(bookingId: number): Promise<Bookin
 }
 
 export async function findBusinessById(businessId: number): Promise<Business | null> {
-  const rows = await db.select().from(businesses).where(eq(businesses.id, businessId)).limit(1);
+  const rows = await getConn()
+    .select()
+    .from(businesses)
+    .where(eq(businesses.id, businessId))
+    .limit(1);
   return rows[0] ?? null;
 }
 
@@ -334,7 +381,7 @@ export async function listAllBusinessIds(): Promise<number[]> {
 }
 
 export async function updateBookingStatus(bookingId: number, status: string): Promise<void> {
-  await db.update(bookings).set({ bookingStatus: status }).where(eq(bookings.id, bookingId));
+  await getConn().update(bookings).set({ bookingStatus: status }).where(eq(bookings.id, bookingId));
 }
 
 // WR-05 gap closure: the WHERE clause here IS the concurrency guard. Of two
@@ -348,7 +395,7 @@ export async function updateBookingStatusIfPending(
   bookingId: number,
   newStatus: string
 ): Promise<Booking | null> {
-  const rows = await db
+  const rows = await getConn()
     .update(bookings)
     .set({ bookingStatus: newStatus })
     .where(and(eq(bookings.id, bookingId), eq(bookings.bookingStatus, 'pending_owner_approval')))
@@ -360,7 +407,7 @@ export async function updateBookingOwnerMessageId(
   bookingId: number,
   telegramMessageId: number
 ): Promise<void> {
-  await db
+  await getConn()
     .update(bookings)
     .set({ ownerTelegramMessageId: telegramMessageId })
     .where(eq(bookings.id, bookingId));
@@ -390,7 +437,7 @@ export async function findLatestConversationTurn(
   businessId: number,
   clientPhone: string
 ): Promise<ConversationTurn | null> {
-  const rows = await db
+  const rows = await getConn()
     .select()
     .from(conversationTurns)
     .where(
@@ -413,7 +460,7 @@ export async function insertConversationTurn(values: {
   responseText: string;
   toolCalls: string | null;
 }): Promise<ConversationTurn> {
-  const rows = await db.insert(conversationTurns).values(values).returning();
+  const rows = await getConn().insert(conversationTurns).values(values).returning();
   return rows[0];
 }
 
@@ -423,7 +470,7 @@ export async function insertOrIgnoreTelegramUpdate(
   senderTelegramId: string,
   updateType: 'message' | 'callback_query'
 ): Promise<'inserted' | 'ignored'> {
-  const result = await db
+  const result = await getConn()
     .insert(telegramUpdates)
     .values({
       updateId,
@@ -453,7 +500,7 @@ export async function markTelegramUpdateProcessed(
   updateId: string,
   businessId: number
 ): Promise<void> {
-  await db
+  await getConn()
     .update(telegramUpdates)
     .set({ status: 'processed', businessId })
     .where(eq(telegramUpdates.updateId, updateId));
@@ -526,7 +573,7 @@ export async function listClientBookings(
   businessId: number,
   clientPhone: string
 ): Promise<Booking[]> {
-  return db
+  return getConn()
     .select()
     .from(bookings)
     .where(

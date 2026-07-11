@@ -226,6 +226,9 @@ describe('executeTool', () => {
       ownerTelegramId: '999',
       googleRefreshToken: 'rt-1',
       agendaSentDate: null,
+      botToken: null,
+      webhookId: null,
+      webhookSecret: null,
       createdAt: new Date(),
     };
     mockedFindBusinessById.mockResolvedValue(fullBusiness);

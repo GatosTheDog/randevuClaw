@@ -43,6 +43,9 @@ function makeBusiness(overrides: Partial<queries.Business> = {}): queries.Busine
     ownerTelegramId: 'owner1',
     googleRefreshToken: 'refresh-token-1',
     agendaSentDate: null,
+    botToken: null,
+    webhookId: null,
+    webhookSecret: null,
     createdAt: new Date(),
     ...overrides,
   };

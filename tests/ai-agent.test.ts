@@ -47,6 +47,9 @@ const BUSINESS = {
   ownerTelegramId: '999999999',
   googleRefreshToken: null,
   agendaSentDate: null,
+  botToken: null,
+  webhookId: null,
+  webhookSecret: null,
   createdAt: new Date(),
 };
 

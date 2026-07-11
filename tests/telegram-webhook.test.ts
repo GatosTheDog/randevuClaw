@@ -21,6 +21,9 @@ const KNOWN_BUSINESS = {
   ownerTelegramId: '999999999',
   googleRefreshToken: null,
   agendaSentDate: null,
+  botToken: null,
+  webhookId: null,
+  webhookSecret: null,
   createdAt: new Date(),
 };
 
@@ -223,6 +226,9 @@ describe('POST /webhooks/telegram — callback_query owner approval (Plan 02-05)
     ownerTelegramId: 'owner1',
     googleRefreshToken: null,
     agendaSentDate: null,
+    botToken: null,
+    webhookId: null,
+    webhookSecret: null,
     createdAt: new Date(),
   };
 

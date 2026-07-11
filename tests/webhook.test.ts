@@ -115,6 +115,9 @@ describe('POST /webhooks/whatsapp', () => {
       ownerTelegramId: null,
       googleRefreshToken: null,
       agendaSentDate: null,
+      botToken: null,
+      webhookId: null,
+      webhookSecret: null,
       createdAt: new Date(),
     });
     const body = makeTextPayload('pilates-athens');
