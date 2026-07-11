@@ -221,13 +221,21 @@ describe('seed()', () => {
     mockAlreadySeededRun();
     await seed();
 
-    // 2 update calls (one per fixture slug) per seed() run x 2 runs = 4 total.
-    expect(mockedDb.update).toHaveBeenCalledTimes(4);
+    // Phase 4 (D-09): each seed() run now also runs bot credential backfill
+    // (2 ownerTelegramId + 2 bot credentials per fixture) x 2 runs = 8 total.
+    // Bot credential calls only fire when TEST_BOT_* env vars are set (jest.setup.ts sets them).
+    expect(mockedDb.update).toHaveBeenCalledTimes(8);
 
     const updateChains = mockedDb.update.mock.results.map(
       (r) => r.value as UpdateChain
     );
-    for (const chain of updateChains) {
+    // ownerTelegramId chains come first in the FIXTURES loop (indices 0,1 per run)
+    const ownerIdChains = updateChains.filter((chain) => {
+      const [firstArg] = chain.set.mock.calls[0] ?? [];
+      return firstArg && 'ownerTelegramId' in firstArg;
+    });
+    expect(ownerIdChains).toHaveLength(4);
+    for (const chain of ownerIdChains) {
       expect(chain.set).toHaveBeenCalledWith({ ownerTelegramId: config.ownerTelegramId });
     }
   });

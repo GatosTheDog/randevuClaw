@@ -120,6 +120,21 @@ export async function seed(): Promise<void> {
       .where(eq(businesses.slug, fixture.slug));
   }
 
+  // Phase 4 (D-09): backfill per-bot credentials from TEST_BOT_* env vars; idempotent update, safe to re-run.
+  for (const fixture of FIXTURES) {
+    const testBotKey = fixture.slug === 'pilates-athens' ? '1' : '2';
+    const botToken = process.env[`TEST_BOT_${testBotKey}_TOKEN`];
+    const webhookId = process.env[`TEST_BOT_${testBotKey}_WEBHOOK_ID`];
+    const webhookSecret = process.env[`TEST_BOT_${testBotKey}_WEBHOOK_SECRET`];
+    if (botToken && webhookId && webhookSecret) {
+      await db
+        .update(businesses)
+        .set({ botToken, webhookId, webhookSecret })
+        .where(eq(businesses.slug, fixture.slug));
+      logger.info({ slug: fixture.slug, webhookId }, 'Bot credentials backfilled');
+    }
+  }
+
   // Seed services + business hours per fixture, guarded by an existing-rows
   // check per business. Batch all still-needed rows into a single insert
   // call per table so re-running seed() is a true no-op (0 further insert
