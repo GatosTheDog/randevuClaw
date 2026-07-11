@@ -13,7 +13,7 @@
 
 - [ ] **BOT-01**: Owner can register a Telegram bot by submitting their bot token via chat; platform automatically calls Telegram's `setWebhook` API to activate it
 - [ ] **BOT-02**: All Telegram webhooks route via `/webhooks/telegram/:botToken`; each incoming request is matched to the correct business by token lookup
-- [ ] **BOT-03**: Each registered bot token has a unique HMAC webhook secret; all incoming webhook requests are verified with constant-time comparison
+- [x] **BOT-03**: Each registered bot token has a unique HMAC webhook secret; all incoming webhook requests are verified with constant-time comparison
 - [x] **BOT-04**: Telegram client layer is migrated from `node-telegram-bot-api` to Telegraf 4.15+; all existing booking and owner flows continue working unchanged
 - [x] **BOT-05**: PostgreSQL RLS policies enforce per-business DB isolation; cross-tenant row access is impossible even if application code omits a `WHERE business_id` clause
 
