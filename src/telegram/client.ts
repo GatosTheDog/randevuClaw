@@ -20,7 +20,12 @@ interface TelegramApiResponse<T> {
 }
 
 async function callTelegramApi<T>(method: string, body: Record<string, unknown>): Promise<T> {
-  const botToken = botTokenStore.getStore() ?? '';
+  const botToken = botTokenStore.getStore();
+  if (!botToken) {
+    throw new Error(
+      'callTelegramApi called without botTokenStore context — wrap the call in botTokenStore.run(business.botToken, ...)'
+    );
+  }
   const url = `https://api.telegram.org/bot${botToken}/${method}`;
 
   logger.debug({ method }, 'Calling Telegram API');

@@ -6,7 +6,7 @@ import {
   listBookingsForDate,
   type Booking,
 } from '../database/queries';
-import { sendTelegramMessage } from '../telegram/client';
+import { botTokenStore, sendTelegramMessage } from '../telegram/client';
 import { isoDateInAthens } from '../utils/timezone';
 import { logger } from '../utils/logger';
 
@@ -66,6 +66,10 @@ export async function runAgendaSweep(): Promise<number> {
     try {
       const business = await findBusinessById(businessId);
       if (!business?.ownerTelegramId) continue;
+      if (!business.botToken) {
+        logger.warn({ businessId }, 'No bot token for business, skipping agenda notification');
+        continue;
+      }
 
       const bookings = await listBookingsForDate(businessId, todayIso);
       if (bookings.length === 0) continue;
@@ -86,7 +90,12 @@ export async function runAgendaSweep(): Promise<number> {
       }
 
       const message = formatAgendaMessage(bookings, serviceNamesById);
-      await sendTelegramMessage(business.ownerTelegramId, message);
+      const ownerTelegramId = business.ownerTelegramId;
+      // botTokenStore.run ensures callTelegramApi picks up the correct
+      // per-business bot token (CR-03: pollers have no inherited context).
+      await botTokenStore.run(business.botToken, async () => {
+        await sendTelegramMessage(ownerTelegramId, message);
+      });
       sentCount += 1;
       logger.info({ businessId, date: todayIso, count: bookings.length }, 'Agenda sent');
     } catch (err) {

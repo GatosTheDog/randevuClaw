@@ -3,7 +3,7 @@ import {
   findBusinessById,
   listAllBusinessIds,
 } from '../database/queries';
-import { editTelegramMessageReplyMarkup, sendTelegramMessage } from '../telegram/client';
+import { botTokenStore, editTelegramMessageReplyMarkup, sendTelegramMessage } from '../telegram/client';
 import { logger } from '../utils/logger';
 
 // D-09: pending bookings the owner never acted on are auto-expired 2 hours
@@ -29,6 +29,14 @@ export async function runExpirySweep(): Promise<number> {
     try {
       const expired = await expireStalePendingBookings(businessId, EXPIRY_CUTOFF_MS);
 
+      // Fetch business once per sweep iteration so botToken and ownerTelegramId
+      // are available for all per-booking Telegram calls below (CR-03).
+      const business = await findBusinessById(businessId);
+      if (!business?.botToken) {
+        logger.warn({ businessId }, 'No bot token for business, skipping Telegram notifications');
+        continue;
+      }
+
       for (const booking of expired) {
         // Per-booking isolation (CR-04), nested inside the per-business
         // isolation above: a booking already atomically flipped to
@@ -38,21 +46,22 @@ export async function runExpirySweep(): Promise<number> {
         // must not permanently silence notification for the rest of this
         // already-expired batch.
         try {
-          await sendTelegramMessage(booking.clientPhone, EXPIRY_NOTICE_GREEK);
-          notifiedCount += 1;
+          // botTokenStore.run ensures callTelegramApi picks up the correct
+          // per-business bot token (CR-03: pollers have no inherited context).
+          await botTokenStore.run(business.botToken, async () => {
+            await sendTelegramMessage(booking.clientPhone, EXPIRY_NOTICE_GREEK);
 
-          if (booking.ownerTelegramMessageId) {
-            // Button-clearing so a late tap on the original owner alert can't
-            // resurrect an already-expired booking.
-            const business = await findBusinessById(businessId);
-            if (business?.ownerTelegramId) {
+            if (booking.ownerTelegramMessageId && business.ownerTelegramId) {
+              // Button-clearing so a late tap on the original owner alert can't
+              // resurrect an already-expired booking.
               await editTelegramMessageReplyMarkup(
                 business.ownerTelegramId,
                 booking.ownerTelegramMessageId,
                 []
               );
             }
-          }
+          });
+          notifiedCount += 1;
         } catch (err) {
           logger.error(
             { err, bookingId: booking.id },
