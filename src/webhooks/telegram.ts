@@ -235,13 +235,27 @@ export async function handleTelegramWebhookPost(req: Request, res: Response): Pr
     // Step 4 — Bot instance and update parsing.
     const update = req.body as TelegramUpdate;
     const bot = getOrCreateBotInstance(webhookId, business.botToken);
+    const updateId = String(update.update_id);
+
+    // Early-exit for unsupported Telegram update types (WR-03).
+    // Telegram delivers types beyond message/callback_query (edited_message,
+    // channel_post, inline_query, poll, my_chat_member, etc.). Without this
+    // guard, senderTelegramId becomes '' and updateType becomes 'callback_query',
+    // corrupting the dedup log. Return 200 so Telegram never retries.
+    if (!update.message && !update.callback_query) {
+      logger.info(
+        { updateId, updateType: Object.keys(update).filter((k) => k !== 'update_id') },
+        'Unsupported Telegram update type, ignoring'
+      );
+      res.status(200).send('OK');
+      return;
+    }
 
     // Step 5 — Per-request context: botTokenStore so callTelegramApi reads the
     // correct bot token; withBusinessContext so all DB ops run under RLS for
     // exactly this tenant (T-04-12).
     await botTokenStore.run(business.botToken, async () => {
       await withBusinessContext(business.id, async () => {
-        const updateId = String(update.update_id);
         const senderTelegramId = String(
           update.message?.from.id ?? update.callback_query?.from.id ?? ''
         );
