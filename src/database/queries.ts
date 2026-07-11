@@ -461,6 +461,7 @@ export async function insertConversationTurn(values: {
   toolCalls: string | null;
 }): Promise<ConversationTurn> {
   const rows = await getConn().insert(conversationTurns).values(values).returning();
+  if (!rows[0]) throw new Error('insertConversationTurn: INSERT returned no row — constraint violation or trigger?');
   return rows[0];
 }
 
