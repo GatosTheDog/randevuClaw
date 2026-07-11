@@ -1,11 +1,8 @@
 import crypto from 'crypto';
 import express, { Router, Request, Response } from 'express';
 import { logger } from '../utils/logger';
-import { extractAndNormalizeAllBusinessCodeCandidates } from '../business/resolver';
 import {
   Business,
-  findBusinessBySlug,
-  findLatestBusinessForClient,
   findBookingByIdUnscoped,
   findBusinessById,
   findServiceById,
@@ -19,7 +16,6 @@ import {
 import { answerCallbackQuery, editTelegramMessageReplyMarkup, sendTelegramMessage, botTokenStore } from '../telegram/client';
 import { getOrCreateBotInstance } from '../telegram/registry';
 import { routeConversationMessage } from '../conversation/router';
-import { BUSINESS_NOT_FOUND_REPLY_GREEK } from './whatsapp';
 import { deleteBookingFromCalendar, syncBookingToCalendar } from '../calendar/sync';
 
 interface TelegramFrom {
@@ -61,14 +57,6 @@ async function handleFoundBusiness(
   }
 }
 
-async function handleNotFoundBusiness(senderTelegramId: string): Promise<void> {
-  try {
-    await sendTelegramMessage(senderTelegramId, BUSINESS_NOT_FOUND_REPLY_GREEK);
-  } catch (err) {
-    logger.error({ err }, 'Failed to send Telegram not-found reply');
-  }
-}
-
 // Regex-validates callback_query.data BEFORE it is ever used to look up a
 // booking (T-02-17): only the exact "approve_<digits>" / "reject_<digits>"
 // shape is accepted, anything else (including a totally different action
@@ -80,8 +68,10 @@ export function parseCallbackData(
   return match ? { action: match[1] as 'approve' | 'reject', bookingId: Number(match[2]) } : null;
 }
 
-const OWNER_APPROVE_ACK_GREEK = 'Το ραντεβού επιβεβαιώθηκε.';
-const OWNER_REJECT_ACK_GREEK = 'Το ραντεβού απορρίφθηκε.';
+// OWNER_APPROVE_ACK_GREEK / OWNER_REJECT_ACK_GREEK removed (WR-01/WR-04):
+// answerCallbackQuery now dismisses the spinner without text to prevent false
+// confirmation for non-owners. If action-specific text is added back later,
+// restore these constants and call answerCallbackQuery after ownership + CAS.
 const CLIENT_REJECT_NOTICE_GREEK =
   'Δυστυχώς η επιχείρηση δεν μπόρεσε να επιβεβαιώσει το ραντεβού σας. Δοκιμάστε άλλη ώρα.';
 
