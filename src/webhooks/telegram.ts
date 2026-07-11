@@ -96,10 +96,10 @@ async function handleCallbackQuery(
 
   // answerCallbackQuery MUST fire before any DB work (RESEARCH.md Pitfall 4:
   // Telegram's client-side spinner keeps spinning until this is acknowledged).
-  await answerCallbackQuery(
-    callbackQuery.id,
-    parsed ? (parsed.action === 'approve' ? OWNER_APPROVE_ACK_GREEK : OWNER_REJECT_ACK_GREEK) : undefined
-  );
+  // Dismiss spinner with no text — ownership and CAS must both succeed before
+  // showing action-specific confirmation (WR-01: prevents false "confirmed"
+  // popup for non-owners who craft a callback_query with approve_<id> data).
+  await answerCallbackQuery(callbackQuery.id);
 
   if (!parsed) {
     logger.warn({ data: callbackQuery.data }, 'Malformed callback_query data, ignoring');
