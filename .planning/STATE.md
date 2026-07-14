@@ -5,15 +5,15 @@ milestone_name: Per-Business Bots & Telegram PoC Completion
 current_phase: 04
 current_phase_name: per-bot-foundation
 status: verifying
-stopped_at: Phase 4 context gathered
-last_updated: "2026-07-11T01:34:31.105Z"
-last_activity: 2026-07-10
+stopped_at: Phase 04 Plan 06 complete — gap closure plan, 10 test failures fixed
+last_updated: "2026-07-14T09:44:01.629Z"
+last_activity: 2026-07-14
 last_activity_desc: Phase 04 execution started
 progress:
   total_phases: 3
   completed_phases: 1
-  total_plans: 5
-  completed_plans: 5
+  total_plans: 6
+  completed_plans: 6
   percent: 33
 ---
 
@@ -29,9 +29,9 @@ See: .planning/PROJECT.md (updated 2026-07-09 after v1.0)
 ## Current Position
 
 Phase: 04 (per-bot-foundation) — EXECUTING
-Plan: 5 of 5
+Plan: 1 of 1
 Status: Phase complete — ready for verification
-Last activity: 2026-07-10 — Phase 04 execution started
+Last activity: 2026-07-14 — Phase 04 execution started
 
 ```
 [░░░░░░░░░░░░░░░░░░░░] 0% — Phase 4/6 not started
@@ -70,6 +70,7 @@ Last activity: 2026-07-10 — Phase 04 execution started
 | Phase 04 P03 | 8 | 2 tasks | 13 files |
 | Phase 04 P04 | 8 | 2 tasks | 3 files |
 | Phase 04 P05 | 14 | 3 tasks | 2 files |
+| Phase 04 P06 | 4 | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -116,6 +117,8 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 04-05]: botTokenStore.run requires explicit call-through mock — Jest auto-mock of AsyncLocalStorage.run returns undefined; inner handler body skipped
 - [Phase ?]: [Phase 04-05]: Schema columns applied to live Neon DB via Node.js script — drizzle-kit push requires TTY for UNIQUE constraint prompt
 - [Phase ?]: [Phase 04-05]: RLS migration applied with dynamic DB name substitution — live Neon DB is neondb not randevuclaw as hardcoded in GRANT CONNECT
+- [Phase ?]: botTokenStore async context
+- [Phase ?]: expiry-poller test fixes
 
 ### Pending Todos
 
@@ -149,8 +152,8 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-07-09:
 
 ## Session Continuity
 
-Last session: 2026-07-11T01:34:31.100Z
-Stopped at: Phase 4 context gathered
+Last session: 2026-07-14T09:44:01.622Z
+Stopped at: Phase 04 Plan 06 complete — gap closure plan, 10 test failures fixed
 Resume file: 
 None
 
