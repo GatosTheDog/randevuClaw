@@ -5,15 +5,15 @@ milestone_name: Per-Business Bots & Telegram PoC Completion
 current_phase: 5
 current_phase_name: Owner Self-Serve Onboarding
 status: executing
-stopped_at: Phase 05, Plan 04 complete — platform bot webhook handler (platform.ts + server.ts)
-last_updated: "2026-07-14T15:16:00.000Z"
+stopped_at: Phase 05, Plan 06 complete — onboarding integration + flow tests (BOT-01/ONB-01/ONB-02/ONB-03)
+last_updated: "2026-07-14T15:45:00.000Z"
 last_activity: 2026-07-14
-last_activity_desc: "Plan 05-04 complete — handlePlatformBotWebhook, Express route order, 3-path owner routing"
+last_activity_desc: "Plan 05-06 complete — 25 tests (8 integration + 17 unit) for onboarding subsystem"
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 13
-  completed_plans: 10
+  completed_plans: 12
   percent: 33
 ---
 
@@ -29,12 +29,12 @@ See: .planning/PROJECT.md (updated 2026-07-09 after v1.0)
 ## Current Position
 
 Phase: 5 — Owner Self-Serve Onboarding
-Plan: 04 complete — advancing to Plan 05
+Plan: 06 complete — advancing to Plan 07
 Status: Executing
-Last activity: 2026-07-14 — Plan 05-04 complete (platform bot webhook handler: platform.ts + server.ts)
+Last activity: 2026-07-14 — Plan 05-06 complete (onboarding integration + flow tests — 25 tests)
 
 ```
-[████████░░░░░░░░░░░░] 57% — Phase 5, Plan 4/7 complete
+[████████████████████] 92% — Phase 5, Plan 6/7 complete
 ```
 
 ## Performance Metrics
@@ -76,6 +76,7 @@ Last activity: 2026-07-14 — Plan 05-04 complete (platform bot webhook handler:
 | Phase 05 P02 | 8min | 2 tasks | 2 files |
 | Phase 05 P03 | 3min | 2 tasks | 2 files |
 | Phase 05 P04 | 5 | 2 tasks | 2 files |
+| Phase 05 P06 | 15 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -167,7 +168,7 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-07-09:
 
 ## Session Continuity
 
-Last session: 2026-07-14T15:16:00.000Z
+Last session: 2026-07-14T15:40:07.508Z
 Stopped at: Plan 05-04 complete — platform bot webhook handler (platform.ts + server.ts)
 Resume file: None
 
