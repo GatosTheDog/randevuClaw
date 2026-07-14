@@ -72,8 +72,8 @@ coverage_id: D3-04-03
 ## Summary
 
 total: 11
-passed: 10
-issues: 1
+passed: 11
+issues: 0
 pending: 0
 skipped: 0
 blocked: 0
@@ -81,7 +81,7 @@ blocked: 0
 ## Gaps
 
 - truth: "npm test produces 205 passing, 1 skipped, 5 failing (pre-existing scheduler-agenda only)"
-  status: failed
+  status: resolved
   reason: "User reported: Test Suites: 5 failed, 1 skipped, 20 passed, 25 of 26 total / Tests: 14 failed, 1 skipped, 184 passed, 199 total"
   severity: major
   test: 2
