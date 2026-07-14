@@ -61,7 +61,7 @@ Plans:
   4. An owner can update any part of their configuration (hours, services, prices) via chat after initial onboarding; changes take effect immediately for new bookings.
   5. No hardcoded fixture or seed businesses exist in the system; every business record is the result of an owner completing the onboarding flow.
 
-**Plans**: 4/7 plans executed
+**Plans**: 6/7 plans executed
 Plans:
 **Wave 1**
 
@@ -78,11 +78,11 @@ Plans:
 **Wave 4** *(blocked on Wave 3 completion)*
 
 - [x] 05-04-PLAN.md — Platform bot webhook handler + server.ts route registration
-- [ ] 05-05-PLAN.md — ONB-03 owner edit flows + telegram.ts keyword intercept
+- [x] 05-05-PLAN.md — ONB-03 owner edit flows + telegram.ts keyword intercept
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 05-06-PLAN.md — Integration tests: BOT-01, ONB-01/02 platform + flow tests
+- [x] 05-06-PLAN.md — Integration tests: BOT-01, ONB-01/02 platform + flow tests
 - [ ] 05-07-PLAN.md — ONB-04 fixture removal + DB migration + fly.io secrets (blocking checkpoint)
 
 ### Phase 6: GDPR Compliance & Rate-Limit Resilience
@@ -108,5 +108,5 @@ Plans:
 | 2. AI Booking Conversations & Owner Alerts | v1.0 | 9/9 | Complete | 2026-07-08 |
 | 3. Calendar Sync, Agenda & Reminders | v1.0 | 6/6 | Complete | 2026-07-09 |
 | 4. Per-Bot Foundation | v1.1 | 6/6 | Complete    | 2026-07-11 |
-| 5. Owner Self-Serve Onboarding | v1.1 | 4/7 | In Progress|  |
+| 5. Owner Self-Serve Onboarding | v1.1 | 6/7 | In Progress|  |
 | 6. GDPR Compliance & Rate-Limit Resilience | v1.1 | 0/TBD | Not started | - |
