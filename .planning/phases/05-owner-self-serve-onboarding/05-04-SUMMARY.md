@@ -181,6 +181,16 @@ All threat mitigations are implemented: HMAC verification, dedup-insert, no toke
 - Ready for Plan 05-05 integration tests which will exercise all three routing paths with mocked Telegram API calls
 - No stubs — all paths are fully implemented with real DB operations
 
+## Self-Check: PASSED
+
+- `src/webhooks/platform.ts` — FOUND
+- `src/server.ts` — FOUND (modified)
+- `05-04-SUMMARY.md` — FOUND
+- Commit `2f4d303` (Task 1: platform.ts) — FOUND
+- Commit `f2e8dea` (Task 2: server.ts) — FOUND
+- `npx tsc --noEmit` — PASS
+- 20/20 telegram-webhook tests — PASS
+
 ---
 *Phase: 05-owner-self-serve-onboarding*
 *Completed: 2026-07-14*
