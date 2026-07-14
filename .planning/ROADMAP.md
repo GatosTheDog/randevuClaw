@@ -63,11 +63,25 @@ Plans:
 
 **Plans**: 7 plans
 Plans:
+**Wave 1**
+
 - [ ] 05-01-PLAN.md — Schema migration 0004, config.ts platform vars, insertTestBusiness() helper
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 05-02-PLAN.md — Telegram API helpers (getMe/setWebhook) + onboarding session query layer
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 05-03-PLAN.md — Onboarding state machine: all step handlers + router dispatcher
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 05-04-PLAN.md — Platform bot webhook handler + server.ts route registration
 - [ ] 05-05-PLAN.md — ONB-03 owner edit flows + telegram.ts keyword intercept
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
 - [ ] 05-06-PLAN.md — Integration tests: BOT-01, ONB-01/02 platform + flow tests
 - [ ] 05-07-PLAN.md — ONB-04 fixture removal + DB migration + fly.io secrets (blocking checkpoint)
 
