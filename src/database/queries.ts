@@ -79,7 +79,7 @@ export async function withBusinessContext<T>(
   callback: () => Promise<T>
 ): Promise<T> {
   return appDb.transaction(async (tx) => {
-    await tx.execute(sql`SET LOCAL app.current_business_id = ${String(businessId)}`);
+    await tx.execute(sql.raw(`SET LOCAL app.current_business_id = '${Number(businessId)}'`));
     return currentTx.run(tx as unknown as typeof db, callback);
   });
 }
