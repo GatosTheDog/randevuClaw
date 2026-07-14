@@ -190,3 +190,33 @@ export const telegramUpdates = pgTable('telegram_updates', {
   status: text('status').notNull().default('received'), // 'received' | 'processed'
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
+
+// --- Phase 5: Owner Self-Serve Onboarding ---
+
+export const onboardingSessions = pgTable(
+  'onboarding_sessions',
+  {
+    id: serial('id').primaryKey(),
+    // Phase 5: FK to businesses — NOT NULL because the businesses row is inserted
+    // with a placeholder name/slug immediately on bot token validation (before the
+    // guided setup begins). See platform.ts and 05-RESEARCH.md Pattern 6.
+    businessId: integer('business_id')
+      .notNull()
+      .references(() => businesses.id),
+    // Text enum — see OnboardingStep type in src/onboarding/router.ts.
+    // 'done' = activation complete; sessions at 'done' are excluded from active lookup.
+    currentStep: text('current_step').notNull(),
+    // JSON blob: partial state for mid-step data (e.g. partial service being collected
+    // during svc_name/svc_price steps). null when no partial state is in progress.
+    collectedData: text('collected_data'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    // $onUpdate fires on every Drizzle .update() call (application-level hook, not a
+    // DB trigger — does not fire on raw SQL updates or migrations). drizzle-orm 0.30.5+.
+    updatedAt: timestamp('updated_at').notNull().defaultNow().$onUpdate(() => new Date()),
+  },
+  (table) => [
+    // One active session per business (D-05). Used with onConflictDoUpdate on
+    // re-registration (owner re-submits their bot token).
+    uniqueIndex('unique_onboarding_session_per_business').on(table.businessId),
+  ]
+);
