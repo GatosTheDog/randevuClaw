@@ -24,7 +24,7 @@ jest.resetModules();
 const schema = require('../src/database/schema');
 const { db, pool } = require('../src/database/db');
 const queries = require('../src/database/queries');
-const { seed } = require('../src/database/seed');
+const { insertTestBusiness } = require('./helpers/test-business');
 /* eslint-enable @typescript-eslint/no-var-requires */
 
 const { eq } = require('drizzle-orm');
@@ -306,17 +306,22 @@ describe('findBusinessById', () => {
 });
 
 describe('listAllBusinessIds', () => {
-  it('Test 3: returns an array containing at least the two seeded fixture business ids after seed() has run', async () => {
-    await seed();
+  it('Test 3: listAllBusinessIds includes a business created via insertTestBusiness()', async () => {
+    // No hours/services needed — just verify the business ID appears in the list.
+    // Skipping defaults avoids FK-constrained child rows that would block cleanup.
+    const testBiz = await insertTestBusiness({
+      name: 'ListAll Test Biz',
+      slug: `${RUN_ID}-list`,
+      withDefaultHours: false,
+      withDefaultServices: false,
+    });
 
-    const pilates = await queries.findBusinessBySlug('pilates-athens');
-    const hairSalon = await queries.findBusinessBySlug('hair-salon-athens');
-    expect(pilates).not.toBeNull();
-    expect(hairSalon).not.toBeNull();
-
-    const ids: number[] = await queries.listAllBusinessIds();
-    expect(ids).toContain(pilates!.id);
-    expect(ids).toContain(hairSalon!.id);
+    try {
+      const ids: number[] = await queries.listAllBusinessIds();
+      expect(ids).toContain(testBiz.id);
+    } finally {
+      await db.delete(schema.businesses).where(eq(schema.businesses.id, testBiz.id));
+    }
   });
 });
 

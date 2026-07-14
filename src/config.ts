@@ -40,14 +40,6 @@ const EnvSchema = z.object({
   // Phase 04 (D-11): optional app-role connection string for randevuclaw_app.
   // Falls back to DATABASE_URL if unset (development/tests without the role).
   DATABASE_APP_URL: z.string().optional(),
-  // Phase 04 (D-09): optional test-bot env vars used by seed.ts to populate
-  // bot_token, webhook_id, and webhook_secret for the two fixture businesses.
-  TEST_BOT_1_TOKEN: z.string().optional(),
-  TEST_BOT_1_WEBHOOK_SECRET: z.string().optional(),
-  TEST_BOT_1_WEBHOOK_ID: z.string().optional(),
-  TEST_BOT_2_TOKEN: z.string().optional(),
-  TEST_BOT_2_WEBHOOK_SECRET: z.string().optional(),
-  TEST_BOT_2_WEBHOOK_ID: z.string().optional(),
   // Phase 5 (D-01): platform onboarding bot token. Only global bot token remaining;
   // all per-business tokens are DB-driven (businesses.bot_token).
   PLATFORM_BOT_TOKEN: z.string().min(1),
