@@ -38,7 +38,7 @@ See: `.planning/milestones/v1.0-ROADMAP.md`
   3. Every incoming webhook request is verified against a per-bot HMAC secret using constant-time comparison; requests with invalid or missing secrets are rejected with 401.
   4. Attempting to read another business's rows in a Drizzle transaction (without a business_id filter) fails at the PostgreSQL RLS layer, not only at the application level.
 
-**Plans**: 5/5 plans complete
+**Plans**: 5/5 plans complete + 1 gap closure
 Plans:
 
 - [x] 04-01-PLAN.md — Schema migration (0003 SQL), schema.ts, db.ts, config.ts
@@ -46,6 +46,7 @@ Plans:
 - [x] 04-03-PLAN.md — queries.ts AsyncLocalStorage + withBusinessContext, client.ts botTokenStore
 - [x] 04-04-PLAN.md — Express webhook handler /:webhookId, HMAC verification, seed.ts bot credentials
 - [x] 04-05-PLAN.md — Schema push [BLOCKING], telegram-webhook.test.ts patch, rls-enforcement.test.ts
+- [ ] 04-06-PLAN.md — [GAP] Fix 10 test failures in 3 suites after CR-03/WR-01 code-review fixes
 
 ### Phase 5: Owner Self-Serve Onboarding
 
