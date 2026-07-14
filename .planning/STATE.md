@@ -5,16 +5,16 @@ milestone_name: Per-Business Bots & Telegram PoC Completion
 current_phase: 5
 current_phase_name: Owner Self-Serve Onboarding
 status: executing
-stopped_at: Phase 05, Plan 03 complete — onboarding state machine (steps.ts + router.ts)
-last_updated: "2026-07-14T14:59:00.000Z"
+stopped_at: Phase 05, Plan 04 complete — platform bot webhook handler (platform.ts + server.ts)
+last_updated: "2026-07-14T15:16:00.000Z"
 last_activity: 2026-07-14
-last_activity_desc: Plan 05-03 complete — OnboardingStep type, 9 handlers, dispatchOnboardingStep router
+last_activity_desc: "Plan 05-04 complete — handlePlatformBotWebhook, Express route order, 3-path owner routing"
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 13
   completed_plans: 10
-  percent: 43
+  percent: 33
 ---
 
 # Project State
@@ -29,12 +29,12 @@ See: .planning/PROJECT.md (updated 2026-07-09 after v1.0)
 ## Current Position
 
 Phase: 5 — Owner Self-Serve Onboarding
-Plan: 03 complete — advancing to Plan 04
+Plan: 04 complete — advancing to Plan 05
 Status: Executing
-Last activity: 2026-07-14 — Plan 05-03 complete (onboarding state machine: steps.ts + router.ts)
+Last activity: 2026-07-14 — Plan 05-04 complete (platform bot webhook handler: platform.ts + server.ts)
 
 ```
-[████░░░░░░░░░░░░░░░░] 43% — Phase 5, Plan 3/7 complete
+[████████░░░░░░░░░░░░] 57% — Phase 5, Plan 4/7 complete
 ```
 
 ## Performance Metrics
@@ -75,6 +75,7 @@ Last activity: 2026-07-14 — Plan 05-03 complete (onboarding state machine: ste
 | Phase 05 P01 | 6min | 3 tasks | 6 files |
 | Phase 05 P02 | 8min | 2 tasks | 2 files |
 | Phase 05 P03 | 3min | 2 tasks | 2 files |
+| Phase 05 P04 | 5 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -130,6 +131,9 @@ Recent decisions affecting current work:
 - [Phase 05-03]: Closed days always insert a business_hours row with isClosed:true — never skip (Pitfall 3 in RESEARCH.md)
 - [Phase 05-03]: handleSvcMoreStep 'yes' path sets currentService={} to clear stale partial data before next service (Pitfall 6)
 - [Phase 05-03]: dispatchOnboardingStep wraps all dispatch in try/catch with Greek error fallback — error isolation prevents HTTP 500 propagation
+- [Phase 05-04]: Respond-before-process: res.status(200).send('OK') fires before await botTokenStore.run() so Telegram never retries on slow getMeBotInfo calls
+- [Phase 05-04]: platform route registered BEFORE :webhookId router in server.ts — Express shadow prevention (RESEARCH.md Pitfall 1)
+- [Phase 05-04]: botToken update on re-registration requires separate db.update — activateBusiness only updates webhookId+webhookSecret per its contract
 
 ### Pending Todos
 
@@ -163,8 +167,8 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-07-09:
 
 ## Session Continuity
 
-Last session: 2026-07-14T14:59:00.000Z
-Stopped at: Plan 05-03 complete — onboarding state machine (steps.ts + router.ts)
+Last session: 2026-07-14T15:16:00.000Z
+Stopped at: Plan 05-04 complete — platform bot webhook handler (platform.ts + server.ts)
 Resume file: None
 
 ## Operator Next Steps

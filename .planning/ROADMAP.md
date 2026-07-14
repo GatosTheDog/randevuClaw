@@ -61,7 +61,7 @@ Plans:
   4. An owner can update any part of their configuration (hours, services, prices) via chat after initial onboarding; changes take effect immediately for new bookings.
   5. No hardcoded fixture or seed businesses exist in the system; every business record is the result of an owner completing the onboarding flow.
 
-**Plans**: 1/7 plans executed
+**Plans**: 4/7 plans executed
 Plans:
 **Wave 1**
 
@@ -69,15 +69,15 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 05-02-PLAN.md — Telegram API helpers (getMe/setWebhook) + onboarding session query layer
+- [x] 05-02-PLAN.md — Telegram API helpers (getMe/setWebhook) + onboarding session query layer
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 05-03-PLAN.md — Onboarding state machine: all step handlers + router dispatcher
+- [x] 05-03-PLAN.md — Onboarding state machine: all step handlers + router dispatcher
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 05-04-PLAN.md — Platform bot webhook handler + server.ts route registration
+- [x] 05-04-PLAN.md — Platform bot webhook handler + server.ts route registration
 - [ ] 05-05-PLAN.md — ONB-03 owner edit flows + telegram.ts keyword intercept
 
 **Wave 5** *(blocked on Wave 4 completion)*
@@ -108,5 +108,5 @@ Plans:
 | 2. AI Booking Conversations & Owner Alerts | v1.0 | 9/9 | Complete | 2026-07-08 |
 | 3. Calendar Sync, Agenda & Reminders | v1.0 | 6/6 | Complete | 2026-07-09 |
 | 4. Per-Bot Foundation | v1.1 | 6/6 | Complete    | 2026-07-11 |
-| 5. Owner Self-Serve Onboarding | v1.1 | 1/7 | In Progress|  |
+| 5. Owner Self-Serve Onboarding | v1.1 | 4/7 | In Progress|  |
 | 6. GDPR Compliance & Rate-Limit Resilience | v1.1 | 0/TBD | Not started | - |

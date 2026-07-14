@@ -11,7 +11,7 @@
 
 ### Bot Infrastructure
 
-- [ ] **BOT-01**: Owner can register a Telegram bot by submitting their bot token via chat; platform automatically calls Telegram's `setWebhook` API to activate it
+- [x] **BOT-01**: Owner can register a Telegram bot by submitting their bot token via chat; platform automatically calls Telegram's `setWebhook` API to activate it
 - [x] **BOT-02**: All Telegram webhooks route via `/webhooks/telegram/:botToken`; each incoming request is matched to the correct business by token lookup
 - [x] **BOT-03**: Each registered bot token has a unique HMAC webhook secret; all incoming webhook requests are verified with constant-time comparison
 - [x] **BOT-04**: Telegram client layer is migrated from `node-telegram-bot-api` to Telegraf 4.15+; all existing booking and owner flows continue working unchanged
@@ -19,7 +19,7 @@
 
 ### Owner Onboarding
 
-- [ ] **ONB-01**: Owner completes a guided chat conversation to configure their business: name, weekly hours per day, and each service (name, price, duration in minutes)
+- [x] **ONB-01**: Owner completes a guided chat conversation to configure their business: name, weekly hours per day, and each service (name, price, duration in minutes)
 - [x] **ONB-02**: Onboarding state is persisted to the database; an owner who drops off mid-flow can resume exactly where they left off without restarting
 - [ ] **ONB-03**: Owner can edit their business configuration after initial setup via chat: update hours, add/remove services, change prices
 - [x] **ONB-04**: All hardcoded fixture/seed businesses are removed; every business in the system is the result of an owner completing the onboarding flow
