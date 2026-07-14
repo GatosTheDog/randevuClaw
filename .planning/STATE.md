@@ -5,16 +5,16 @@ milestone_name: Per-Business Bots & Telegram PoC Completion
 current_phase: 5
 current_phase_name: Owner Self-Serve Onboarding
 status: executing
-stopped_at: Phase 05, Plan 02 complete — Telegram helpers + onboarding query layer
-last_updated: "2026-07-14T14:50:00.000Z"
+stopped_at: Phase 05, Plan 03 complete — onboarding state machine (steps.ts + router.ts)
+last_updated: "2026-07-14T14:59:00.000Z"
 last_activity: 2026-07-14
-last_activity_desc: Plan 05-02 complete — callTelegramApiDirect helpers + src/onboarding/queries.ts
+last_activity_desc: Plan 05-03 complete — OnboardingStep type, 9 handlers, dispatchOnboardingStep router
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 13
-  completed_plans: 9
-  percent: 38
+  completed_plans: 10
+  percent: 43
 ---
 
 # Project State
@@ -29,12 +29,12 @@ See: .planning/PROJECT.md (updated 2026-07-09 after v1.0)
 ## Current Position
 
 Phase: 5 — Owner Self-Serve Onboarding
-Plan: 02 complete — advancing to Plan 03
+Plan: 03 complete — advancing to Plan 04
 Status: Executing
-Last activity: 2026-07-14 — Plan 05-02 complete (Telegram helpers + onboarding queries)
+Last activity: 2026-07-14 — Plan 05-03 complete (onboarding state machine: steps.ts + router.ts)
 
 ```
-[███░░░░░░░░░░░░░░░░░] 29% — Phase 5, Plan 2/7 complete
+[████░░░░░░░░░░░░░░░░] 43% — Phase 5, Plan 3/7 complete
 ```
 
 ## Performance Metrics
@@ -74,6 +74,7 @@ Last activity: 2026-07-14 — Plan 05-02 complete (Telegram helpers + onboarding
 | Phase 04 P06 | 4 | 3 tasks | 3 files |
 | Phase 05 P01 | 6min | 3 tasks | 6 files |
 | Phase 05 P02 | 8min | 2 tasks | 2 files |
+| Phase 05 P03 | 3min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -125,6 +126,10 @@ Recent decisions affecting current work:
 - [Phase 05-02]: callTelegramApiDirect is private (unexported) — getMeBotInfo/registerBotWebhook/unregisterBotWebhook are the public API surface
 - [Phase 05-02]: onboarding/queries.ts imports Business from src/database/queries — reuses existing interface rather than duplicating
 - [Phase 05-02]: activateBusiness updates only webhookId+webhookSecret — separated from createBusinessForOnboarding to support re-registration without duplicate rows
+- [Phase 05-03]: handleActivate always calls unregisterBotWebhook before registerBotWebhook (T-05-09 / STATE.md blocker)
+- [Phase 05-03]: Closed days always insert a business_hours row with isClosed:true — never skip (Pitfall 3 in RESEARCH.md)
+- [Phase 05-03]: handleSvcMoreStep 'yes' path sets currentService={} to clear stale partial data before next service (Pitfall 6)
+- [Phase 05-03]: dispatchOnboardingStep wraps all dispatch in try/catch with Greek error fallback — error isolation prevents HTTP 500 propagation
 
 ### Pending Todos
 
@@ -158,8 +163,8 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-07-09:
 
 ## Session Continuity
 
-Last session: 2026-07-14T14:50:00.000Z
-Stopped at: Plan 05-02 complete — Telegram helpers + onboarding query layer
+Last session: 2026-07-14T14:59:00.000Z
+Stopped at: Plan 05-03 complete — onboarding state machine (steps.ts + router.ts)
 Resume file: None
 
 ## Operator Next Steps
