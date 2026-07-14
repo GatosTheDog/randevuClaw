@@ -96,3 +96,77 @@ export async function editTelegramMessageReplyMarkup(
   });
   logger.debug({ chatId, messageId }, 'Cleared inline keyboard');
 }
+
+// --- Platform Bot Helpers (Plan 05-02) ---
+// These functions call the Telegram API with an EXPLICIT bot token parameter,
+// bypassing botTokenStore entirely. Used for out-of-band registration calls
+// (getMe, setWebhook, deleteWebhook) on an owner's bot token during onboarding.
+// Security: botToken is NEVER passed to logger — only method name is logged (T-05-03).
+
+async function callTelegramApiDirect<T>(
+  botToken: string,
+  method: string,
+  body: Record<string, unknown>
+): Promise<T> {
+  const url = `https://api.telegram.org/bot${botToken}/${method}`;
+
+  logger.debug({ method }, 'Calling Telegram API');
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  const data = (await response.json()) as TelegramApiResponse<T>;
+
+  if (!response.ok || !data.ok) {
+    const description = data.description ?? `Telegram API error: ${response.status}`;
+    logger.error({ method, status: response.status, description }, 'Telegram API call failed');
+    throw new Error(description);
+  }
+
+  return data.result as T;
+}
+
+/**
+ * Validates a bot token by calling Telegram's getMe endpoint.
+ * Returns basic bot identity — id, username, firstName.
+ * Throws if the token is invalid (Telegram returns 401 Unauthorized).
+ */
+export async function getMeBotInfo(
+  botToken: string
+): Promise<{ id: number; username: string | undefined; firstName: string }> {
+  const result = await callTelegramApiDirect<{
+    id: number;
+    username?: string;
+    first_name: string;
+    is_bot: boolean;
+  }>(botToken, 'getMe', {});
+  return { id: result.id, username: result.username, firstName: result.first_name };
+}
+
+/**
+ * Registers a webhook for the given bot token.
+ * secretToken is sent by Telegram on every update as X-Telegram-Bot-Api-Secret-Token.
+ * STATE.md blocker: always call unregisterBotWebhook() before this on re-registration.
+ */
+export async function registerBotWebhook(
+  botToken: string,
+  webhookUrl: string,
+  secretToken: string
+): Promise<void> {
+  await callTelegramApiDirect<boolean>(botToken, 'setWebhook', {
+    url: webhookUrl,
+    secret_token: secretToken,
+  });
+}
+
+/**
+ * Removes any active webhook for the given bot token.
+ * Must be called before registerBotWebhook on re-registration to avoid
+ * "another webhook is active" conflicts from Telegram.
+ */
+export async function unregisterBotWebhook(botToken: string): Promise<void> {
+  await callTelegramApiDirect<boolean>(botToken, 'deleteWebhook', {});
+}
