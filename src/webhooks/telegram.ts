@@ -17,6 +17,7 @@ import { answerCallbackQuery, editTelegramMessageReplyMarkup, sendTelegramMessag
 import { getOrCreateBotInstance } from '../telegram/registry';
 import { routeConversationMessage } from '../conversation/router';
 import { deleteBookingFromCalendar, syncBookingToCalendar } from '../calendar/sync';
+import { isOwnerEditCommand, routeOwnerEdit, hasPendingEditState } from '../onboarding/edit-router';
 
 interface TelegramFrom {
   id: number;
@@ -48,6 +49,20 @@ async function handleFoundBusiness(
   messageText: string
 ): Promise<void> {
   try {
+    // Owner edit intercept: short-circuit the booking AI for edit keyword
+    // commands AND for the second-turn confirmation of διαγραφή υπηρεσίας.
+    // Ownership check (ownerTelegramId === senderTelegramId) gates the intercept
+    // so non-owner messages containing edit keywords route to the booking agent
+    // as usual (T-05-15 mitigation).
+    if (
+      business.ownerTelegramId === senderTelegramId &&
+      (isOwnerEditCommand(messageText) || hasPendingEditState(business.id))
+    ) {
+      await routeOwnerEdit(business, senderTelegramId, messageText);
+      await markTelegramUpdateProcessed(updateId, business.id);
+      return;
+    }
+
     await routeConversationMessage(business, senderTelegramId, messageText, {
       sendMessage: sendTelegramMessage,
     });
