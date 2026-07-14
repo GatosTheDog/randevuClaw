@@ -61,11 +61,11 @@ Plans:
   4. An owner can update any part of their configuration (hours, services, prices) via chat after initial onboarding; changes take effect immediately for new bookings.
   5. No hardcoded fixture or seed businesses exist in the system; every business record is the result of an owner completing the onboarding flow.
 
-**Plans**: 7 plans
+**Plans**: 1/7 plans executed
 Plans:
 **Wave 1**
 
-- [ ] 05-01-PLAN.md — Schema migration 0004, config.ts platform vars, insertTestBusiness() helper
+- [x] 05-01-PLAN.md — Schema migration 0004, config.ts platform vars, insertTestBusiness() helper
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -108,5 +108,5 @@ Plans:
 | 2. AI Booking Conversations & Owner Alerts | v1.0 | 9/9 | Complete | 2026-07-08 |
 | 3. Calendar Sync, Agenda & Reminders | v1.0 | 6/6 | Complete | 2026-07-09 |
 | 4. Per-Bot Foundation | v1.1 | 6/6 | Complete    | 2026-07-11 |
-| 5. Owner Self-Serve Onboarding | v1.1 | 0/TBD | Not started | - |
+| 5. Owner Self-Serve Onboarding | v1.1 | 1/7 | In Progress|  |
 | 6. GDPR Compliance & Rate-Limit Resilience | v1.1 | 0/TBD | Not started | - |
