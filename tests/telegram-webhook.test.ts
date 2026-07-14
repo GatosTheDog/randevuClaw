@@ -15,7 +15,7 @@ jest.mock('../src/calendar/sync');
 // (bot.handleUpdate calls getMe on the Telegram API which fails in test env)
 jest.mock('../src/telegram/registry');
 
-// Phase 4: per-bot secret (matches TEST_BOT_1_WEBHOOK_SECRET default in jest.setup.ts)
+// Phase 4: per-bot secret — hardcoded test constant (ONB-04: TEST_BOT_* removed from jest.setup.ts)
 const SECRET = 'test-bot-1-webhook-secret';
 
 const KNOWN_BUSINESS = {
@@ -26,14 +26,14 @@ const KNOWN_BUSINESS = {
   ownerTelegramId: '999999999',
   googleRefreshToken: null,
   agendaSentDate: null,
-  // Phase 4 per-bot fields — match TEST_BOT_1_* defaults from jest.setup.ts
+  // Phase 4 per-bot fields — hardcoded test constants (ONB-04: TEST_BOT_* removed from jest.setup.ts)
   botToken: 'test-bot-1-token',
   webhookId: 'test-webhook-id-1',
   webhookSecret: 'test-bot-1-webhook-secret',
   createdAt: new Date(),
 };
 
-// Second test bot — matches TEST_BOT_2_* defaults from jest.setup.ts (BOT-02)
+// Second test bot — hardcoded test constants (ONB-04: TEST_BOT_* removed from jest.setup.ts) (BOT-02)
 const KNOWN_BUSINESS_2 = {
   id: 2,
   name: 'Hair Salon Athens',

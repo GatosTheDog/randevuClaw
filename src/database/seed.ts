@@ -1,6 +1,6 @@
-// Phase 5 (ONB-04): FIXTURES and seed() removed. Every business is created via
-// the onboarding flow (src/webhooks/platform.ts). Tests use
-// tests/helpers/test-business.ts insertTestBusiness() for DB setup.
+// Phase 5 (ONB-04): fixture constants and the seeding function have been removed.
+// Every business is created via the onboarding flow (src/webhooks/platform.ts).
+// Tests use tests/helpers/test-business.ts insertTestBusiness() for DB setup.
 
 /**
  * Slugify a business name, appending a numeric collision suffix (-2, -3, ...)

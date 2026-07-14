@@ -1,21 +1,21 @@
 // Phase 5 (ONB-04): fixtures.test.ts rewritten to cover generateSlug only.
-// seed() and FIXTURES constants have been removed from src/database/seed.ts.
-// Tests use tests/helpers/test-business.ts insertTestBusiness() for DB setup.
+// The fixture seeding infrastructure has been removed from src/database/seed.ts.
+// Tests use tests/helpers/test-business.ts insertTestBusiness() for real-DB setup.
 
 import { generateSlug } from '../src/database/seed';
 
 describe('generateSlug()', () => {
   it('returns the base slug when no collision exists', () => {
-    expect(generateSlug('Pilates Athens', [])).toBe('pilates-athens');
+    expect(generateSlug('My Business', [])).toBe('my-business');
   });
 
   it('appends a -2 suffix on the first collision', () => {
-    expect(generateSlug('Pilates Athens', ['pilates-athens'])).toBe('pilates-athens-2');
+    expect(generateSlug('My Business', ['my-business'])).toBe('my-business-2');
   });
 
   it('appends an incrementing suffix through multiple collisions', () => {
-    const existing = ['pilates-athens', 'pilates-athens-2', 'pilates-athens-3'];
-    expect(generateSlug('Pilates Athens', existing)).toBe('pilates-athens-4');
+    const existing = ['my-business', 'my-business-2', 'my-business-3'];
+    expect(generateSlug('My Business', existing)).toBe('my-business-4');
   });
 
   it('handles Greek business names: non-ASCII chars are replaced, result stripped to empty', () => {
@@ -27,11 +27,11 @@ describe('generateSlug()', () => {
   });
 
   it('lowercases the input before slugifying', () => {
-    expect(generateSlug('PILATES ATHENS', [])).toBe('pilates-athens');
+    expect(generateSlug('MY BUSINESS', [])).toBe('my-business');
   });
 
   it('collapses multiple consecutive non-alphanumeric chars into a single hyphen', () => {
-    expect(generateSlug('Hair  Salon   Athens', [])).toBe('hair-salon-athens');
+    expect(generateSlug('Yoga  Studio   Athens', [])).toBe('yoga-studio-athens');
   });
 
   it('strips leading and trailing hyphens from the base slug', () => {
