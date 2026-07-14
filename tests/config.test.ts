@@ -44,6 +44,11 @@ describe('config', () => {
     expect((config as Record<string, unknown>).telegramWebhookSecret).toBeUndefined();
     // Phase 04 (D-11): databaseAppUrl is optional; undefined when DATABASE_APP_URL unset
     expect(config.databaseAppUrl).toBeUndefined();
+    // Phase 05 (D-01): platform bot credentials and webhook base URL
+    // Values come from ORIGINAL_ENV which was captured after jest.setup.ts ran.
+    expect(config.platformBotToken).toBe('test-platform-bot-token');
+    expect(config.platformWebhookSecret).toBe('test-platform-webhook-secret');
+    expect(config.webhookBaseUrl).toBe('https://test.example.com');
     expect(config.ownerTelegramId).toBe('999999999');
     expect(config.googleClientId).toBe('test-google-client-id');
     expect(config.googleClientSecret).toBe('test-google-client-secret');

@@ -48,6 +48,15 @@ const EnvSchema = z.object({
   TEST_BOT_2_TOKEN: z.string().optional(),
   TEST_BOT_2_WEBHOOK_SECRET: z.string().optional(),
   TEST_BOT_2_WEBHOOK_ID: z.string().optional(),
+  // Phase 5 (D-01): platform onboarding bot token. Only global bot token remaining;
+  // all per-business tokens are DB-driven (businesses.bot_token).
+  PLATFORM_BOT_TOKEN: z.string().min(1),
+  // Phase 5 (D-01): HMAC secret for platform bot webhook. Separate from
+  // per-business webhookSecret values stored in businesses table.
+  PLATFORM_WEBHOOK_SECRET: z.string().min(1),
+  // Phase 5: base URL for constructing setWebhook URLs
+  // (e.g. https://randevuclaw.fly.dev).
+  WEBHOOK_BASE_URL: z.string().min(1),
 });
 
 export interface Config {
@@ -69,6 +78,10 @@ export interface Config {
   port: number;
   logLevel: 'debug' | 'info' | 'warn' | 'error';
   nodeEnv: 'development' | 'production';
+  // Phase 5 (D-01): platform onboarding bot credentials and webhook base URL.
+  platformBotToken: string;
+  platformWebhookSecret: string;
+  webhookBaseUrl: string;
 }
 
 // Fail fast: EnvSchema.parse throws synchronously if a required var is missing,
@@ -91,4 +104,7 @@ export const config: Config = {
   port: env.PORT,
   logLevel: env.LOG_LEVEL,
   nodeEnv: env.NODE_ENV === 'production' ? 'production' : 'development',
+  platformBotToken: env.PLATFORM_BOT_TOKEN,
+  platformWebhookSecret: env.PLATFORM_WEBHOOK_SECRET,
+  webhookBaseUrl: env.WEBHOOK_BASE_URL,
 };

@@ -25,3 +25,7 @@ process.env.TEST_BOT_1_WEBHOOK_ID ??= 'test-webhook-id-1';
 process.env.TEST_BOT_2_TOKEN ??= 'test-bot-2-token';
 process.env.TEST_BOT_2_WEBHOOK_SECRET ??= 'test-bot-2-webhook-secret';
 process.env.TEST_BOT_2_WEBHOOK_ID ??= 'test-webhook-id-2';
+// Phase 05 platform bot environment variables (D-01)
+process.env.PLATFORM_BOT_TOKEN ??= 'test-platform-bot-token';
+process.env.PLATFORM_WEBHOOK_SECRET ??= 'test-platform-webhook-secret';
+process.env.WEBHOOK_BASE_URL ??= 'https://test.example.com';
