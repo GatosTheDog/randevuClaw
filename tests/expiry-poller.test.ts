@@ -56,7 +56,7 @@ const OWNER_BUSINESS_1 = {
   ownerTelegramId: 'owner1',
   googleRefreshToken: null,
   agendaSentDate: null,
-  botToken: null,
+  botToken: 'test-bot-token',
   webhookId: null,
   webhookSecret: null,
   createdAt: new Date(),
@@ -67,6 +67,8 @@ describe('runExpirySweep', () => {
     jest.clearAllMocks();
     mockedSendTelegramMessage.mockResolvedValue({ messageId: 1 });
     mockedEditTelegramMessageReplyMarkup.mockResolvedValue(undefined);
+    mockedFindBusinessById.mockResolvedValue(OWNER_BUSINESS_1);
+    (telegramClient.botTokenStore.run as jest.Mock).mockImplementation((_: string, cb: () => Promise<unknown>) => cb());
   });
 
   it('Test 1: sweeps every business with the D-09 2-hour cutoff', async () => {
