@@ -21,7 +21,7 @@
 
 - [ ] **ONB-01**: Owner completes a guided chat conversation to configure their business: name, weekly hours per day, and each service (name, price, duration in minutes)
 - [ ] **ONB-02**: Onboarding state is persisted to the database; an owner who drops off mid-flow can resume exactly where they left off without restarting
-- [ ] **ONB-03**: Owner can edit their business configuration after initial setup via chat: update hours, add/remove services, change prices
+- [x] **ONB-03**: Owner can edit their business configuration after initial setup via chat: update hours, add/remove services, change prices
 - [ ] **ONB-04**: All hardcoded fixture/seed businesses are removed; every business in the system is the result of an owner completing the onboarding flow
 
 ### GDPR & Compliance
