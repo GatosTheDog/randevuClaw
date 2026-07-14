@@ -61,7 +61,15 @@ Plans:
   4. An owner can update any part of their configuration (hours, services, prices) via chat after initial onboarding; changes take effect immediately for new bookings.
   5. No hardcoded fixture or seed businesses exist in the system; every business record is the result of an owner completing the onboarding flow.
 
-**Plans**: TBD
+**Plans**: 7 plans
+Plans:
+- [ ] 05-01-PLAN.md — Schema migration 0004, config.ts platform vars, insertTestBusiness() helper
+- [ ] 05-02-PLAN.md — Telegram API helpers (getMe/setWebhook) + onboarding session query layer
+- [ ] 05-03-PLAN.md — Onboarding state machine: all step handlers + router dispatcher
+- [ ] 05-04-PLAN.md — Platform bot webhook handler + server.ts route registration
+- [ ] 05-05-PLAN.md — ONB-03 owner edit flows + telegram.ts keyword intercept
+- [ ] 05-06-PLAN.md — Integration tests: BOT-01, ONB-01/02 platform + flow tests
+- [ ] 05-07-PLAN.md — ONB-04 fixture removal + DB migration + fly.io secrets (blocking checkpoint)
 
 ### Phase 6: GDPR Compliance & Rate-Limit Resilience
 
