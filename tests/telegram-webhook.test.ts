@@ -353,7 +353,7 @@ describe('POST /webhooks/telegram/:webhookId — callback_query owner approval (
     const res = await postWebhook('test-webhook-id-1', makeCallbackQueryUpdate(100, 'owner1', 'approve_42'));
 
     expect(res.status).toBe(200);
-    expect(mockedAnswerCallbackQuery).toHaveBeenCalledWith('cbq-1', expect.any(String));
+    expect(mockedAnswerCallbackQuery).toHaveBeenCalledWith('cbq-1');
     expect(mockedUpdateBookingStatusIfPending).toHaveBeenCalledWith(42, 'confirmed');
     const [clientId, clientText] = mockedSendTelegramMessage.mock.calls[0];
     expect(clientId).toBe('c1');
@@ -424,7 +424,7 @@ describe('POST /webhooks/telegram/:webhookId — callback_query owner approval (
     const res = await postWebhook('test-webhook-id-1', makeCallbackQueryUpdate(104, 'owner1', 'garbage'));
 
     expect(res.status).toBe(200);
-    expect(mockedAnswerCallbackQuery).toHaveBeenCalledWith('cbq-1', undefined);
+    expect(mockedAnswerCallbackQuery).toHaveBeenCalledWith('cbq-1');
     expect(mockedFindBookingByIdUnscoped).not.toHaveBeenCalled();
     expect(mockedUpdateBookingStatus).not.toHaveBeenCalled();
   });
