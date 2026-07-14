@@ -85,6 +85,6 @@ Plans:
 | 1. Foundation, Webhook & Business Resolution | v1.0 | 3/4 | Complete | 2026-07-07 |
 | 2. AI Booking Conversations & Owner Alerts | v1.0 | 9/9 | Complete | 2026-07-08 |
 | 3. Calendar Sync, Agenda & Reminders | v1.0 | 6/6 | Complete | 2026-07-09 |
-| 4. Per-Bot Foundation | v1.1 | 6/6 | Complete   | 2026-07-11 |
+| 4. Per-Bot Foundation | v1.1 | 6/6 | Complete    | 2026-07-11 |
 | 5. Owner Self-Serve Onboarding | v1.1 | 0/TBD | Not started | - |
 | 6. GDPR Compliance & Rate-Limit Resilience | v1.1 | 0/TBD | Not started | - |
