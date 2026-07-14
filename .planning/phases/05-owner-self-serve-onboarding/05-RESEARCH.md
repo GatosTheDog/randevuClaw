@@ -644,22 +644,22 @@ GRANT SELECT, INSERT, UPDATE ON onboarding_sessions TO randevuclaw_app;
 | A4 | Live Neon DB contains fixture business rows that must be deleted as a data migration task in this phase | Runtime State Inventory | If not deleted: orphaned rows remain; no functional impact but misleading state |
 | A5 | `$onUpdate(() => new Date())` on `updated_at` is supported in drizzle-orm 0.45.2 (documented from 0.30.5+) | Standard Stack, Pattern 6 | If wrong: set `updatedAt: new Date()` manually in every UPDATE call — trivial workaround |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Re-registration flow for completed businesses**
    - What we know: `deleteWebhook` must precede `setWebhook`; the platform bot creates the session
    - What's unclear: If an owner with a live bot (step='done') submits a new bot token, should the platform bot: (a) reset the session and start over, (b) allow token-only replacement, or (c) reject with "already registered"?
-   - Recommendation: For Phase 5 scope, implement (b): detect existing 'done' session, call `deleteWebhook` on the old token, replace `businesses.botToken`/`webhookId`/`webhookSecret`, reset session to 'name', let the owner re-configure. This handles the common "I made a new bot by mistake" case.
+   - RESOLVED: For Phase 5 scope, implement (b): detect existing 'done' session, call `deleteWebhook` on the old token, replace `businesses.botToken`/`webhookId`/`webhookSecret`, reset session to 'name', let the owner re-configure. This handles the common "I made a new bot by mistake" case. Implemented in Plan 04 platform handler branch B1.
 
 2. **Fixture row deletion from live Neon DB**
    - What we know: `pilates-athens`/`hair-salon-athens` are in the live DB; other tables FK to them
    - What's unclear: Do bookings, conversation turns, or other rows exist for these fixture businesses that must also be deleted (cascade or explicit)?
-   - Recommendation: Plan a task to DELETE fixture businesses with CASCADE. Verify no FK violations on live DB before executing.
+   - RESOLVED: Plan 07 Task 3 (human checkpoint) covers the DELETE with cascade guidance. Executor runs SELECT first to check for FK dependencies; deletes dependent rows before businesses rows if cascade is not available. Verified safe in Plan 07 threat model (T-05-18).
 
 3. **ONB-03 edit state machine scope**
    - What we know: Keywords trigger edit flows; no Gemini involved (D-06)
    - What's unclear: Does the edit flow reuse the same `onboarding_sessions` state machine, or is it a separate per-edit conversation anchored differently?
-   - Recommendation: For Phase 5, implement edit flows as simple single-turn interactions (owner sends one keyword, bot asks the updated value, owner replies, bot confirms). Multi-turn edit flows are complex and can reuse `onboarding_sessions` in a later phase if needed.
+   - RESOLVED: All four keywords implement actual DB writes. αλλαγή ωραρίου (upsert business_hours), νέα υπηρεσία (insert services), αλλαγή τιμής (update services.price) are single-turn: owner sends the keyword with inline data in one message (e.g. "αλλαγή ωραρίου Δευτέρα,09:00,17:00"); bot writes to DB and confirms. διαγραφή υπηρεσίας is two-turn (list services → owner sends number → delete row) using a module-level in-memory Map in edit-router.ts — no onboarding_sessions reuse needed. Implemented in Plan 05 Task 1.
 
 ## Environment Availability
 
