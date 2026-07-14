@@ -5,16 +5,16 @@ milestone_name: Per-Business Bots & Telegram PoC Completion
 current_phase: 5
 current_phase_name: Owner Self-Serve Onboarding
 status: executing
-stopped_at: Phase 05 context gathered
-last_updated: "2026-07-14T14:36:21.221Z"
+stopped_at: Phase 05, Plan 02 complete — Telegram helpers + onboarding query layer
+last_updated: "2026-07-14T14:50:00.000Z"
 last_activity: 2026-07-14
-last_activity_desc: Phase 04 complete, transitioned to Phase 5
+last_activity_desc: Plan 05-02 complete — callTelegramApiDirect helpers + src/onboarding/queries.ts
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 13
-  completed_plans: 7
-  percent: 33
+  completed_plans: 9
+  percent: 38
 ---
 
 # Project State
@@ -29,12 +29,12 @@ See: .planning/PROJECT.md (updated 2026-07-09 after v1.0)
 ## Current Position
 
 Phase: 5 — Owner Self-Serve Onboarding
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-07-14 — Phase 04 complete, transitioned to Phase 5
+Plan: 02 complete — advancing to Plan 03
+Status: Executing
+Last activity: 2026-07-14 — Plan 05-02 complete (Telegram helpers + onboarding queries)
 
 ```
-[░░░░░░░░░░░░░░░░░░░░] 0% — Phase 4/6 not started
+[███░░░░░░░░░░░░░░░░░] 29% — Phase 5, Plan 2/7 complete
 ```
 
 ## Performance Metrics
@@ -72,6 +72,8 @@ Last activity: 2026-07-14 — Phase 04 complete, transitioned to Phase 5
 | Phase 04 P04 | 8 | 2 tasks | 3 files |
 | Phase 04 P05 | 14 | 3 tasks | 2 files |
 | Phase 04 P06 | 4 | 3 tasks | 3 files |
+| Phase 05 P01 | 6min | 3 tasks | 6 files |
+| Phase 05 P02 | 8min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -120,6 +122,9 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 04-05]: RLS migration applied with dynamic DB name substitution — live Neon DB is neondb not randevuclaw as hardcoded in GRANT CONNECT
 - [Phase ?]: botTokenStore async context
 - [Phase ?]: expiry-poller test fixes
+- [Phase 05-02]: callTelegramApiDirect is private (unexported) — getMeBotInfo/registerBotWebhook/unregisterBotWebhook are the public API surface
+- [Phase 05-02]: onboarding/queries.ts imports Business from src/database/queries — reuses existing interface rather than duplicating
+- [Phase 05-02]: activateBusiness updates only webhookId+webhookSecret — separated from createBusinessForOnboarding to support re-registration without duplicate rows
 
 ### Pending Todos
 
@@ -153,10 +158,9 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-07-09:
 
 ## Session Continuity
 
-Last session: 2026-07-14T14:36:21.214Z
-Stopped at: Phase 05 context gathered
-Resume file: 
-None
+Last session: 2026-07-14T14:50:00.000Z
+Stopped at: Plan 05-02 complete — Telegram helpers + onboarding query layer
+Resume file: None
 
 ## Operator Next Steps
 
