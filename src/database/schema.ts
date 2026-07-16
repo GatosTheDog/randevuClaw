@@ -103,6 +103,8 @@ export const businessHours = pgTable(
     dayOfWeek: integer('day_of_week').notNull(),
     openTime: text('open_time').notNull(), // "HH:MM" 24h, Europe/Athens local wall-clock
     closeTime: text('close_time').notNull(), // "HH:MM" 24h, Europe/Athens local wall-clock
+    openTime2: text('open_time_2'),   // nullable — second range open, e.g. "17:00"
+    closeTime2: text('close_time_2'), // nullable — second range close, e.g. "21:00"
     isClosed: boolean('is_closed').notNull().default(false),
     createdAt: timestamp('created_at').notNull().defaultNow(),
   },

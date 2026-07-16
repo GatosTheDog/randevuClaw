@@ -199,6 +199,8 @@ export interface BusinessHours {
   dayOfWeek: number;
   openTime: string;
   closeTime: string;
+  openTime2: string | null;
+  closeTime2: string | null;
   isClosed: boolean;
   createdAt: Date;
 }
