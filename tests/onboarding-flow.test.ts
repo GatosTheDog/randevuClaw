@@ -62,6 +62,9 @@ const mockedActivateBusiness = onboardingQueries.activateBusiness as jest.Mocked
 const mockedSendTelegramMessage = telegramClient.sendTelegramMessage as jest.MockedFunction<
   typeof telegramClient.sendTelegramMessage
 >;
+const mockedSendTelegramMessageWithKeyboard = telegramClient.sendTelegramMessageWithKeyboard as jest.MockedFunction<
+  typeof telegramClient.sendTelegramMessageWithKeyboard
+>;
 const mockedRegisterBotWebhook = telegramClient.registerBotWebhook as jest.MockedFunction<
   typeof telegramClient.registerBotWebhook
 >;
@@ -109,6 +112,7 @@ beforeEach(() => {
 
   mockedUpdateOnboardingStep.mockResolvedValue(undefined);
   mockedSendTelegramMessage.mockResolvedValue({ messageId: 1 });
+  mockedSendTelegramMessageWithKeyboard.mockResolvedValue({ messageId: 2 });
   mockedActivateBusiness.mockResolvedValue(undefined);
   mockedRegisterBotWebhook.mockResolvedValue(undefined);
   mockedUnregisterBotWebhook.mockResolvedValue(undefined);
@@ -134,8 +138,8 @@ describe('dispatchOnboardingStep — name step', () => {
 
     // Session advances to first hours step
     expect(mockedUpdateOnboardingStep).toHaveBeenCalledWith(1, 'hours_0_query', null);
-    // Prompt for Sunday (day 0 = Κυριακή)
-    const sentText = mockedSendTelegramMessage.mock.calls[0]?.[1] ?? '';
+    // Prompt for Sunday (day 0 = Κυριακή) — sent via keyboard button message
+    const sentText = mockedSendTelegramMessageWithKeyboard.mock.calls[0]?.[1] ?? '';
     expect(sentText).toContain('Κυριακή');
   });
 
@@ -165,7 +169,8 @@ describe('Hours steps', () => {
     expect(dbModule.db.insert).toHaveBeenCalled();
     // Advances past Sunday to Monday
     expect(mockedUpdateOnboardingStep).toHaveBeenCalledWith(1, 'hours_1_query', null);
-    const sentText = mockedSendTelegramMessage.mock.calls[0]?.[1] ?? '';
+    // Prompt for Monday — sent via keyboard button message
+    const sentText = mockedSendTelegramMessageWithKeyboard.mock.calls[0]?.[1] ?? '';
     expect(sentText).toContain('Δευτέρα');
   });
 
@@ -208,8 +213,8 @@ describe('Resume mid-flow (ONB-02)', () => {
     // which proves the handler sends the day-3 prompt (Τετάρτη) without advancing.
     await dispatchOnboardingStep(makeSession('hours_3_query'), makeBusiness(), OWNER_ID, '');
 
-    // Prompt must reference day 3 (Τετάρτη = Wednesday)
-    const sentText = mockedSendTelegramMessage.mock.calls[0]?.[1] ?? '';
+    // Prompt must reference day 3 (Τετάρτη = Wednesday) — sent via keyboard button message
+    const sentText = mockedSendTelegramMessageWithKeyboard.mock.calls[0]?.[1] ?? '';
     expect(sentText).toContain('Τετάρτη');
     // Step has NOT been advanced — awaiting owner's yes/no response
     expect(mockedUpdateOnboardingStep).not.toHaveBeenCalled();

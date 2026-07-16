@@ -60,6 +60,9 @@ const mockedMarkTelegramUpdateProcessed = queries.markTelegramUpdateProcessed as
 const mockedSendTelegramMessage = telegramClient.sendTelegramMessage as jest.MockedFunction<
   typeof telegramClient.sendTelegramMessage
 >;
+const mockedSendTelegramMessageWithKeyboard = telegramClient.sendTelegramMessageWithKeyboard as jest.MockedFunction<
+  typeof telegramClient.sendTelegramMessageWithKeyboard
+>;
 const mockedRouteConversationMessage = router.routeConversationMessage as jest.MockedFunction<
   typeof router.routeConversationMessage
 >;
@@ -328,6 +331,7 @@ describe('POST /webhooks/telegram/:webhookId — callback_query owner approval (
     mockedInsertOrIgnoreTelegramUpdate.mockResolvedValue('inserted');
     mockedAnswerCallbackQuery.mockResolvedValue(undefined);
     mockedSendTelegramMessage.mockResolvedValue({ messageId: 999 });
+    mockedSendTelegramMessageWithKeyboard.mockResolvedValue({ messageId: 998 });
     mockedUpdateBookingStatus.mockResolvedValue(undefined);
     mockedEditTelegramMessageReplyMarkup.mockResolvedValue(undefined);
     mockedFindServiceById.mockResolvedValue(SERVICE);
@@ -355,7 +359,8 @@ describe('POST /webhooks/telegram/:webhookId — callback_query owner approval (
     expect(res.status).toBe(200);
     expect(mockedAnswerCallbackQuery).toHaveBeenCalledWith('cbq-1');
     expect(mockedUpdateBookingStatusIfPending).toHaveBeenCalledWith(42, 'confirmed');
-    const [clientId, clientText] = mockedSendTelegramMessage.mock.calls[0];
+    // Approval sends confirmation with cancel button via sendTelegramMessageWithKeyboard
+    const [clientId, clientText] = mockedSendTelegramMessageWithKeyboard.mock.calls[0];
     expect(clientId).toBe('c1');
     expect(clientText).toContain('Ομαδικό Pilates');
     expect(clientText).toContain('2026-07-10');
@@ -483,7 +488,8 @@ describe('POST /webhooks/telegram/:webhookId — callback_query owner approval (
     expect(firstRes.status).toBe(200);
     expect(secondRes.status).toBe(200);
     expect(mockedUpdateBookingStatusIfPending).toHaveBeenCalledTimes(2);
-    expect(mockedSendTelegramMessage).toHaveBeenCalledTimes(1);
+    // Exactly one client confirmation (with cancel button) sent — second tap loses the CAS race
+    expect(mockedSendTelegramMessageWithKeyboard).toHaveBeenCalledTimes(1);
   });
 
   it('Test 14 (Plan 03-02): approving a plain (non-reschedule) booking calls syncBookingToCalendar exactly once with the confirmed booking, business, and service', async () => {
@@ -541,7 +547,8 @@ describe('POST /webhooks/telegram/:webhookId — callback_query owner approval (
     const res = await postWebhook('test-webhook-id-1', makeCallbackQueryUpdate(302, 'owner1', 'approve_42'));
 
     expect(res.status).toBe(200);
-    const [clientId, clientText] = mockedSendTelegramMessage.mock.calls[0];
+    // Calendar sync failure must not prevent the client confirmation (with cancel button)
+    const [clientId, clientText] = mockedSendTelegramMessageWithKeyboard.mock.calls[0];
     expect(clientId).toBe('c1');
     expect(clientText.length).toBeGreaterThan(0);
   });

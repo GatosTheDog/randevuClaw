@@ -8,6 +8,7 @@ import { updateOnboardingStep, activateBusiness } from './queries';
 import type { OnboardingSession } from './queries';
 import {
   sendTelegramMessage,
+  sendTelegramMessageWithKeyboard,
   unregisterBotWebhook,
   registerBotWebhook,
 } from '../telegram/client';
@@ -70,6 +71,9 @@ export interface CollectedData {
 /** HH:MM 24h format validator — not exported; used only within this module. */
 const TIME_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
 
+/** Ναι/Όχι inline keyboard buttons — reused for every yes/no prompt. */
+const YES_NO_BUTTONS = [[{ text: 'Ναι', callback_data: 'ναι' }, { text: 'Όχι', callback_data: 'όχι' }]];
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -119,7 +123,7 @@ export async function handleNameStep(
     .where(eq(businesses.id, business.id));
 
   await updateOnboardingStep(session.id, 'hours_0_query', null);
-  await sendTelegramMessage(ownerTelegramId, 'Είστε ανοιχτά την Κυριακή; (ναι/όχι)');
+  await sendTelegramMessageWithKeyboard(ownerTelegramId, 'Είστε ανοιχτά την Κυριακή;', YES_NO_BUTTONS);
 }
 
 /**
@@ -165,9 +169,10 @@ export async function handleHoursQueryStep(
     if (day < 6) {
       const nextStep = `hours_${day + 1}_query` as OnboardingStep;
       await updateOnboardingStep(session.id, nextStep, null);
-      await sendTelegramMessage(
+      await sendTelegramMessageWithKeyboard(
         ownerTelegramId,
-        `Είστε ανοιχτά την ${GREEK_DAY_NAMES[day + 1]}; (ναι/όχι)`
+        `Είστε ανοιχτά την ${GREEK_DAY_NAMES[day + 1]};`,
+        YES_NO_BUTTONS
       );
     } else {
       // Saturday (day 6) — transition to service collection
@@ -179,9 +184,10 @@ export async function handleHoursQueryStep(
     }
   } else {
     // Unrecognized input — re-send the same question without advancing
-    await sendTelegramMessage(
+    await sendTelegramMessageWithKeyboard(
       ownerTelegramId,
-      `Είστε ανοιχτά την ${GREEK_DAY_NAMES[day]}; (ναι/όχι)`
+      `Είστε ανοιχτά την ${GREEK_DAY_NAMES[day]};`,
+      YES_NO_BUTTONS
     );
   }
 }
@@ -258,9 +264,10 @@ export async function handleHoursCloseStep(
     const nextStep = `hours_${day + 1}_query` as OnboardingStep;
     // Clear currentDayOpenTime — nothing to carry forward to the next query step
     await updateOnboardingStep(session.id, nextStep, null);
-    await sendTelegramMessage(
+    await sendTelegramMessageWithKeyboard(
       ownerTelegramId,
-      `Είστε ανοιχτά την ${GREEK_DAY_NAMES[day + 1]}; (ναι/όχι)`
+      `Είστε ανοιχτά την ${GREEK_DAY_NAMES[day + 1]};`,
+      YES_NO_BUTTONS
     );
   } else {
     // Saturday (day 6) — transition to service collection; clear all collected data
@@ -371,9 +378,10 @@ export async function handleSvcDurationStep(
 
   // Clear currentService from collectedData after successful insert
   await updateOnboardingStep(session.id, 'svc_more', null);
-  await sendTelegramMessage(
+  await sendTelegramMessageWithKeyboard(
     ownerTelegramId,
-    'Υπηρεσία αποθηκεύτηκε! Θέλετε να προσθέσετε άλλη; (ναι/όχι)'
+    'Υπηρεσία αποθηκεύτηκε! Θέλετε να προσθέσετε άλλη;',
+    YES_NO_BUTTONS
   );
 }
 
@@ -402,7 +410,11 @@ export async function handleSvcMoreStep(
     await handleActivate(session, business, ownerTelegramId);
   } else {
     // Unrecognized input — re-send the question without advancing
-    await sendTelegramMessage(ownerTelegramId, 'Θέλετε να προσθέσετε άλλη υπηρεσία; (ναι/όχι)');
+    await sendTelegramMessageWithKeyboard(
+      ownerTelegramId,
+      'Θέλετε να προσθέσετε άλλη υπηρεσία;',
+      YES_NO_BUTTONS
+    );
   }
 }
 

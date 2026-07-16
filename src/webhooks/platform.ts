@@ -14,6 +14,7 @@ import {
 } from '../onboarding/queries';
 import { dispatchOnboardingStep } from '../onboarding/router';
 import {
+  answerCallbackQuery,
   botTokenStore,
   getMeBotInfo,
   sendTelegramMessage,
@@ -107,7 +108,11 @@ export async function handlePlatformBotWebhook(req: Request, res: Response): Pro
   const ownerTelegramId = String(
     update.message?.from?.id ?? update.callback_query?.from?.id ?? ''
   );
-  const messageText = update.message?.text?.trim() ?? '';
+  const isCallback = !!update.callback_query;
+  const messageText = isCallback
+    ? (update.callback_query!.data ?? '')
+    : (update.message?.text?.trim() ?? '');
+  const updateType = isCallback ? 'callback_query' : 'message';
 
   // Step 4 — Respond 200 immediately; process asynchronously inside botTokenStore.run.
   // This ensures Telegram never retries even if internal processing is slow (e.g.
@@ -118,10 +123,16 @@ export async function handlePlatformBotWebhook(req: Request, res: Response): Pro
       // Step 4a — Dedup-insert (T-05-11).
       // businessId is null here because the platform bot receives messages before
       // a business row may exist. The unique updateId prevents double-processing.
-      const dedupResult = await insertOrIgnoreTelegramUpdate(updateId, null, ownerTelegramId, 'message');
+      const dedupResult = await insertOrIgnoreTelegramUpdate(updateId, null, ownerTelegramId, updateType);
       if (dedupResult === 'ignored') {
         logger.info({ updateId }, 'Platform: duplicate update ignored');
         return;
+      }
+
+      // Answer the Telegram spinner immediately for callback_query updates so
+      // the button stops showing a loading indicator (Pitfall 4 in RESEARCH.md).
+      if (isCallback) {
+        try { await answerCallbackQuery(update.callback_query!.id); } catch {}
       }
 
       // Step 4b — Look up an active (non-done) onboarding session.

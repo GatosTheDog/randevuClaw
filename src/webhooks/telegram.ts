@@ -13,7 +13,7 @@ import {
   findBusinessByWebhookId,
   withBusinessContext,
 } from '../database/queries';
-import { answerCallbackQuery, editTelegramMessageReplyMarkup, sendTelegramMessage, botTokenStore } from '../telegram/client';
+import { answerCallbackQuery, editTelegramMessageReplyMarkup, sendTelegramMessage, sendTelegramMessageWithKeyboard, botTokenStore } from '../telegram/client';
 import { getOrCreateBotInstance } from '../telegram/registry';
 import { routeConversationMessage } from '../conversation/router';
 import { deleteBookingFromCalendar, syncBookingToCalendar } from '../calendar/sync';
@@ -78,9 +78,9 @@ async function handleFoundBusiness(
 // name) is rejected as malformed.
 export function parseCallbackData(
   data: string | undefined
-): { action: 'approve' | 'reject'; bookingId: number } | null {
-  const match = data?.match(/^(approve|reject)_(\d+)$/);
-  return match ? { action: match[1] as 'approve' | 'reject', bookingId: Number(match[2]) } : null;
+): { action: 'approve' | 'reject' | 'client_cancel'; bookingId: number } | null {
+  const match = data?.match(/^(approve|reject|client_cancel)_(\d+)$/);
+  return match ? { action: match[1] as 'approve' | 'reject' | 'client_cancel', bookingId: Number(match[2]) } : null;
 }
 
 // OWNER_APPROVE_ACK_GREEK / OWNER_REJECT_ACK_GREEK removed (WR-01/WR-04):
@@ -89,6 +89,50 @@ export function parseCallbackData(
 // restore these constants and call answerCallbackQuery after ownership + CAS.
 const CLIENT_REJECT_NOTICE_GREEK =
   'Δυστυχώς η επιχείρηση δεν μπόρεσε να επιβεβαιώσει το ραντεβού σας. Δοκιμάστε άλλη ώρα.';
+
+// Client tap handler for the 🚫 Ακύρωση κράτησης inline-keyboard button.
+// Validates client ownership via clientPhone, cancels the booking, removes the
+// calendar event (best-effort), and notifies the owner.
+async function handleClientCancelCallback(
+  bookingId: number,
+  senderTelegramId: string
+): Promise<void> {
+  const booking = await findBookingByIdUnscoped(bookingId);
+  if (!booking) return;
+
+  // Client ownership: clientPhone stores Telegram user ID as string
+  if (booking.clientPhone !== senderTelegramId) {
+    logger.warn({ bookingId, senderTelegramId }, 'client_cancel from non-client, ignoring');
+    return;
+  }
+
+  const CANCELLABLE = ['pending_owner_approval', 'confirmed'];
+  if (!CANCELLABLE.includes(booking.bookingStatus)) return;
+
+  await updateBookingStatus(booking.id, 'cancelled');
+
+  const business = await findBusinessById(booking.businessId);
+  const service = await findServiceById(booking.businessId, booking.serviceId);
+
+  // Best-effort calendar delete
+  try {
+    if (business) await deleteBookingFromCalendar(booking, business);
+  } catch (err) {
+    logger.error({ err, bookingId }, 'Client cancel: calendar delete failed (best-effort)');
+  }
+
+  // Notify owner
+  try {
+    if (business?.ownerTelegramId) {
+      const ownerText = `Ακύρωση ραντεβού από πελάτη:\nΥπηρεσία: ${service?.name ?? 'άγνωστη'}\nΗμερομηνία: ${booking.calendarDate}\nΏρα: ${booking.calendarTime}\nΠελάτης: ${booking.clientPhone}`;
+      await sendTelegramMessage(business.ownerTelegramId, ownerText);
+    }
+  } catch (err) {
+    logger.error({ err, bookingId }, 'Client cancel: owner notification failed (best-effort)');
+  }
+
+  await sendTelegramMessage(senderTelegramId, 'Το ραντεβού σας ακυρώθηκε.');
+}
 
 // Owner tap handler for the Αποδοχή/Απόρριψη inline-keyboard buttons
 // (Plan 02-02/02-04 sent them, this is what makes tapping them do something —
@@ -108,6 +152,11 @@ async function handleCallbackQuery(
 
   if (!parsed) {
     logger.warn({ data: callbackQuery.data }, 'Malformed callback_query data, ignoring');
+    return;
+  }
+
+  if (parsed.action === 'client_cancel') {
+    await handleClientCancelCallback(parsed.bookingId, senderTelegramId);
     return;
   }
 
@@ -180,9 +229,10 @@ async function handleCallbackQuery(
     } catch (err) {
       logger.error({ err, bookingId: updated.id }, 'Calendar sync failed (best-effort)');
     }
-    await sendTelegramMessage(
+    await sendTelegramMessageWithKeyboard(
       updated.clientPhone,
-      `Το ραντεβού σας επιβεβαιώθηκε! ${service?.name ?? ''}, ${updated.calendarDate} στις ${updated.calendarTime}.`
+      `Το ραντεβού σας επιβεβαιώθηκε! ${service?.name ?? ''}, ${updated.calendarDate} στις ${updated.calendarTime}.`,
+      [[{ text: '🚫 Ακύρωση κράτησης', callback_data: `client_cancel_${updated.id}` }]]
     );
   } else {
     // No cascade on reject: the original booking (if any) is left untouched.
