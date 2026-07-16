@@ -38,8 +38,8 @@ function makeBusiness(overrides: Partial<queries.Business> = {}): queries.Busine
     ownerTelegramId: 'owner1',
     googleRefreshToken: null,
     agendaSentDate: null,
-    botToken: null,
-    webhookId: null,
+    botToken: 'test-bot-token',
+    webhookId: 'test-webhook-id',
     webhookSecret: null,
     createdAt: new Date(),
     ...overrides,
@@ -84,6 +84,12 @@ describe('runAgendaSweep', () => {
     mockedFindServiceById.mockResolvedValue(SERVICE);
     mockedSendTelegramMessage.mockResolvedValue({ messageId: 1 });
     mockedClaimAgendaSlot.mockResolvedValue(true);
+    // botTokenStore.run is an AsyncLocalStorage.run() — auto-mock returns undefined
+    // without executing the callback. Explicitly mock it as a call-through so
+    // sendTelegramMessage calls inside the run() body actually execute.
+    (telegramClient.botTokenStore.run as jest.Mock).mockImplementation(
+      (_token: string, fn: () => Promise<unknown>) => fn()
+    );
   });
 
   it('Test 1: calls listAllBusinessIds, then findBusinessById for each business id', async () => {

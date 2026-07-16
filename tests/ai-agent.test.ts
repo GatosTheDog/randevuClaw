@@ -65,7 +65,7 @@ const SERVICES = [
 ];
 
 const HOURS = [
-  { id: 1, businessId: 1, dayOfWeek: 1, openTime: '09:00', closeTime: '20:00', isClosed: false, createdAt: new Date() },
+  { id: 1, businessId: 1, dayOfWeek: 1, openTime: '09:00', closeTime: '20:00', openTime2: null, closeTime2: null, isClosed: false, createdAt: new Date() },
 ];
 
 describe('aiBookingAgent', () => {

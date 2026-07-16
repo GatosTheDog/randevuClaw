@@ -1,9 +1,14 @@
 import { eq } from 'drizzle-orm';
+import removeAccents from 'remove-accents';
 import { db } from '../database/db';
 import { services, businessHours } from '../database/schema';
 import { listServicesForBusiness } from '../database/queries';
 import type { Business } from '../database/queries';
 import { sendTelegramMessage } from '../telegram/client';
+
+function normalize(text: string): string {
+  return removeAccents(text.trim().toLowerCase());
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -32,14 +37,15 @@ const pendingDeleteByBusiness = new Map<number, PendingDeleteEntry[]>();
 const TIME_REGEX = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
 
 // Greek day names → JS Date.getDay() convention (0=Sunday..6=Saturday).
+// Keys are accent-stripped so lookup works regardless of tonos in user input.
 const GREEK_DAY_NAME_TO_INDEX: Record<string, number> = {
-  κυριακή: 0,
-  δευτέρα: 1,
-  τρίτη: 2,
-  τετάρτη: 3,
-  πέμπτη: 4,
-  παρασκευή: 5,
-  σάββατο: 6,
+  κυριακη: 0,
+  δευτερα: 1,
+  τριτη: 2,
+  τεταρτη: 3,
+  πεμπτη: 4,
+  παρασκευη: 5,
+  σαββατο: 6,
 };
 
 // ---------------------------------------------------------------------------
@@ -62,8 +68,8 @@ export const OWNER_EDIT_KEYWORDS: readonly string[] = [
  * Case-insensitive (trimmed + lowercased before comparison).
  */
 export function isOwnerEditCommand(text: string): boolean {
-  const normalized = text.trim().toLowerCase();
-  return OWNER_EDIT_KEYWORDS.some((kw) => normalized.includes(kw));
+  const n = normalize(text);
+  return OWNER_EDIT_KEYWORDS.some((kw) => n.includes(normalize(kw)));
 }
 
 /**
@@ -111,16 +117,21 @@ export async function routeOwnerEdit(
   }
 
   // -----------------------------------------------------------------------
-  // STEP 1 — Normalize
+  // STEP 1 — Normalize (accent-stripped + lowercase for keyword matching)
   // -----------------------------------------------------------------------
-  const normalized = messageText.trim().toLowerCase();
+  const normalized = normalize(messageText);
 
   // -----------------------------------------------------------------------
   // STEP 2 — αλλαγή ωραρίου
   // -----------------------------------------------------------------------
-  if (normalized.includes('αλλαγή ωραρίου')) {
-    const kwIndex = normalized.indexOf('αλλαγή ωραρίου');
-    const dataStr = normalized.slice(kwIndex + 'αλλαγή ωραρίου'.length).trim();
+  const KW_HOURS = normalize('αλλαγή ωραρίου');
+  const KW_NEW_SVC = normalize('νέα υπηρεσία');
+  const KW_PRICE = normalize('αλλαγή τιμής');
+  const KW_DELETE = normalize('διαγραφή υπηρεσίας');
+
+  if (normalized.includes(KW_HOURS)) {
+    const kwIndex = normalized.indexOf(KW_HOURS);
+    const dataStr = normalized.slice(kwIndex + KW_HOURS.length).trim();
 
     if (!dataStr) {
       await sendTelegramMessage(
@@ -131,7 +142,7 @@ export async function routeOwnerEdit(
     }
 
     const parts = dataStr.split(',');
-    const dayNameKey = parts[0]?.trim().toLowerCase() ?? '';
+    const dayNameKey = normalize(parts[0]?.trim() ?? '');
     const openTime = parts[1]?.trim() ?? '';
     const closeTime = parts[2]?.trim() ?? '';
     const dayOfWeek = GREEK_DAY_NAME_TO_INDEX[dayNameKey];
@@ -161,9 +172,9 @@ export async function routeOwnerEdit(
   // -----------------------------------------------------------------------
   // STEP 3 — νέα υπηρεσία
   // -----------------------------------------------------------------------
-  if (normalized.includes('νέα υπηρεσία')) {
-    const kwIndex = normalized.indexOf('νέα υπηρεσία');
-    const dataStr = normalized.slice(kwIndex + 'νέα υπηρεσία'.length).trim();
+  if (normalized.includes(KW_NEW_SVC)) {
+    const kwIndex = normalized.indexOf(KW_NEW_SVC);
+    const dataStr = normalized.slice(kwIndex + KW_NEW_SVC.length).trim();
 
     if (!dataStr) {
       await sendTelegramMessage(
@@ -173,11 +184,9 @@ export async function routeOwnerEdit(
       return;
     }
 
-    // Use original messageText for name (preserve casing), but split from the
-    // keyword position in normalized to correctly locate the data boundary.
-    const originalAfterKw = messageText.trim().slice(
-      messageText.trim().toLowerCase().indexOf('νέα υπηρεσία') + 'νέα υπηρεσία'.length
-    ).trim();
+    // Use original messageText for name (preserve casing); find data boundary
+    // via the accent-stripped normalized string's keyword position.
+    const originalAfterKw = messageText.trim().slice(kwIndex + KW_NEW_SVC.length).trim();
     const rawParts = originalAfterKw.split(',');
     const name = rawParts[0]?.trim() ?? '';
     const price = parseInt(rawParts[1]?.trim() ?? '', 10);
@@ -199,14 +208,14 @@ export async function routeOwnerEdit(
   // -----------------------------------------------------------------------
   // STEP 4 — αλλαγή τιμής
   // -----------------------------------------------------------------------
-  if (normalized.includes('αλλαγή τιμής')) {
+  if (normalized.includes(KW_PRICE)) {
     const serviceList = await listServicesForBusiness(business.id);
     const listText = serviceList
       .map((s, i) => `${i + 1}. ${s.name} — ${s.price ?? '?'} λεπτά`)
       .join('\n');
 
-    const kwIndex = normalized.indexOf('αλλαγή τιμής');
-    const dataStr = normalized.slice(kwIndex + 'αλλαγή τιμής'.length).trim();
+    const kwIndex = normalized.indexOf(KW_PRICE);
+    const dataStr = normalized.slice(kwIndex + KW_PRICE.length).trim();
 
     if (!dataStr) {
       await sendTelegramMessage(
@@ -237,7 +246,7 @@ export async function routeOwnerEdit(
   // -----------------------------------------------------------------------
   // STEP 5 — διαγραφή υπηρεσίας
   // -----------------------------------------------------------------------
-  if (normalized.includes('διαγραφή υπηρεσίας')) {
+  if (normalized.includes(KW_DELETE)) {
     const serviceList = await listServicesForBusiness(business.id);
 
     if (serviceList.length === 0) {
