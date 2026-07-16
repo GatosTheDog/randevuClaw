@@ -5,16 +5,16 @@ milestone_name: Per-Business Bots & Telegram PoC Completion
 current_phase: 5
 current_phase_name: Owner Self-Serve Onboarding
 status: executing
-stopped_at: Phase 05, Plan 06 complete — onboarding integration + flow tests (BOT-01/ONB-01/ONB-02/ONB-03)
-last_updated: "2026-07-14T15:45:00.000Z"
-last_activity: 2026-07-14
-last_activity_desc: "Plan 05-06 complete — 25 tests (8 integration + 17 unit) for onboarding subsystem"
+stopped_at: Phase 05 all plans complete — awaiting verification
+last_updated: "2026-07-16T00:00:00.000Z"
+last_activity: 2026-07-16
+last_activity_desc: "Plan 05-07 complete — fixture removal, TEST_BOT_* cleanup, migration 0004 applied (ONB-04)"
 progress:
   total_phases: 3
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 13
-  completed_plans: 12
-  percent: 33
+  completed_plans: 13
+  percent: 67
 ---
 
 # Project State
@@ -29,12 +29,12 @@ See: .planning/PROJECT.md (updated 2026-07-09 after v1.0)
 ## Current Position
 
 Phase: 5 — Owner Self-Serve Onboarding
-Plan: 06 complete — advancing to Plan 07
-Status: Executing
-Last activity: 2026-07-14 — Plan 05-06 complete (onboarding integration + flow tests — 25 tests)
+Plan: 07 complete — Phase 05 all plans done
+Status: Executing (awaiting Phase 06)
+Last activity: 2026-07-16 — Plan 05-07 complete (fixture removal + DB cleanup — ONB-04)
 
 ```
-[████████████████████] 92% — Phase 5, Plan 6/7 complete
+[████████████████████] 100% — Phase 5, Plan 7/7 complete (Phase 6 pending)
 ```
 
 ## Performance Metrics
@@ -77,6 +77,7 @@ Last activity: 2026-07-14 — Plan 05-06 complete (onboarding integration + flow
 | Phase 05 P03 | 3min | 2 tasks | 2 files |
 | Phase 05 P04 | 5 | 2 tasks | 2 files |
 | Phase 05 P06 | 15 | 2 tasks | 2 files |
+| Phase 05 P07 | 25min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -168,8 +169,8 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-07-09:
 
 ## Session Continuity
 
-Last session: 2026-07-14T15:40:07.508Z
-Stopped at: Plan 05-04 complete — platform bot webhook handler (platform.ts + server.ts)
+Last session: 2026-07-16T00:00:00.000Z
+Stopped at: Phase 05 all plans complete — awaiting verification
 Resume file: None
 
 ## Operator Next Steps
