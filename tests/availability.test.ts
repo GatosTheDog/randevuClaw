@@ -45,6 +45,8 @@ function makeMondayHours(overrides: Partial<BusinessHours> = {}): BusinessHours 
     dayOfWeek: 1,
     openTime: '08:00',
     closeTime: '21:00',
+    openTime2: null,
+    closeTime2: null,
     isClosed: false,
     createdAt: new Date(),
     ...overrides,

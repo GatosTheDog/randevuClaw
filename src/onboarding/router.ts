@@ -5,8 +5,7 @@ import type { OnboardingSession } from './queries';
 import {
   handleNameStep,
   handleHoursQueryStep,
-  handleHoursOpenStep,
-  handleHoursCloseStep,
+  handleHoursRangeStep,
   handleSvcNameStep,
   handleSvcPriceStep,
   handleSvcDurationStep,
@@ -66,16 +65,8 @@ export async function dispatchOnboardingStep(
         ownerTelegramId,
         messageText
       );
-    } else if (/^hours_\d_open$/.test(step)) {
-      await handleHoursOpenStep(
-        extractDayIndex(step),
-        session,
-        business,
-        ownerTelegramId,
-        messageText
-      );
-    } else if (/^hours_\d_close$/.test(step)) {
-      await handleHoursCloseStep(
+    } else if (/^hours_\d_range$/.test(step)) {
+      await handleHoursRangeStep(
         extractDayIndex(step),
         session,
         business,

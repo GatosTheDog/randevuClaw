@@ -23,6 +23,23 @@ function timeStringToMinutes(time: string): number {
   return hours * 60 + minutes;
 }
 
+/**
+ * Generates "HH:00" candidate slots within a single time range.
+ * A slot is only valid if the service's duration fits before closeTime.
+ */
+function candidatesForRange(openTime: string, closeTime: string, durationMin: number): string[] {
+  const openHour = Number(openTime.split(':')[0]);
+  const closeHour = Number(closeTime.split(':')[0]);
+  const closeMinutes = timeStringToMinutes(closeTime);
+  const slots: string[] = [];
+  for (let hour = openHour; hour <= closeHour; hour++) {
+    if (hour * 60 + durationMin <= closeMinutes) {
+      slots.push(`${String(hour).padStart(2, '0')}:00`);
+    }
+  }
+  return slots;
+}
+
 export async function checkAvailability(
   businessId: number,
   serviceId: number,
@@ -52,18 +69,13 @@ export async function checkAvailability(
     return { availableSlots: [], closed: true };
   }
 
-  const openHour = Number(hours.openTime.split(':')[0]);
-  const closeHour = Number(hours.closeTime.split(':')[0]);
-  const closeTimeInMinutes = timeStringToMinutes(hours.closeTime);
-
-  // D-13: 1-hour granularity. A candidate "HH:00" slot is only valid if the
-  // service's own duration fits before closing.
-  const candidates: string[] = [];
-  for (let hour = openHour; hour <= closeHour; hour++) {
-    if (hour * 60 + service.durationMin <= closeTimeInMinutes) {
-      candidates.push(`${String(hour).padStart(2, '0')}:00`);
-    }
-  }
+  // D-13: 1-hour granularity. Candidates from both ranges (split-hours support).
+  const candidates: string[] = [
+    ...candidatesForRange(hours.openTime, hours.closeTime, service.durationMin),
+    ...(hours.openTime2 && hours.closeTime2
+      ? candidatesForRange(hours.openTime2, hours.closeTime2, service.durationMin)
+      : []),
+  ];
 
   // T-02-09: each existing active booking's occupied interval is derived
   // from ITS OWN service duration (booked.durationMin, returned by the

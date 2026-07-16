@@ -22,26 +22,19 @@ import { logger } from '../utils/logger';
 export type OnboardingStep =
   | 'name'
   | 'hours_0_query'
-  | 'hours_0_open'
-  | 'hours_0_close'
+  | 'hours_0_range'
   | 'hours_1_query'
-  | 'hours_1_open'
-  | 'hours_1_close'
+  | 'hours_1_range'
   | 'hours_2_query'
-  | 'hours_2_open'
-  | 'hours_2_close'
+  | 'hours_2_range'
   | 'hours_3_query'
-  | 'hours_3_open'
-  | 'hours_3_close'
+  | 'hours_3_range'
   | 'hours_4_query'
-  | 'hours_4_open'
-  | 'hours_4_close'
+  | 'hours_4_range'
   | 'hours_5_query'
-  | 'hours_5_open'
-  | 'hours_5_close'
+  | 'hours_5_range'
   | 'hours_6_query'
-  | 'hours_6_open'
-  | 'hours_6_close'
+  | 'hours_6_range'
   | 'svc_name'
   | 'svc_price'
   | 'svc_duration'
@@ -64,12 +57,49 @@ export const GREEK_DAY_NAMES: Record<number, string> = {
 
 /** Partial state stored in onboarding_sessions.collected_data. */
 export interface CollectedData {
-  currentDayOpenTime?: string;
   currentService?: { name?: string; price?: number };
 }
 
-/** HH:MM 24h format validator — not exported; used only within this module. */
-const TIME_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
+// ---------------------------------------------------------------------------
+// Time-range parsing
+// ---------------------------------------------------------------------------
+
+/** HH:MM-HH:MM range format validator. */
+const RANGE_REGEX = /^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$/;
+
+function timeToMinutes(t: string): number {
+  const [h, m] = t.split(':').map(Number);
+  return h * 60 + m;
+}
+
+interface ParsedRanges {
+  openTime: string;
+  closeTime: string;
+  openTime2: string | null;
+  closeTime2: string | null;
+}
+
+function parseTimeRange(text: string): ParsedRanges | null {
+  const parts = text.trim().split(',').map((s) => s.trim());
+  if (parts.length > 2) return null;
+
+  if (!RANGE_REGEX.test(parts[0])) return null;
+  const [open1, close1] = parts[0].split('-');
+  // open must be before close
+  if (timeToMinutes(open1) >= timeToMinutes(close1)) return null;
+
+  if (parts.length === 1) {
+    return { openTime: open1, closeTime: close1, openTime2: null, closeTime2: null };
+  }
+
+  if (!RANGE_REGEX.test(parts[1])) return null;
+  const [open2, close2] = parts[1].split('-');
+  if (timeToMinutes(open2) >= timeToMinutes(close2)) return null;
+  // Second range must start AFTER first range ends (no overlap)
+  if (timeToMinutes(open2) <= timeToMinutes(close1)) return null;
+
+  return { openTime: open1, closeTime: close1, openTime2: open2, closeTime2: close2 };
+}
 
 /** Ναι/Όχι inline keyboard buttons — reused for every yes/no prompt. */
 const YES_NO_BUTTONS = [[{ text: 'Ναι', callback_data: 'ναι' }, { text: 'Όχι', callback_data: 'όχι' }]];
@@ -147,11 +177,11 @@ export async function handleHoursQueryStep(
   const isNo = normalized.includes('όχι') || normalized.includes('no');
 
   if (isYes) {
-    const nextStep = `hours_${day}_open` as OnboardingStep;
+    const nextStep = `hours_${day}_range` as OnboardingStep;
     await updateOnboardingStep(session.id, nextStep, null);
     await sendTelegramMessage(
       ownerTelegramId,
-      `Ώρα έναρξης ${GREEK_DAY_NAMES[day]} (π.χ. 09:00):`
+      `Ώρες ${GREEK_DAY_NAMES[day]} (π.χ. 09:00-18:00 ή 09:00-13:00,17:00-21:00):`
     );
   } else if (isNo) {
     // Always insert the closed-day row — never skip (Pitfall 3)
@@ -193,76 +223,44 @@ export async function handleHoursQueryStep(
 }
 
 /**
- * Collects the opening time for a day.
- * Validates HH:MM format (TIME_REGEX) before writing to collectedData.
- * Invalid input re-sends the prompt without advancing.
- */
-export async function handleHoursOpenStep(
-  day: number,
-  session: OnboardingSession,
-  _business: Business,
-  ownerTelegramId: string,
-  text: string
-): Promise<void> {
-  const trimmed = text.trim();
-  if (!TIME_REGEX.test(trimmed)) {
-    await sendTelegramMessage(
-      ownerTelegramId,
-      'Μη έγκυρη ώρα. Χρησιμοποιήστε μορφή ΩΩ:ΛΛ (π.χ. 09:00):'
-    );
-    return;
-  }
-
-  const collectedData = parseCollectedData(session.collectedData);
-  collectedData.currentDayOpenTime = trimmed;
-
-  const nextStep = `hours_${day}_close` as OnboardingStep;
-  await updateOnboardingStep(session.id, nextStep, serializeCollectedData(collectedData));
-  await sendTelegramMessage(
-    ownerTelegramId,
-    `Ώρα λήξης ${GREEK_DAY_NAMES[day]} (π.χ. 18:00):`
-  );
-}
-
-/**
- * Collects the closing time for a day and writes the complete business_hours row.
- * Validates HH:MM format (TIME_REGEX) before writing.
- * Clears currentDayOpenTime from collectedData after the DB write.
+ * Collects a single time range (or split range) for a day.
+ * Accepts "HH:MM-HH:MM" or "HH:MM-HH:MM,HH:MM-HH:MM" (split hours).
+ * Validates via parseTimeRange before writing the business_hours row.
  * Advances to the next day's query step, or to 'svc_name' after Saturday (day 6).
  */
-export async function handleHoursCloseStep(
+export async function handleHoursRangeStep(
   day: number,
   session: OnboardingSession,
   business: Business,
   ownerTelegramId: string,
   text: string
 ): Promise<void> {
-  const trimmed = text.trim();
-  if (!TIME_REGEX.test(trimmed)) {
+  const parsed = parseTimeRange(text);
+  const exampleText = 'π.χ. 09:00-18:00 ή 09:00-13:00,17:00-21:00';
+
+  if (!parsed) {
     await sendTelegramMessage(
       ownerTelegramId,
-      'Μη έγκυρη ώρα. Χρησιμοποιήστε μορφή ΩΩ:ΛΛ (π.χ. 09:00):'
+      `Μη έγκυρο. Χρησιμοποιήστε μορφή ΩΩ:ΛΛ-ΩΩ:ΛΛ (${exampleText}):`
     );
     return;
   }
-
-  const collectedData = parseCollectedData(session.collectedData);
-  const openTime = collectedData.currentDayOpenTime ?? '00:00';
 
   await db
     .insert(businessHours)
     .values({
       businessId: business.id,
       dayOfWeek: day,
-      openTime,
-      closeTime: trimmed,
+      openTime: parsed.openTime,
+      closeTime: parsed.closeTime,
+      openTime2: parsed.openTime2,
+      closeTime2: parsed.closeTime2,
       isClosed: false,
     })
     .onConflictDoNothing();
 
   if (day < 6) {
     const nextStep = `hours_${day + 1}_query` as OnboardingStep;
-    // Clear currentDayOpenTime — nothing to carry forward to the next query step
     await updateOnboardingStep(session.id, nextStep, null);
     await sendTelegramMessageWithKeyboard(
       ownerTelegramId,
@@ -270,7 +268,6 @@ export async function handleHoursCloseStep(
       YES_NO_BUTTONS
     );
   } else {
-    // Saturday (day 6) — transition to service collection; clear all collected data
     await updateOnboardingStep(session.id, 'svc_name', null);
     await sendTelegramMessage(
       ownerTelegramId,

@@ -153,12 +153,12 @@ describe('dispatchOnboardingStep — name step', () => {
 });
 
 describe('Hours steps', () => {
-  it('hours_0_query "ναι": advances to hours_0_open, asks for Sunday start time', async () => {
+  it('hours_0_query "ναι": advances to hours_0_range, asks for Sunday time range', async () => {
     await dispatchOnboardingStep(makeSession('hours_0_query'), makeBusiness(), OWNER_ID, 'Ναι');
 
-    expect(mockedUpdateOnboardingStep).toHaveBeenCalledWith(1, 'hours_0_open', null);
+    expect(mockedUpdateOnboardingStep).toHaveBeenCalledWith(1, 'hours_0_range', null);
     const sentText = mockedSendTelegramMessage.mock.calls[0]?.[1] ?? '';
-    // Prompt contains day name
+    // Prompt contains day name and range example
     expect(sentText).toContain('Κυριακή');
   });
 
@@ -174,36 +174,35 @@ describe('Hours steps', () => {
     expect(sentText).toContain('Δευτέρα');
   });
 
-  it('hours_0_open valid HH:MM: saves to collectedData, advances to hours_0_close', async () => {
-    await dispatchOnboardingStep(makeSession('hours_0_open'), makeBusiness(), OWNER_ID, '09:00');
-
-    expect(mockedUpdateOnboardingStep).toHaveBeenCalledWith(
-      1,
-      'hours_0_close',
-      JSON.stringify({ currentDayOpenTime: '09:00' })
-    );
-  });
-
-  it('hours_0_open invalid format: does not advance step, sends ΩΩ:ΛΛ error message', async () => {
-    await dispatchOnboardingStep(makeSession('hours_0_open'), makeBusiness(), OWNER_ID, '9am');
-
-    expect(mockedUpdateOnboardingStep).not.toHaveBeenCalled();
-    const sentText = mockedSendTelegramMessage.mock.calls[0]?.[1] ?? '';
-    expect(sentText).toMatch(/ΩΩ:ΛΛ|έγκυρη ώρα/);
-  });
-
-  it('hours_0_close valid HH:MM: inserts business_hours row, advances to hours_1_query', async () => {
-    const collectedData = JSON.stringify({ currentDayOpenTime: '09:00' });
-    await dispatchOnboardingStep(
-      makeSession('hours_0_close', collectedData),
-      makeBusiness(),
-      OWNER_ID,
-      '18:00'
-    );
+  it('hours_0_range valid single range: inserts business_hours row, advances to hours_1_query', async () => {
+    await dispatchOnboardingStep(makeSession('hours_0_range'), makeBusiness(), OWNER_ID, '09:00-18:00');
 
     // Full hours row inserted
     expect(dbModule.db.insert).toHaveBeenCalled();
     expect(mockedUpdateOnboardingStep).toHaveBeenCalledWith(1, 'hours_1_query', null);
+    // Prompt for next day (Monday) — sent via keyboard button message
+    const sentText = mockedSendTelegramMessageWithKeyboard.mock.calls[0]?.[1] ?? '';
+    expect(sentText).toContain('Δευτέρα');
+  });
+
+  it('hours_0_range valid split range: inserts business_hours row with two ranges, advances to hours_1_query', async () => {
+    await dispatchOnboardingStep(
+      makeSession('hours_0_range'),
+      makeBusiness(),
+      OWNER_ID,
+      '09:00-13:00,17:00-21:00'
+    );
+
+    expect(dbModule.db.insert).toHaveBeenCalled();
+    expect(mockedUpdateOnboardingStep).toHaveBeenCalledWith(1, 'hours_1_query', null);
+  });
+
+  it('hours_0_range invalid format: does not advance step, sends error message', async () => {
+    await dispatchOnboardingStep(makeSession('hours_0_range'), makeBusiness(), OWNER_ID, '9am-6pm');
+
+    expect(mockedUpdateOnboardingStep).not.toHaveBeenCalled();
+    const sentText = mockedSendTelegramMessage.mock.calls[0]?.[1] ?? '';
+    expect(sentText).toMatch(/ΩΩ:ΛΛ|έγκυρ/);
   });
 });
 
