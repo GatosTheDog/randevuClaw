@@ -174,7 +174,7 @@ export async function handleHoursQueryStep(
       await updateOnboardingStep(session.id, 'svc_name', null);
       await sendTelegramMessage(
         ownerTelegramId,
-        'Ωραία! Προσθέστε μια υπηρεσία.\nΌνομα υπηρεσίας:'
+        'Ωραία! Προσθέστε μια υπηρεσία.\nΌνομα υπηρεσίας: (π.χ. Reformer Pilates)'
       );
     }
   } else {
@@ -267,7 +267,7 @@ export async function handleHoursCloseStep(
     await updateOnboardingStep(session.id, 'svc_name', null);
     await sendTelegramMessage(
       ownerTelegramId,
-      'Ωραία! Προσθέστε μια υπηρεσία.\nΌνομα υπηρεσίας:'
+      'Ωραία! Προσθέστε μια υπηρεσία.\nΌνομα υπηρεσίας: (π.χ. Reformer Pilates)'
     );
   }
 }
@@ -397,7 +397,7 @@ export async function handleSvcMoreStep(
     // Per Pitfall 6: clear stale partial data before starting a fresh service entry
     const collectedData: CollectedData = { currentService: {} };
     await updateOnboardingStep(session.id, 'svc_name', serializeCollectedData(collectedData));
-    await sendTelegramMessage(ownerTelegramId, 'Όνομα νέας υπηρεσίας:');
+    await sendTelegramMessage(ownerTelegramId, 'Όνομα νέας υπηρεσίας: (π.χ. Reformer Pilates)');
   } else if (isNo) {
     await handleActivate(session, business, ownerTelegramId);
   } else {

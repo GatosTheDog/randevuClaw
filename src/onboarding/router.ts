@@ -12,6 +12,7 @@ import {
   handleSvcDurationStep,
   handleSvcMoreStep,
 } from './steps';
+import { updateOnboardingStep } from './queries';
 
 // ---------------------------------------------------------------------------
 // Helper
@@ -46,6 +47,13 @@ export async function dispatchOnboardingStep(
   messageText: string
 ): Promise<void> {
   const step = session.currentStep;
+
+  // /start resets any active session back to the beginning of the flow.
+  if (messageText.trim() === '/start') {
+    await updateOnboardingStep(session.id, 'name', null);
+    await sendTelegramMessage(ownerTelegramId, 'Η εγγραφή επανεκκινήθηκε. Πώς ονομάζεται η επιχείρησή σας;');
+    return;
+  }
 
   try {
     if (step === 'name') {
