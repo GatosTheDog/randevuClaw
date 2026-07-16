@@ -15,7 +15,7 @@ import {
 import { logger } from '../utils/logger';
 
 const ai = new GoogleGenAI({ apiKey: config.geminiApiKey });
-const GEMINI_MODEL = 'gemini-2.5-flash-lite-preview-06-17';
+const GEMINI_MODEL = 'gemini-3.1-flash-lite';
 const MAX_TOOL_ROUNDS = 5;
 
 const GREEK_WEEKDAYS = ['Κυριακή', 'Δευτέρα', 'Τρίτη', 'Τετάρτη', 'Πέμπτη', 'Παρασκευή', 'Σάββατο'];
@@ -260,6 +260,7 @@ interface GeminiCreateParams {
   input: string | GeminiFunctionResultInput[];
   tools: typeof OWNER_TOOLS;
   system_instruction: string;
+  previous_interaction_id?: string;
   generation_config: { temperature: number; max_output_tokens: number; top_p: number };
 }
 
@@ -291,6 +292,7 @@ export async function aiOwnerAgent(
   const systemInstruction = buildOwnerSystemPrompt(business, svcList, hoursList, today);
 
   let input: string | GeminiFunctionResultInput[] = messageText;
+  let currentInteractionId: string | undefined;
   let round = 0;
 
   while (true) {
@@ -307,12 +309,15 @@ export async function aiOwnerAgent(
         input,
         tools: OWNER_TOOLS,
         system_instruction: systemInstruction,
+        previous_interaction_id: currentInteractionId,
         generation_config: { temperature: 0.4, max_output_tokens: 512, top_p: 0.95 },
       } as GeminiCreateParams) as GeminiInteractionResult;
     } catch (err) {
       logger.error({ err, businessId: business.id }, 'aiOwnerAgent Gemini call failed');
       return 'Το σύστημα δεν απόκρινε. Δοκιμάστε ξανά σε λίγο.';
     }
+
+    currentInteractionId = interaction.id;
 
     const functionCalls: Array<{ name: string; arguments: Record<string, unknown>; id: string }> = [];
     for (const step of interaction.steps ?? []) {

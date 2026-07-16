@@ -5,10 +5,10 @@ milestone_name: Per-Business Bots & Telegram PoC Completion
 current_phase: 5
 current_phase_name: Owner Self-Serve Onboarding
 status: executing
-stopped_at: Phase 05 all plans complete — awaiting verification
-last_updated: "2026-07-16T00:00:00.000Z"
+stopped_at: context exhaustion at 75% (2026-07-16)
+last_updated: "2026-07-16T10:33:53.359Z"
 last_activity: 2026-07-16
-last_activity_desc: "Plan 05-07 complete — fixture removal, TEST_BOT_* cleanup, migration 0004 applied (ONB-04)"
+last_activity_desc: "Completed quick task 260716-oaa: AI-powered owner agent (Gemini NLU, identity-gated routing)"
 progress:
   total_phases: 3
   completed_phases: 2
@@ -147,6 +147,7 @@ None yet.
 |---|-------------|------|--------|-----------|
 | 260716-heo | keyboard buttons UX | 2026-07-16 | 0425059 | [260716-heo-keyboard-buttons-ux](./quick/260716-heo-keyboard-buttons-ux/) |
 | 260716-hxo | streamline hours onboarding: single time range + split hours | 2026-07-16 | 587f338 | [260716-hxo-streamline-hours-onboarding-single-time-](./quick/260716-hxo-streamline-hours-onboarding-single-time-/) |
+| 260716-oaa | AI-powered owner agent: Gemini NLU replaces keyword matching | 2026-07-16 | 14fe0d1 | [260716-oaa-ai-owner-agent](./quick/260716-oaa-ai-owner-agent/) |
 
 ### Blockers/Concerns
 
@@ -176,8 +177,8 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-07-09:
 
 ## Session Continuity
 
-Last session: 2026-07-16T00:00:00.000Z
-Stopped at: Phase 05 all plans complete — awaiting verification
+Last session: 2026-07-16T10:33:53.352Z
+Stopped at: context exhaustion at 75% (2026-07-16)
 Resume file: None
 
 ## Operator Next Steps
