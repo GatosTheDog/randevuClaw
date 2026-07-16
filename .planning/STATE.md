@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-07-09 after v1.0)
 Phase: 5 — Owner Self-Serve Onboarding
 Plan: 07 complete — Phase 05 all plans done
 Status: Executing (awaiting Phase 06)
-Last activity: 2026-07-16 — Completed quick task 260716-heo: keyboard buttons UX
+Last activity: 2026-07-16 — Completed quick task 260716-hxo: streamline hours onboarding + split hours
 
 ```
 [████████████████████] 100% — Phase 5, Plan 7/7 complete (Phase 6 pending)
@@ -146,6 +146,7 @@ None yet.
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260716-heo | keyboard buttons UX | 2026-07-16 | 0425059 | [260716-heo-keyboard-buttons-ux](./quick/260716-heo-keyboard-buttons-ux/) |
+| 260716-hxo | streamline hours onboarding: single time range + split hours | 2026-07-16 | 587f338 | [260716-hxo-streamline-hours-onboarding-single-time-](./quick/260716-hxo-streamline-hours-onboarding-single-time-/) |
 
 ### Blockers/Concerns
 
