@@ -46,9 +46,10 @@ const EnvSchema = z.object({
   // Phase 5 (D-01): HMAC secret for platform bot webhook. Separate from
   // per-business webhookSecret values stored in businesses table.
   PLATFORM_WEBHOOK_SECRET: z.string().min(1),
-  // Phase 5: base URL for constructing setWebhook URLs
-  // (e.g. https://randevuclaw.fly.dev).
-  WEBHOOK_BASE_URL: z.string().min(1),
+  // Phase 5: base URL for constructing setWebhook URLs (e.g. https://randevuclaw.fly.dev).
+  // Optional — only required when activating a business bot (setWebhook call).
+  // Omit in local dev; set in fly.io secrets for production.
+  WEBHOOK_BASE_URL: z.string().optional(),
 });
 
 export interface Config {
@@ -73,7 +74,7 @@ export interface Config {
   // Phase 5 (D-01): platform onboarding bot credentials and webhook base URL.
   platformBotToken: string;
   platformWebhookSecret: string;
-  webhookBaseUrl: string;
+  webhookBaseUrl?: string;
 }
 
 // Fail fast: EnvSchema.parse throws synchronously if a required var is missing,

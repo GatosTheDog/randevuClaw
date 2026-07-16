@@ -424,6 +424,14 @@ export async function handleActivate(
   const webhookId = crypto.randomUUID();
   const webhookSecret = crypto.randomBytes(32).toString('hex');
 
+  if (!config.webhookBaseUrl) {
+    await sendTelegramMessage(
+      ownerTelegramId,
+      'Σφάλμα: το WEBHOOK_BASE_URL δεν έχει οριστεί. Επικοινωνήστε με τον διαχειριστή.'
+    );
+    return;
+  }
+
   // Always unregister before registering to prevent webhook conflicts (T-05-09)
   await unregisterBotWebhook(business.botToken!);
   await registerBotWebhook(
