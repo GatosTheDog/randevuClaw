@@ -16,6 +16,7 @@ import { dispatchOnboardingStep } from '../onboarding/router';
 import {
   answerCallbackQuery,
   botTokenStore,
+  editTelegramMessageReplyMarkup,
   getMeBotInfo,
   sendTelegramMessage,
   unregisterBotWebhook,
@@ -42,6 +43,7 @@ interface TelegramCallbackQuery {
   id: string;
   from: TelegramFrom;
   data?: string;
+  message?: { message_id: number };
 }
 
 interface TelegramUpdate {
@@ -146,6 +148,12 @@ export async function handlePlatformBotWebhook(req: Request, res: Response): Pro
           ownerTelegramId,
           messageText
         );
+        // Clear the tapped button row so old buttons can't be retapped.
+        if (isCallback && update.callback_query?.message?.message_id) {
+          try {
+            await editTelegramMessageReplyMarkup(ownerTelegramId, update.callback_query.message.message_id, []);
+          } catch {}
+        }
         return;
       }
 
