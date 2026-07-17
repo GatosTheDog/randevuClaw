@@ -1,20 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.1
-milestone_name: Per-Business Bots & Telegram PoC Completion
-current_phase: 5
-current_phase_name: Owner Self-Serve Onboarding
-status: executing
-stopped_at: context exhaustion at 75% (2026-07-16)
-last_updated: "2026-07-16T10:33:53.359Z"
-last_activity: 2026-07-16
-last_activity_desc: "Completed quick task 260716-oaa: AI-powered owner agent (Gemini NLU, identity-gated routing)"
+milestone: v1.2
+milestone_name: Billing & Membership System
+status: planning
+last_updated: "2026-07-17T06:43:46.486Z"
+last_activity: 2026-07-17
 progress:
-  total_phases: 3
-  completed_phases: 2
-  total_plans: 13
-  completed_plans: 13
-  percent: 67
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -28,14 +24,10 @@ See: .planning/PROJECT.md (updated 2026-07-09 after v1.0)
 
 ## Current Position
 
-Phase: 5 — Owner Self-Serve Onboarding
-Plan: 07 complete — Phase 05 all plans done
-Status: Executing (awaiting Phase 06)
-Last activity: 2026-07-16 — Completed quick task 260716-hxo: streamline hours onboarding + split hours
-
-```
-[████████████████████] 100% — Phase 5, Plan 7/7 complete (Phase 6 pending)
-```
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-07-17 — Milestone v1.2 started
 
 ## Performance Metrics
 

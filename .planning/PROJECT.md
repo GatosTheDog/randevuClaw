@@ -10,18 +10,19 @@ A WhatsApp-native appointment booking platform for Greek service businesses (pil
 
 A client can book or cancel an appointment with a Greek business entirely through a chat conversation, in Greek, with zero friction — and the owner's calendar updates automatically.
 
-## Current Milestone: v1.1 Per-Business Bots & Telegram PoC Completion
+## Current Milestone: v1.2 Billing & Membership System
 
-**Goal:** Pivot from a shared platform bot to per-business Telegram bots, enable owner self-serve onboarding via chat, and close out the Telegram PoC with GDPR compliance and production resilience — no Meta/WhatsApp work.
+**Goal:** Businesses can configure flexible billing models (per-session, tokens, passes, multi-month packages); owners record payments via chat; the bot tracks balances, enforces booking rules, and notifies before credits expire.
 
 **Target features:**
-- Per-business Telegram bot architecture (each business gets their own `@BotUsername`; platform routes via `/webhooks/telegram/:botToken`)
-- Owner self-serve onboarding via chat (bot token → webhook registration → business config: name, hours, services, prices)
-- Multi-tenant safety (two+ businesses, zero cross-tenant data leakage)
-- Client/owner data deletion on request via chat (GDPR COMP-02)
-- Graceful Gemini rate-limit handling under burst load (backoff/queueing)
+- Package configuration via chat (owner defines name, price, duration in days, session count or unlimited)
+- Manual payment recording via chat (owner assigns package to client → membership with expiry created)
+- Session deduction on confirmed booking (token-based); credit restored on cancel within validity; forfeited on reschedule outside validity window
+- Per-business enforcement policy: "block if no valid membership" or "allow and flag to owner"
+- Expiry notifications: both client and owner notified before credits/pass expires
+- Client self-service balance query ("πόσα μαθήματα μου έχουν απομείνει;")
 
-**Explicitly out of scope for v1.1:** Meta Business Verification, WhatsApp activation (deferred to v1.2+)
+**Explicitly out of scope for v1.2:** payment gateway integration, automatic payment collection, refunds/invoicing, GDPR deletion (deferred from v1.1 Phase 6), Gemini rate-limit resilience (deferred from v1.1 Phase 6)
 
 ## Requirements
 
@@ -42,8 +43,11 @@ A client can book or cancel an appointment with a Greek business entirely throug
 
 - [ ] Bot resolves which business a client means from a single shared number via deep link (PLAT-01) — code complete; blocked on Meta Business Verification
 - [ ] Client shown data-consent notice on first contact (COMP-01) — code complete; not yet observed by a real user
-- [ ] Owner configures their business entirely via chat (services, hours, prices) — Phase 4 (OWNR-01)
-- [ ] Client or owner can request deletion of stored data — Phase 5 (COMP-02)
+- [ ] Owner configures billing packages for their business via chat — Phase 7 (BILL-01, BILL-02)
+- [ ] Owner records client payment via chat; bot creates membership with expiry — Phase 7 (PAY-01, PAY-02)
+- [ ] Bot enforces membership validity on booking (block or flag per business policy) — Phase 8 (ENFC-01, ENFC-02, ENFC-03)
+- [ ] Session credits deducted/restored correctly across cancel/reschedule edge cases — Phase 8 (SESS-01 through SESS-04)
+- [ ] Client and owner both notified before membership expires; client can query balance — Phase 9 (NOTF-BILL-01 through NOTF-BILL-04)
 
 ### Out of Scope
 
@@ -103,4 +107,4 @@ A client can book or cancel an appointment with a Greek business entirely throug
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-10 — v1.1 milestone started*
+*Last updated: 2026-07-17 — v1.2 milestone started*
