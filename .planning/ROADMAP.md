@@ -126,7 +126,13 @@ Plans:
   4. Owner deactivates a package via chat; it no longer appears in new payment flows while all existing memberships with that package remain intact.
   5. Owner queries a specific client's membership via chat and receives a Greek reply showing package name, sessions remaining, and membership expiry date.
 
-**Plans**: TBD
+**Plans**: 5 plans
+Plans:
+- [ ] 07-01-PLAN.md — Wave 0: Test scaffolding (8 billing test stubs + COVERAGE.md)
+- [ ] 07-02-PLAN.md — Wave 1: Schema extension (3 new tables + client_name column) + migration SQL + [BLOCKING] drizzle-kit push
+- [ ] 07-03-PLAN.md — Wave 2: Billing query layer (billing/queries.ts) + client_name upsert + test fixtures
+- [ ] 07-04-PLAN.md — Wave 3: Billing command handlers (tools.ts) + payment flow keyboard (payment-flow.ts)
+- [ ] 07-05-PLAN.md — Wave 4: NLU integration (ai-owner-agent.ts) + callback routing (telegram.ts)
 
 ### Phase 8: Enforcement & Session Deduction
 
