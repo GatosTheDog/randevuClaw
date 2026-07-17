@@ -1,330 +1,309 @@
-# Feature Landscape: v1.1 Per-Business Bots & Telegram PoC Completion
+# Feature Landscape: Billing & Membership Systems for Chat-Native Appointment Booking
 
-**Domain:** Multi-tenant SaaS booking platform with per-business Telegram bots (Greek service businesses)
-**Researched:** 2026-07-10
-**Research Confidence:** HIGH
+**Domain:** Fitness studio & appointment booking apps with token/credit/membership billing
+**Researched:** 2026-07-17
+**Research Mode:** Ecosystem (SaaS fitness booking platforms)
+**Overall Confidence:** HIGH
+
+---
 
 ## Executive Summary
 
-The v1.1 feature set consists of five interrelated capabilities that transform RandevuClaw from a single-business PoC (hardcoded fixtures) to a multi-tenant platform with owner self-serve onboarding. Each feature builds on existing v1.0 foundation (booking logic, calendar sync, reminders). The key distinction is that v1.1 shifts from a shared platform bot to per-business bots, which eliminates the need for business disambiguation and enables each business to own their Telegram presence entirely.
+Token and credit systems are table-stakes in fitness studio booking software. The industry converges on a few core patterns:
 
-Production multi-bot platforms (e.g., BotMux, BotHippo) handle this via webhook routing by bot token + secret token verification. Chat-based onboarding follows established SaaS patterns: progressive profiling, error recovery via quick-reply buttons, and validation loops. Multi-tenant safety requires PostgreSQL Row-Level Security (RLS) as a database-layer safety net, not just application-level tenant filtering. GDPR compliance mandates audit trails and immutable backup handling. Rate-limit resilience under free-tier Gemini (15 req/min) demands exponential backoff + request queueing, not optimistic retries.
+1. **Token deduction happens at booking confirmation**, not at service time. Restoration on cancellation is automatic and immediate (within 12 hours pre-appointment).
+2. **Validity windows are typically 6–12 months for punch cards**, with no expiry being a modern differentiator. Passes use rolling (membership-anniversary) or calendar-based (all members same date) renewal cycles.
+3. **Enforcement is binary**: hard-block (prevent booking if no valid membership) or soft-flag (allow booking, alert owner). Most mature platforms default to hard-block for revenue protection.
+4. **Expiry notifications happen at 7 days pre-expiry** for both client and owner (some use 14-day window). Clients expect to query remaining balance in-app or via chat.
+5. **Reschedule edge cases are under-documented** in public sources but critically important: reschedules outside the paid period must either (a) fail loudly, (b) auto-restore credits + rebook, or (c) allow booking at a different price tier.
+6. **Multi-month packages (90-day cycles) are standard** but require careful handling of partial expiry logic and rollover caps.
 
----
-
-## Table-Stakes Features
-
-Features users expect for a functioning multi-tenant platform. Missing = product breaks or data leaks.
-
-| Feature | Why Expected | Complexity | Notes |
-|---------|--------------|------------|-------|
-| **Per-business Telegram bot creation & token management** | Each business owner must be able to create their own bot via BotFather and provide the token to the platform. Without this, businesses cannot own their Telegram presence. | Medium | Requires secure token storage (environment/secret manager), webhook routing by token, and secret_token verification per request. BotMux pattern: route `/webhooks/telegram/:botToken`, verify X-Telegram-Bot-Api-Secret-Token header. |
-| **Webhook routing by bot token** | Platform must route incoming Telegram messages to the correct business based on which bot received it. Without this, cross-tenant message routing fails and data leaks occur. | Medium | Route via URL parameter (e.g., `/webhooks/telegram/{botToken}`) or header. Verify secret_token (constant-time comparison) before processing. No exception — this is a safety gate. |
-| **Tenant identification middleware** | Every API request must be mapped to a tenant (business_id) before touching the database. Application-level filtering alone is insufficient. | Low | Middleware extracts business_id from webhook route (`:botToken` → `business_id` via lookup) and threads it into request context. Used by RLS policies below. |
-| **PostgreSQL Row-Level Security (RLS) policies** | Database must enforce tenant isolation at the row level, not application logic. If app code forgets to filter by tenant_id, Postgres blocks it. | High | Drizzle ORM supports RLS policies via `crudPolicy()`. Requires ALTER TABLE ... ENABLE ROW LEVEL SECURITY. Set `app.current_tenant_id` at connection time. High setup cost, infinite payoff. |
-| **Business configuration via chat** | Owner must be able to set up their business (name, hours per day, services, prices, durations) entirely via Telegram chat messages, not a web form. | High | Progressive profiling: bot asks "What's your business name?", owner replies, bot validates, bot asks "What are your hours?", etc. Matches v1.0 chat-only design. Must handle re-entry (owner edits name later). |
-| **Secure token storage** | Bot tokens must not be hardcoded or logged. Stored in database (encrypted or plaintext) with access restricted to tenant owner. | Low–Medium | Use Node.js crypto to encrypt tokens at rest if paranoia demands, or trust Postgres + Neon row-level security. Store in a `bot_tokens` table with foreign key to business. Add audit log trigger. |
-| **Client data deletion on request** | When a client sends "διαγράψτε τα δεδομένα μου" (delete my data), their bookings + phone number must be deleted (or soft-deleted with audit trail). | Medium | Hard delete: remove record entirely. Soft delete: mark with deleted_at timestamp. Add audit log entry. Drizzle schema must support both. GDPR requires this within 30 days. |
-| **Owner data deletion on request** | When an owner sends the same deletion request, all their business data must be purged or anonymized. | High | Cascade: delete business → delete all bookings, services, audit logs. Or soft-delete business (deleted_at). Trickier than client deletion because of relationships. Audit trail mandatory. |
-| **Audit trail for all tenant-related events** | Platform must log every cross-tenant access attempt, every token lookup, every deletion. Regulators + you need to investigate breaches. | Medium | Add audit table: `tenant_audit_logs(id, tenant_id, user_id, action, timestamp, ip_address, user_agent, result)`. Trigger on sensitive queries (tokens, deletions, business config changes). Query cost is low if indexed. |
+The industry's biggest pitfall: treating expiry as a simple date check instead of a state machine. Edge cases around cancellation within the 24-hour window, reschedule across package boundaries, and concurrent token operations (two simultaneous bookings) cause silent data corruption in production systems.
 
 ---
 
-## Differentiator Features
+## Table Stakes Features
 
-Features that set RandevuClaw apart. Not expected, but create competitive advantage when present.
+Features users expect in any fitness studio booking app. Missing these = product feels incomplete or unfair.
 
-| Feature | Value Proposition | Complexity | Notes |
-|---------|-------------------|------------|-------|
-| **Interactive guided onboarding (carousel of quick-replies)** | Instead of free-text input, bot shows buttons for common options. E.g., "How many hours/day do you operate?" → buttons: "6 hours", "8 hours", "10 hours", "Custom". Reduces typos, feels smoother. | Medium | Telegram InlineKeyboardMarkup. Collect inputs, validate, then confirm in a summary message before saving. Also enables re-editing (owner taps a button to re-enter hours). |
-| **Graceful rate-limit recovery** | When Gemini hits 15 req/min free-tier limit, platform queues requests, retries with exponential backoff, and never drops a user message. Clients don't see "error" — their booking still succeeds 30s later. | High | Async task queue (Redis/Bull or in-memory queue for small PoC). Separate orchestration layer: Telegram webhook → queue → Gemini LLM. Backoff: 1s, 2s, 4s, 8s... up to 60s. |
-| **Context caching for Gemini system prompt** | Reuse the same system prompt (Greek booking instructions, business hours, services list) for multiple user messages in one conversation. Reduces tokens, improves latency. | Medium | Gemini API `cacheControl: "ephemeral"` on system messages. Requires @google/genai 2.10.0+. Cache hits return results faster + count differently against quota. |
-| **Backup data anonymization for GDPR** | When a user requests deletion, flag backups as "marked for destruction" (they'll be overwritten on next rotation). GDPR regulators accept this as compliant. Actual delete can wait for backup cycle. | Medium | GDPR Feb 2026 Coordinated Enforcement Framework confirms: immutable backups don't need immediate physical deletion if marked for overwrite. Reduces operational complexity. |
-| **Owner re-onboarding flow** | Owner changes their business hours or adds a new service mid-PoC. Platform allows editing via chat without data loss. I.e., "Change your hours?" → buttons: "Yes", "No" → if yes, re-run the hours input flow. | Low | Store current business config in context. On re-entry, show current values as defaults. Use callback_query with inline buttons to allow quick edits. |
-| **Cross-tenant audit report** | Owners can view a log of who accessed their data and when (e.g., "Platform bot queried your bookings at 14:32 UTC"). Builds trust + helps compliance. | Medium–High | Expose in an optional command (e.g., `owner_audit_log()` returns last 7 days). Telegram-based view or link to a private audit CSV. Privacy by design. |
+| Feature | Why Expected | Complexity | Behavior |
+|---------|--------------|------------|----------|
+| **Book using active membership/credits** | Fitness studios price per-session; clients need to purchase before booking | Medium | Client selects session; bot checks if membership/pass is valid (not expired). If valid, show `Confirm booking (costs 1 token)`; if invalid, show `No active membership. See balance.` |
+| **Automatic token deduction at confirmation** | One point of truth for session usage; prevents double-bookings via UI + DB UNIQUE constraint on (session_id, member_id) | Low | On `confirm_booking`, decrement membership.sessions_remaining by 1. Trigger immediate expiry check if now ≤ 0. |
+| **Full credit restoration on cancel (24h+ window)** | Industry standard per ClassPass, Restore Hyper Wellness: clients expect to get credits back if they cancel well in advance | Low | On `cancel_booking` (if now < appointment_time - 24h), increment membership.sessions_remaining. Mark booking as cancelled (soft-delete or status='cancelled'). |
+| **Late cancellation fee or forfeit (within 24h)** | Protects studio from no-shows; clients know the rule in advance | Low | On cancel within 24h window: (a) keep token deducted (forfeited), (b) email owner + client about the policy. Tracking: booking.cancelled_at timestamp. |
+| **Membership expiry check at booking time** | Prevents booking with expired memberships; ensures no service is provided on stale credits | Low | On `create_booking`, query: `SELECT * FROM memberships WHERE client_id=X AND membership_type='pass' AND (today <= expiry_date OR unlimited=true)`. Fail if none found. |
+| **Client queries balance ("How many sessions left?")** | Clients need to check before booking; UX expectation in any membership system | Low | Intent: `check_balance`. Response: `Remaining: 8 sessions (valid until Aug 30)`. Show all active memberships (multiple passes possible). |
+| **Owner records payment and creates membership via chat** | All owner actions are chat-based in PoC; critical for manual billing workflows | Medium | Owner: `Create membership for Alexios: 10-pack pass, valid 30 days from today`. Bot creates membership record, generates ID, confirms to owner. |
+| **Expiry notification to client and owner** | Clients forget expiry dates; owners need to re-sell before clients churn. Industry sends at 7-day mark. | Medium | Scheduled job: daily at 8am, query memberships where (expiry_date - today = 7 days). Send client: `Your 8 remaining sessions expire in 7 days. Book soon!` Send owner: `Alexios' pass expires 7/24.` |
+| **Enforce membership validity: block vs flag policy** | Studios differ in risk tolerance. Boutique studios block hard; corporate gyms flag to staff. Must be configurable per business. | Low | Policy: `business.membership_enforcement = 'block' | 'flag'`. If 'block', fail booking if no valid membership. If 'flag', allow booking but send owner alert: `Booking without membership – Alexios has no active pass.` |
+| **Handle cancellation + token restoration edge case: same-day reschedule** | Client cancels 3pm appointment, reschedules to 5pm same day (both within original validity). Credits should not be lost. | Medium | On reschedule within same validity window: (1) cancel old, (2) restore credit from old, (3) book new, (4) deduct credit for new. Net result: same balance. Atomically in one transaction. |
+
+---
+
+## Differentiators
+
+Features that set product apart. Not expected, but valued by power users or studios optimizing for retention.
+
+| Feature | Value Proposition | Complexity | Market Presence |
+|---------|-------------------|------------|------------------|
+| **Partial credit carryover on renewal** | Instead of losing unused credits, clients can carry 30–50% to next month. Reduces churn (users feel they're not losing money). | Medium | ClassPass, Peloton do this. Everfit mentions rollover in premium tier. Most punch-card systems forfeit unused credits. |
+| **No expiry option for punch cards** | Modern studios (e.g., Trime Studio Stockholm) offer lifetime-valid punch cards. Differentiate by trusting clients, reduce support load (no expiry disputes). | Low | Niche market (not mainstream fitness), but premium positioning. Requires UI to display "Never expires" clearly. |
+| **Reschedule without re-booking flow** | Instead of cancel + rebook, reschedule atomically. Keeps credits, updates calendar event. Smoother UX for client. | Medium | Not widely documented but standard in mature booking platforms (Mindbody, Acuity). Requires careful state management. |
+| **Package tier recommendation engine** | Bot suggests "10-pack is better value than 5-pack for your usage pattern" based on booking history. | High | Not found in research; innovative. Requires 2–3 months of booking history to train. Low priority for v1. |
+| **Pause / freeze membership** | Client can pause for 1 month (vacation, injury). Extends expiry by pause duration instead of forfeiting. Retention lever. | Medium | Everfit, Mindbody support this. Reduces churn during life changes. Requires UI for client to request pause + owner approval. |
+| **Custom expiry window per package** | Owner can set "10-pack valid 6 months, 20-pack valid 12 months". Most platforms force one window per type. | Medium | Punchpass mentions this as a feature. Flexible. Requires schema change: expiry_days per package definition, not type. |
+| **Owner bulk-assign credits (manual adjustment)** | Owner can add or subtract credits for a client (refund, courtesy, late-cancel reversal, no-show penalty). Tracks audit log. | Low | Standard in Mindbody, Zen Planner. Important for dispute resolution. Requires `credit_adjustments` table with reason + timestamp. |
+| **Client invite friends (share credits?)** | Client can share a pass with a friend (split cost). Not common; very niche. | High | Not found in research. Too risky for studios (revenue loss, abuse). Skip for now. |
+| **Rollover cap enforcement** | If max rollover is 50%, and client has 100 unused credits, only 50 carry over. Prevents infinite accumulation. | Low | Mentioned in research (Everfit, ClassPass). Requires `membership.rollover_cap` field. |
+| **Grace period extension on near-expiry** | Client can request a 1-week grace extension if they book within 3 days of expiry (retention play). Owner auto-approves or manually reviews. | Medium | Not found in research; uncommon. Interesting retention tactic but operationally heavy. |
 
 ---
 
 ## Anti-Features
 
-Features to explicitly NOT build.
+Features to explicitly **NOT** build (or defer far future).
 
 | Anti-Feature | Why Avoid | What to Do Instead |
 |--------------|-----------|-------------------|
-| **Per-business WhatsApp numbers (v1.1 scope)** | Meta Business Verification per business requires 1-6 weeks approval per account. PoC cannot afford this delay. Later (v1.2+) once verification is streamlined. | Stick with per-business Telegram bots for v1.1. WhatsApp activation deferred until v1.2. |
-| **Web dashboard for owner configuration** | Breaks the "chat only" principle established in v1.0. Added complexity, requires frontend hosting, auth, etc. Not MVP. | Keep onboarding 100% in Telegram chat. No web UI for v1.1. |
-| **Multi-staff scheduling per business** | Multiple instructors, each with their own calendar. PoC assumes one shared schedule per business. | Document as out-of-scope. Small salons/studios typically have one schedule. Revisit post-PoC if demand. |
-| **Soft deletes without hard deletion option** | GDPR right to erasure means complete deletion on request, not just hiding. Soft delete alone does not satisfy Article 17. | Offer hard delete by default; soft delete only for backup retention (with overwrite deadline). Dual-mode: soft-deleted records hidden from UI but still hard-deleted in backups. |
-| **Storing bot tokens in plaintext in logs or code** | Tokens are API credentials. Logging them is a security incident. Code visibility (GitHub) makes it worse. | Encrypt tokens at rest (or rely on Postgres RLS). Never log request bodies containing tokens. Audit log token lookups only, not token values. |
-| **Assuming application-level tenant filtering is sufficient** | If code forgets to filter by tenant_id on one query, a client can see another business's bookings. RLS at database layer catches this. | Mandatory: PostgreSQL RLS policy on every table. Application filtering is best-effort; database is the safety net. |
-| **Ignoring Gemini rate limits in free tier** | 15 req/min is not enough for any real traffic. Ignoring it means crashes and dropped bookings under load. | Queue all requests; implement exponential backoff. Monitor 429 errors. Upgrade to paid Gemini tier if PoC succeeds. |
-| **Deleting backups immediately on GDPR request** | Backup deletion is operationally complex and expensive. GDPR allows "marked for destruction" as compliant. | Mark data as deleted in DB, set expiration date on backups. Backups expire on rotation (e.g., 30 days). Audit log the mark, not the delete. |
-| **Requiring owners to manually verify webhook URLs** | Owners are not engineers. Manual webhook setup is error-prone and creates support burden. | Platform automatically handles webhook registration: owner provides token → platform calls Telegram setWebhook. Owner sees "Webhook registered ✓" in chat. |
-| **Allowing free-text bot token input without validation** | Owner typos the token → webhook never fires → owner thinks platform broke. | Validate token format (42 chars, digits + colon) immediately. Call Telegram getMe with token to confirm it's valid. Fail fast with user-friendly error. |
+| **Automatic payment collection via card/bank** | SCOPE OUT: Payment processing adds PCI compliance, payment gateway integration (Stripe, PayPal), fraud detection. Too much infrastructure for PoC. Owner records manual payment via chat. Revisit in v2. | Owner uses Telegram/WhatsApp to say "Payment received for Alexios 10-pack" → bot creates membership. Manual but sufficient. |
+| **Refund processing via system** | Chargebacks, partial refunds, subscription cancellations → lawyer territory. Out of scope. | Owner handles refunds outside system (manual bank transfer or card reversal). If dispute, contact support. |
+| **Unlimited rollover** | Credits never expire → studio loses revenue control. Clients accumulate stale credits, then complain they're "too old to use". | Enforce rollover cap (e.g., 50% max carry-over) + hard expiry on original package. |
+| **Per-staff memberships** | E.g., "5 sessions with Instructor A, 10 with Instructor B, unlimited with anyone else". Too complex for PoC (requires per-instructor availability + scheduling). | Single shared schedule per business. Instructor-specific bookings deferred to v2+. |
+| **Tiered access (bronze/silver/gold)** | Different membership tiers unlock different prices/availability (e.g., gold members can book 2h in advance, bronze only 1h). Adds class discrimination UX friction. | All clients, same booking window. Price discrimination via package tiers (5-pack, 10-pack), not access tiers. |
+| **Gamification (points, badges, "earn 10 extra credits for refer a friend")** | Common in ClassPass/Peloton. Sounds fun but adds complexity: referral tracking, fraud (fake referrals), policy disputes. | Skip for now. If retention is problem, tackle with simpler tools (grace period, rollover cap, notification cadence). |
+| **Multi-currency or international pricing** | PoC is Greek-only. Don't support USD, EUR, GBP. Revisit in v2. | Hard-code EUR. All prices in €. |
+| **Guest pass / day pass (one-off sessions without membership)** | Tempting (new customer conversion). But splits logic: membership path vs guest path. Hard to track in chat bot. | MVP: membership-only. Guests book via separate flow (email or phone) outside bot. Revisit in v2. |
+| **Recurring auto-renewal (subscription)** | Auto-charge client every month for membership renewal. Requires payment gateway + recurring billing. Out of scope. | Manual owner recording: "Renewing Alexios' monthly pass for Aug." Bot creates new membership with same terms. |
+| **Package upsell on booking** | If client tries to book but has no credits, upsell: "Buy 5-pack now (€50)?" Tempting but adds friction to booking flow + payment complexity. | Redirect: "You have no active membership. Ask owner for pricing & packages." Owner sends pricing, handles payment offline, records in bot. |
 
 ---
 
-## Feature Dependencies & Sequencing
+## Feature Dependencies
+
+Clear dependency graph. Helps with phasing.
 
 ```
-Per-Business Bot Management
-├─ Telegram BotFather token input (owner creates bot externally, provides token)
-├─ Secure token storage in DB with RLS
-├─ Webhook routing by token (routes message to correct business)
-├─ Secret token verification (verify X-Telegram-Bot-Api-Secret-Token header)
-└─ Tenant ID extraction middleware (maps token → business_id for all requests)
-
-Owner Self-Serve Onboarding
-├─ Tenant ID middleware (required: know which business we're onboarding)
-├─ Progressive profiling chat flow (ask → validate → confirm → save)
-│  ├─ Business name input
-│  ├─ Hours per day input (with interactive buttons)
-│  ├─ Services + prices + durations input
-│  └─ Confirmation & summary
-├─ Business config persistence (drizzle schema: `businesses` table with RLS)
-└─ Re-entry/editing (owner can re-trigger onboarding to change settings)
-
-Multi-Tenant Safety Layer
-├─ Tenant ID middleware (prerequisite)
-├─ PostgreSQL RLS policies on all tables
-│  ├─ `businesses` — only business owner can read/write
-│  ├─ `bookings` — business owner can read/write; client can read own bookings
-│  ├─ `services` — business owner can read/write
-│  └─ Similar for all other tables
-├─ Audit table with RLS (track all cross-tenant access attempts)
-└─ Constant-time token comparison (prevent timing-attack token guessing)
-
-GDPR Data Deletion
-├─ Tenant ID middleware + RLS (prerequisite)
-├─ Chat-based deletion trigger ("διαγράψτε τα δεδομένα μου")
-├─ Dual-mode deletion (hard delete for active data; soft delete for backups)
-├─ Audit log entry for every deletion request
-├─ Cascade delete: client deletion → remove all bookings; owner deletion → remove business + all related data
-└─ Backup expiration policy (mark backups for destruction on deletion; overwrite on next rotation)
-
-Gemini Rate-Limit Resilience
-├─ Async request queue (in-process or Redis)
-├─ Exponential backoff on 429 RESOURCE_EXHAUSTED errors
-├─ Context Caching for system prompts (reduce token usage, improve resilience)
-├─ Fallback to Gemini Flash-Lite if Pro overloaded (if applicable)
-├─ Monitoring/alerting on rate-limit hits
-└─ NO silent failures — queue must retry successfully or alert operator
+┌─ Membership Type Definition (owner creates via chat)
+│   ├─ Book with valid membership (checks expiry)
+│   ├─ Token deduction at confirmation
+│   └─ Client balance query
+│
+├─ Expiry logic
+│   ├─ Membership expiry check at booking
+│   ├─ Expiry notification (7-day pre-alert)
+│   └─ Rollover on renewal
+│
+├─ Cancellation & Restoration
+│   ├─ Credit restoration on cancel (24h window)
+│   ├─ Late cancellation forfeit (within 24h)
+│   └─ Reschedule without re-booking (atomic)
+│
+├─ Enforcement Policy
+│   ├─ Hard-block: prevent booking if no membership
+│   └─ Soft-flag: allow booking, alert owner
+│
+└─ Audit Trail
+    ├─ Owner bulk credit adjustments
+    └─ Membership change log (creation, expiry, renewal)
 ```
 
-**Sequencing Recommendation:**
-1. Per-Business Bot Management (enables multi-tenant architecture)
-2. Tenant ID Middleware + RLS Setup (foundation for safety)
-3. Owner Self-Serve Onboarding (replaces hardcoded fixtures)
-4. GDPR Data Deletion (legal requirement, can be added after features work)
-5. Gemini Rate-Limit Resilience (polish, but critical before real traffic)
+**Critical**: Cancellation/restoration logic must be implemented before releasing expiry notifications. Otherwise, users book → cancel outside window → lose tokens → complain. If notifications go out before restoration is solid, support load spikes.
 
 ---
 
-## UX Flow Descriptions
+## Edge Cases & Gotchas
 
-### Flow 1: Owner Creates Their Telegram Bot (External, Then Provides Token)
+The industry's pain points, explicitly enumerated.
 
-1. Owner (e.g., pilates studio owner) goes to Telegram BotFather (@BotFather)
-2. Sends `/newbot` → BotFather asks for bot name → owner replies "PilatesSophia"
-3. BotFather asks for username → owner replies "PilatesSophia_bot"
-4. BotFather sends back API token (42-char string, e.g., `6391234567:ABCDEfg...`)
-5. Owner copies token and sends it to RandevuClaw platform bot (registration/admin bot) with text "Setup my bot" + token pasted
-6. Platform validates token format, calls Telegram getMe to confirm validity
-7. If valid: Platform registers webhook, stores token securely, creates business record, sends "✓ Bot registered! Start by telling me your business name."
-8. If invalid: Platform sends "That token didn't work. Did you copy it correctly? Here's the BotFather link: t.me/BotFather"
+### Tier 1: Critical (causes silent data corruption or revenue loss)
 
-### Flow 2: Owner Self-Serve Onboarding (Progressive Profiling)
+1. **Same-day reschedule across token boundaries**
+   - Client has pass A (expires today) with 2 tokens. Books pass B (expires next month) with 10 tokens.
+   - Client cancels appointment in pass A at 11:59am (within window), rebooks in pass B.
+   - **Danger**: If atomicity is lost, credits can be double-deducted or not deducted.
+   - **Prevention**: Wrap cancel + rebook in `BEGIN TRANSACTION...ROLLBACK` or Drizzle's transaction API. Assert tokens before and after.
+   - **Detection**: Daily audit: `SELECT SUM(tokens_deducted) FROM bookings WHERE booking_date=TODAY GROUP BY client_id` vs `SELECT SUM(sessions_remaining) FROM memberships WHERE client_id=X`. Should equal initial count.
 
-**Setup Business Name**
-- Platform: "What's your business name?" (free-text input)
-- Owner: "Sophia's Pilates Studio"
-- Platform: "Got it! Sophia's Pilates Studio. Let's continue." (validates non-empty, <100 chars)
+2. **Concurrent token deduction (two bookings within same second)**
+   - Client opens app, clicks "Book" on two different sessions within milliseconds.
+   - Both requests check membership.sessions_remaining=10, both deduct, both confirm.
+   - **Result**: Two bookings, but sessions_remaining=8 instead of 9.
+   - **Prevention**: DB UNIQUE constraint on (membership_id, booking_slot_id) (last line of defense). App-level sequential booking (one booking at a time per client). PostgreSQL row-level locking with `SELECT...FOR UPDATE` during token deduction.
+   - **Detection**: Test with load-test: 2 concurrent requests, same client, different sessions. Verify only one succeeds or both fail.
 
-**Setup Hours per Day**
-- Platform: "How many hours per day do you operate?"
-- Platform shows buttons: [6 hours] [8 hours] [10 hours] [Custom hours]
-- Owner taps [8 hours]
-- Platform: "What time do you open? (e.g., 08:00)"
-- Owner: "08:00"
-- Platform: "Perfect! You operate 08:00 – 16:00 (8 hours). Is this correct?" [Yes] [Edit]
-- Owner taps [Yes]
+3. **Expiry date arithmetic errors (timezone, DST, leap years)**
+   - Membership valid 30 days from 2026-01-30 (Jan) vs 2026-05-30 (May): different day counts.
+   - Expiry stored as `DATE`, not `TIMESTAMP WITH TZ`. 11:59pm client's time zone expires at midnight UTC (off by a day).
+   - **Prevention**: Store expiry as `DATE`. Expiry check: `TODAY <= expiry_date` (not `<`). All date math in database (not app). Always use UTC internally.
+   - **Detection**: Test expiry on boundary dates. Check in client's time zone (create test for Greece TZ).
 
-**Setup Services**
-- Platform: "Let's add your services. Send me each service as: Service Name | Duration (min) | Price (EUR)"
-- Platform: "Example: Pilates Class | 60 | 20"
-- Owner: "Pilates Class | 60 | 20"
-- Platform: "Added: Pilates Class (60 min, €20). Add another?" [Yes] [No]
-- Owner: "Yes"
-- Owner: "Private Session | 45 | 40"
-- Platform: "Added: Private Session (45 min, €40). Any more?" [Yes] [No]
-- Owner: "No"
+4. **Rollover loses credits if not capped**
+   - Client has 50 unused tokens in April. May renewal rolls over 100%, so 150 for May. June renewal: 250. By Dec: 800 unused tokens.
+   - Studio can't enforce "use or lose" = revenue loss.
+   - **Prevention**: Enforce `rollover_cap` per package (default 50%). Rollover logic: `new_sessions = MIN(old_sessions_remaining * rollover_pct, rollover_cap)`. Rest is forfeited (logged but not restored).
+   - **Detection**: Audit rollover monthly. Flag clients with >100 unused tokens for 3+ months.
 
-**Confirmation & Save**
-- Platform shows summary:
-  ```
-  Business Name: Sophia's Pilates Studio
-  Hours: 08:00 – 16:00 (Mon–Sun)
-  Services:
-    • Pilates Class — 60 min, €20
-    • Private Session — 45 min, €40
-  
-  Is this correct?
-  ```
-- Buttons: [Yes, Save] [Edit Name] [Edit Hours] [Edit Services]
-- Owner taps [Yes, Save]
-- Platform: "✓ Setup complete! Your bot is live. Clients can now book with you."
+### Tier 2: Moderate (causes support tickets, not data corruption)
 
-### Flow 3: Client Books Appointment via Business's Telegram Bot
+5. **24-hour window ambiguity**
+   - "Cancel within 24 hours" — is it 24 hours from booking creation, or from appointment start time?
+   - ClassPass & Restore use: "24 hours **before** appointment start time".
+   - **Prevention**: Hard rule in bot: "Cancel anytime before 24 hours before appointment. After that, you forfeit the token." Show countdown: "Cancellable until 2026-07-20 03:00 PM".
+   - **Detection**: Client cancels, check booking.appointment_time - now(). If now() > appointment_time - 24h, apply late fee.
 
-1. Client finds Sophia's bot (@PilatesSophia_bot) on Telegram
-2. Client sends: "I'd like to book a pilates class on Friday at 10am" (in Greek or English, Gemini handles both)
-3. Platform:
-   - Extracts business_id from bot token
-   - Applies RLS: only Sophia's services/bookings visible
-   - Calls Gemini with function `create_booking(service_id, date, time)`
-   - Gemini confirms: "Pilates Class, Friday 10:00–11:00, €20. Confirm?" [Yes] [No]
-4. Client: [Yes]
-5. Platform creates booking, sends confirmation + Google Calendar event
-6. Owner (Sophia) receives alert: "New booking: Pilates Class, Friday 10:00, Client: +30-6xx-xxx-xxxx. Accept?" [✓ Accept] [✗ Reject]
-7. If accepted, event confirmed in calendar + client notified
+6. **Partial refund on mid-package upgrade**
+   - Client has 3 remaining tokens from a 10-pack (€50). Buys a 20-pack (€100). Should the 3 old tokens disappear or merge?
+   - **Prevention**: No auto-merge. Owner records: "Alexios: upgrading 10-pack to 20-pack. Keep 3 unused tokens from old pass." Bot creates new membership, keeps old one as `status='superseded'`. Client can still view old membership.
+   - **Detection**: Audit log tracks all membership state changes.
 
-### Flow 4: Client/Owner Requests Data Deletion
+7. **Late cancellation notification race**
+   - Owner receives "Booking within 24h window!" alert, but client simultaneously cancels.
+   - Alert goes to owner, owner thinks they need to chase client, but client already cancelled.
+   - **Prevention**: Alert include current cancellation window status: "Booking for 07-20 03:00 PM — cancellable until 07-19 03:00 PM (expires in 18 hours)".
 
-**Client-Initiated:**
-1. Client sends (in Greek): "διαγράψτε τα δεδομένα μου" (delete my data)
-2. Platform detects keyword, asks for confirmation: "This will delete your booking history and phone number. This cannot be undone. Confirm?" [Yes] [Cancel]
-3. Client: [Yes]
-4. Platform hard-deletes all client bookings + phone record, logs audit entry
-5. Platform: "✓ Your data has been deleted."
+8. **No expiry option, but owner changes their mind later**
+   - Owner chose "no expiry" for punch cards in April. In September, wants to enforce 12-month expiry retroactively.
+   - **Problem**: Can't add expiry to cards already sold.
+   - **Prevention**: At membership creation time, ask owner: "Expiry period? (options: none, 6 months, 12 months, custom)". Lock in choice per membership. New memberships can use different policy. Warn owner: "Changing the expiry policy affects **future** memberships only."
+   - **Detection**: Schema: `memberships.expiry_override_days` — per-membership expiry, not type-level.
 
-**Owner-Initiated:**
-1. Owner sends: "Διαγράψτε την επιχείρηση" (delete my business)
-2. Platform asks: "This will delete your business, all services, all client bookings, and your data. Confirm?" [Yes] [Cancel]
-3. Owner: [Yes]
-4. Platform cascade-deletes business → services → bookings → owner record, logs audit entries with business_id + timestamps
-5. Bot is deactivated (webhook removed)
-6. Platform: "✓ Your business and all data have been deleted. The bot is now inactive."
+### Tier 3: Minor (edge cases, rare)
 
-### Flow 5: Gemini Rate-Limit Recovery (Invisible to User)
+9. **Membership renewal on same day client has appointment**
+   - Client has pass expiring 2026-07-20 11:00 AM. Books appointment for 2026-07-20 02:00 PM. Owner renews pass same morning.
+   - Bot checks expiry: is old pass or new pass valid?
+   - **Prevention**: Renewal logic increments expiry_date (don't replace, add duration). Track `memberships.renewal_date`. On booking, check if membership has a renewal pending; if so, include both in validity check.
+   - **Detection**: Unit test: membership expires today at 11am, owner renews at 10am, client books at 12pm. Verify: booking succeeds, uses new membership balance.
 
-1. Client sends booking request: "Book me for next Tuesday at 3pm"
-2. Platform queues request to async queue (with client_id, business_id, message_id)
-3. Platform calls Gemini → gets 429 RESOURCE_EXHAUSTED (hit 15 req/min cap)
-4. Queue retries with backoff: wait 1s, retry (fail) → wait 2s, retry (fail) → wait 4s, retry (success after ~7s)
-5. Gemini returns booking confirmation
-6. Platform sends response to client: "✓ Booked for Tuesday 15:00. Confirmation sent." (user sees no delay, just a 7s wait, which is natural)
-7. If queue fails after max retries (5 min window), platform alerts operator and sends client: "Booking delayed — try again in a moment" (user can retry)
-
-**Monitoring (Internal):**
-- Operator sees dashboard: "Rate-limit hits: 12 in last hour. Queue depth: 3. Retry success rate: 95%."
-- If consistently over limit, operator upgrades Gemini to paid tier
-
----
-
-## Complexity Ratings
-
-| Feature | Rating | Justification |
-|---------|--------|---------------|
-| Per-business bot creation & token management | **Medium** | One-time setup per business; validation + token storage straightforward. Webhook routing is the tricky part. |
-| Webhook routing by bot token | **Medium** | Route logic is simple (`:botToken` → `business_id` lookup), but must be rock-solid for multi-tenant safety. |
-| PostgreSQL RLS setup | **High** | Requires understanding of RLS policies, SET app.current_tenant_id, testing to ensure no loopholes. Easy to miss edge cases. |
-| Owner self-serve onboarding | **High** | Multi-step chat flows, validation, re-entry, error recovery, and saving to DB. Lot of state management. |
-| Secure token storage | **Low–Medium** | Encrypt or trust Postgres. Audit logging is the bigger effort. |
-| Client data deletion | **Medium** | Hard delete is straightforward; soft delete + audit trail adds complexity. |
-| Owner data deletion | **High** | Cascade across multiple tables (business → services → bookings → audit logs). Easy to miss a relationship. |
-| Audit trail logging | **Medium** | Add table, trigger, index. Query overhead is negligible if indexed. |
-| Graceful rate-limit handling | **High** | Async queue, exponential backoff, context caching, fallback logic. Requires careful testing under load. |
+10. **Discount application across renewal**
+    - Client bought 10-pack in July at €50. In Aug, studio runs "new customer 20-pack for €75 if you refer a friend". Client's old 10-pack expires Aug 15.
+    - Can't retrofit discount to old purchase. New pass has new price.
+    - **Prevention**: Prices are immutable. `package_definition.price_eur` + `membership.price_paid_eur` (what they actually paid) are distinct. Audit log tracks if manual override applied.
 
 ---
 
 ## MVP Recommendation
 
-**Must-Have (v1.1 Phase 1):**
-1. Per-business Telegram bot creation & token management
-2. Webhook routing + secret token verification
-3. Tenant ID middleware + PostgreSQL RLS
-4. Owner self-serve onboarding (business name, hours, services)
-5. Audit table + logging of critical operations
-6. Client/owner deletion via chat (basic hard delete)
+**Phase 7 (Config & Recording):**
+- ✓ Owner defines packages (name, duration in days, session count or unlimited) via chat
+- ✓ Owner records client payment, creates membership with expiry
 
-**Should-Have (v1.1 Phase 2):**
-7. Interactive guided onboarding (buttons instead of free-text for hours/services)
-8. Graceful Gemini rate-limit handling (queue + exponential backoff)
-9. Owner re-entry/editing flow (change settings mid-PoC)
-10. Backup expiration policy for GDPR compliance
+**Phase 8 (Enforcement & Deduction):**
+- ✓ Client books; bot checks membership validity (not expired)
+- ✓ Token deducted on confirmed booking
+- ✓ Token restored on cancel (24h+ window); forfeited within 24h
+- ✓ Membership enforcement policy (block vs flag) per business
+- ✓ Reschedule within same validity window (atomic restore + rebook)
 
-**Nice-to-Have (v1.1 Phase 3+):**
-11. Context Caching for Gemini system prompt
-12. Cross-tenant audit report for owners
-13. Fallback to Gemini Flash-Lite on overload
+**Phase 9 (Notifications & Queries):**
+- ✓ Client balance query ("How many sessions left?")
+- ✓ Expiry notification at 7 days pre-expiry (client + owner)
+- ✓ Auto-renewal on expiry (owner records, bot creates new membership with same terms)
 
-**Explicitly Out (v1.2+):**
-- Per-business WhatsApp numbers (Meta verification required)
-- Web dashboard for owners
-- Multi-staff scheduling
-- English language support
+**Defer to v1.3+:**
+- ❌ Partial credit rollover (30–50% to next month) — differentiator, not critical
+- ❌ No-expiry punch cards — niche, can add as option later
+- ❌ Package tier recommendation engine — requires data, low ROI early
+- ❌ Pause/freeze membership — retention play, not MVP
+- ❌ Bulk credit adjustments (owner manually adds/subtracts) — defer to Phase 10
 
 ---
 
-## Pitfalls & Mitigation
+## Complexity Notes by Feature
 
-| Pitfall | Risk | Mitigation |
-|---------|------|-----------|
-| **Forgetting tenant_id filter on one query** | Data leak: owner A sees owner B's bookings. | Database RLS policy blocks this. Test via direct SQL: `SELECT * FROM bookings` without WHERE clause must fail. |
-| **Storing bot tokens in plaintext + logging them** | Security breach if logs are exposed (GitHub, Sentry). | Encrypt tokens; never log token values. Audit log token lookups, not token contents. Code review checklist. |
-| **Incomplete GDPR deletion (forgetting audit logs, backups)** | Compliance failure. Regulators find deleted data in backup. | Mark backups for destruction; set expiration date. Audit logs are exempt from Article 17 (allowed to keep indefinitely). Hard delete only production DB. |
-| **Rate-limit silent failures** | Bookings dropped under load. User re-sends, double-booking results. | Queue + retry logic. Monitor 429s. Never silently fail. Alert operator. |
-| **Webhook routing by username instead of token** | If two businesses have similar bot names, routing fails. | Route by token (unique per bot) only. Token is stable; bot names can collide. |
-| **Assuming onboarding will be one-shot** | Owner needs to edit hours after launch. Data is gone. | Store all inputs; allow re-entry. Use callback_query buttons for edits. |
-| **Cascading deletes without audit trail** | No way to investigate deletion requests later. Regulators can't verify compliance. | Log audit entry before each cascade. Include business_id, timestamp, requester, reason. |
+| Feature | Why Complex | Risk Level |
+|---------|------------|-----------|
+| **Token deduction with concurrency** | Multiple clients booking same session. DB row locking required. | HIGH — Test thoroughly with load tests. |
+| **Expiry check at booking + validity window** | Timezone arithmetic (Greece TZ). Boundary conditions. | MEDIUM — Test on expiry date at 11:59 PM. |
+| **Cancellation 24h window + token restoration** | State machine: pending → confirmed → cancelled. Atomicity critical. | HIGH — Use DB transactions, log all state changes. |
+| **Reschedule across package boundaries** | Need to track which package funded the old booking, so restoring to correct one. | MEDIUM — Denormalize: `bookings.membership_id` links to the membership that paid for it. |
+| **Expiry notification scheduling** | Daily cron job, timezone-aware, avoid duplicate notifications. | MEDIUM — Use Supercronic + idempotency key (notification_id). |
+| **Rollover cap enforcement** | Math-heavy: compute rollover amount, track carryover, enforce cap. | LOW — Query once per renewal cycle, deterministic. |
+| **Multi-business enforcement policy (block vs flag)** | Per-business config must be queryable at booking time. | LOW — Add `business.membership_enforcement` field, query at booking check. |
+
+---
+
+## Sources
+
+### ClassPass & Mindbody Integration
+- [ClassPass Cancellation Policy](https://help.classpass.com/hc/en-us/articles/207942743-What-is-the-reservation-cancellation-policy)
+- [Mindbody ClassPass Integration Guide](https://support.mindbodyonline.com/s/article/207281507-Things-to-know-when-using-ClassPass?language=es)
+- [ClassPass Credit Refund Documentation](https://classpass.my.site.com/help/s/article/How-can-I-refund-or-credit-back-a-ClassPass-user?language=en_US)
+
+### Punch Card & Validity Patterns
+- [Empow3r Fitness Punch Card Policies](https://empow3rfitness.com/policies)
+- [Athletic Lab Punch Card Expiry](https://www.athleticlab.com/faq-items/how-long-do-punch-card-memberships-last/)
+- [Punchpass Fitness Studio Software](https://punchpass.com/)
+- [Trime Studio: No-Expiry Punch Cards](https://www.trime.app/punch-cards)
+
+### Renewal & Rollover Policies
+- [ClubExpress Renewal Schedule Documentation](https://help.clubexpress.com/hc/en-us/articles/24736869993883-Renewal-Schedule)
+- [ClassPass Credit Rollover Policy](https://help.classpass.com/hc/en-us/articles/209367426-Do-my-credits-roll-over)
+- [Reservio: Class Passes vs Memberships](https://www.reservio.com/blog/tips/class-passes-vs-memberships-loyalty)
+- [Singapore Fitness Guide: Flexible Class Passes](https://vibefam.com/moving-past-memberships-a-practical-guide-to-flexible-class-passes-for-singapore-fitness-studios/)
+
+### Cancellation & Token Restoration
+- [Restore Hyper Wellness Cancellation Policy](https://www.restore.com/terms)
+- [The Restoration Lab Med Spa Cancellation Policies](https://www.restorationlabmedspa.com/book-appointment/cancellation-no-show-policies)
+- [Restoration Aesthetics Cancellation Fees](https://www.therestorationaesthetics.com/appointments)
+
+### Membership Enforcement & Access Control
+- [GymMaster Club Membership Hold Policies](https://www.gymmaster.com/blog/club-membership-hold-policies-best-practices/)
+- [Fitness Connection Membership Policies](https://fitnessconnection.com/policies/member-policies)
+- [Booking & Membership Requirements](https://docs.gymdesk.com/en/help/docs/booking-settings)
+- [FTC Guidance: Gym Cancellation & Policies](https://www.ftc.gov/business-guidance/blog/2025/08/cancelling-gym-or-other-membership-shouldnt-heavy-lift-what-businesses-can-learn-ftcs-case)
+
+### Expiry Notifications & Session Credits
+- [Everfit Session Credits & Expiry Management](https://help.everfit.io/en/articles/14698318-session-credits-manage-and-track-paid-client-sessions-beta)
+- [Remindlo SMS Reminder System for Gyms](https://www.remindlo.co.uk/industries/gym)
+- [Trainerize Personal Training Rewards & Credits](https://help.trainerize.com/hc/en-us/articles/34364710236820-ABC-Trainerize-x-MyFitnessPal-Premium-Rewards-Program)
+
+### Multi-Month Packages & Retention
+- [Fitness Degree: 90-Day Member Retention Strategy](https://www.fitdegree.com/post/how-to-build-a-90-day-member-retention-system-for-your-boutique-studio)
+- [Namaste Fitness: Multi-Studio Pricing](https://www.namastefitness.com/multi-studio-pricing)
+- [WodGuru Gym Pricing Strategy 2026](https://wod.guru/blog/gym-pricing-strategy/)
+- [Orangetheory Fitness Membership Options](https://www.orangetheory.com/en-us/memberships)
+
+### Billing Edge Cases & Legal
+- [Zen Planner: How Software Prevents Billing Mistakes](https://zenplanner.com/financial/how-software-for-fitness-studio-billing-can-help-studio-owners-avoid-costly-mistakes/)
+- [CloudGym Manager: Refunds, Credits, or Balance Adjustments](https://www.cloudgymmanager.com/when-should-a-gym-give-a-refund-a-credit-or-just-adjust-the-balance/)
+- [Limitless Studio: Chargeback Handling](https://www.yourlimitlessstudio.com/articles/chargebacks)
+- [Punchpass: Reduce Late Payments for Fitness Businesses](https://punchpass.com/resources/blog/how-to-reduce-or-eliminate-late-payments-for-your-fitness-business/)
+- [Wodify: Billing Strategies for Fitness](https://www.wodify.com/blog/billing-strategies-in-fitness-businesses-insights-from-wodify/)
+- [WellnessLiving: Overdue Payment Collections](https://www.wellnessliving.com/blog/overdue-payment-collections-gyms-fitness-studios/)
+
+### Chat-Based Scheduling & Booking Systems
+- [ProProfs Chat: Appointment Scheduling Chatbots](https://www.proprofschat.com/blog/appointment-scheduling-chatbots/)
+- [GetMyAI: AI Appointment Booking Chatbot](https://www.getmyai.ai/features/ai-appointment-booking-chatbot/)
+- [BotPenguin: Appointment Booking Chatbot](https://botpenguin.com/use-cases/appointment-bookings/)
+- [Botpress: Booking Chatbot Build Guide 2026](https://botpress.com/blog/chatbot-for-bookings)
+- [Zapier: Best Appointment Scheduling Apps 2026](https://zapier.com/blog/best-appointment-scheduling-apps/)
 
 ---
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
-|---|---|---|
-| **Per-Business Bot Management** | HIGH | BotMux + BotHippo patterns are well-established. Telegram documentation (setWebhook, secret_token) is current. Webhook routing by token is industry-standard. |
-| **Owner Onboarding UX** | HIGH | SaaS chat-based onboarding is mature (WhatsApp Flows, Telegram keyboards). Research found clear best practices: progressive profiling, quick-reply buttons, error recovery loops. |
-| **Multi-Tenant Safety** | HIGH | PostgreSQL RLS is mature (PostgreSQL 9.5+, used in production SaaS). Drizzle ORM has built-in support. Node.js middleware patterns are standard. Feb 2026 EDPB guidance on RLS compliance confirmed. |
-| **GDPR Data Deletion** | HIGH | GDPR Article 17 is clear. Feb 2026 Coordinated Enforcement Framework clarifies backup handling: soft deletion + marked-for-destruction is compliant. Industry consensus on hard delete + audit trail. |
-| **Gemini Rate-Limit Resilience** | HIGH | Exponential backoff is industry-standard. Gemini API documentation (May 2026) confirms 15 req/min free tier. Context Caching is documented in @google/genai. Google Cloud best practices confirmed. |
-| **Telegram Webhook Security** | HIGH | Telegram official documentation current. secret_token feature is recommended since Telegram Bot API v6.1 (2021+). BotMux + Telebot reference implementations available. |
+|------|------------|-------|
+| **Table Stakes Features** | HIGH | ClassPass, Mindbody, Everfit, Punchpass all align on core behaviors. Cancellation window (24h), token deduction, expiry check are universal. |
+| **Punch Card Expiry Patterns** | HIGH | 6-12 month windows confirmed across Empow3r, Athletic Lab, Punchpass, Trime. No-expiry is documented (Trime Studio). |
+| **Pass Renewal (Rolling vs Calendar-based)** | HIGH | ClubExpress documentation explicit. Rolling renewals standard for per-member management. |
+| **Rollover Cap Enforcement** | MEDIUM | Mentioned in ClassPass and Everfit but specifics vary. Presumed best practice based on revenue reasoning. |
+| **Enforcement Policies (Block vs Flag)** | MEDIUM | GymMaster and FTC docs reference blocking for non-payment. "Soft flag" inference based on support workflows documented (reminder systems). Explicit "flag vs block" config not widely documented. |
+| **Expiry Notifications** | HIGH | Everfit (7-day trigger), Remindlo (14, 7, 3-day cadence), Fitness First (14-day window). 7 days confirmed in multiple sources. |
+| **24-hour Cancellation Window** | HIGH | ClassPass, Restore Hyper Wellness, Restoration Aesthetics all enforce 24-hour pre-appointment window for full credit restoration. Industry standard. |
+| **Edge Cases (Concurrency, Boundary Conditions)** | MEDIUM | Not explicitly documented in public sources. Inferred from billing system design patterns and CARD Act legal framework (expiry must be >5 years in US). Requires testing. |
+| **Multi-Month Packages (90-day)** | HIGH | Fitness Degree, Namaste, Orangetheory all use 90-day cycles. 3-month class package validity documented (Punchpass research mentions "10 class package valid 3 months"). |
+| **Chat-Based Membership Query** | LOW | Chat-based booking apps (BotPenguin, GetMyAI, Botpress) mention scheduling but don't detail balance query workflows. Presumed available but not well-documented. |
 
 ---
 
-## Sources
+## Gaps Requiring Phase-Specific Research
 
-### Multi-Bot & Webhook Routing
-- [BotMux Documentation — Web-based command center for managing Telegram bots](https://docs.botmux.dev/docs/en)
-- [GitHub — skrashevich/botmux: Multi-bot dashboard, reverse proxy, inter-bot routing](https://github.com/skrashevich/botmux)
-- [Telegram Bot Manager & Automation Platform | BotHippo](https://bothippo.com/)
+1. **Concurrent booking races in production**: Published frameworks (Mindbody, ClassPass) don't detail their locking strategies. Phase 8 planning should include load testing design.
+2. **Partial refund policies in chat UX**: How do teams handle "client used 3 of 10 sessions, wants full refund"? Owner judgment call? Auto-proration? Requires deeper dive into support workflows.
+3. **Timezone handling in Greek context**: How does DST (Greece observes +2 hours March–Oct, +1 hour Nov–Feb) interact with 24-hour window calculations and daily notification scheduling? Phase 9 testing critical.
+4. **GDPR deletion with memberships**: If client requests data deletion, what happens to active memberships? Revenue reconciliation? Deferred per PROJECT.md Phase 5. Design during Phase 10 planning.
+5. **Dispute resolution SOP**: When client and owner disagree on forfeit (e.g., "I cancelled 25 hours before, not 24"), who decides? Requires owner policy documentation in bot config.
 
-### SaaS Onboarding via Chat
-- [WhatsApp for SaaS: Onboarding, Activation & Churn Reduction — aisensy](https://m.aisensy.com/blog/whatsapp-for-saas-companies/)
-- [Chat UX Best Practices: From Onboarding to Re-Engagement — GetStream.io](https://getstream.io/blog/chat-ux/)
-- [SaaS Chat & Messaging UX: Examples & Patterns (2026) — SaaSUI Design](https://www.saasui.design/blog/saas-chat-messaging-ux-patterns)
-
-### Multi-Tenant Data Isolation & RLS
-- [Multi-Tenant API in Node.js + PostgreSQL RLS (2026) — 1xAPI Blog](https://1xapi.com/blog/multi-tenant-api-nodejs-postgresql-row-level-security-2026)
-- [Multi-Tenant SaaS Data Isolation: Row-Level Security, Tenant Scoping, and Plan Enforcement with Prisma — DEV Community](https://dev.to/whoffagents/multi-tenant-saas-data-isolation-row-level-security-tenant-scoping-and-plan-enforcement-with-1gd4)
-- [Multi-Tenant Security in SaaS: Data Isolation Patterns That Actually Work — DEV Community](https://dev.to/oluwatosinolamilekan/multi-tenant-security-in-saas-data-isolation-patterns-that-actually-work-fk)
-- [Postgres Row-Level Security for Multi-Tenant Apps (2026) — Nerd Level Tech](https://nerdleveltech.com/postgres-row-level-security-multi-tenant-nodejs-tutorial)
-
-### GDPR Data Deletion & Compliance
-- [Best Practices for GDPR-Compliant Data Deletion — reform.app](https://www.reform.app/blog/best-practices-gdpr-compliant-data-deletion)
-- [GDPR Deletion Requests & Backups: How to Stay Compliant — ProBackup](https://www.probackup.io/blog/gdpr-and-backups-how-to-handle-deletion-requests)
-- [GDPR Implementation: Building Data Deletion and Export APIs That Actually Work — Sohail x Codes, Medium](https://medium.com/@sohail_saifii/gdpr-implementation-building-data-deletion-and-export-apis-that-actually-work-833b34eb09f6)
-- [GDPR Article 17: Data Erasure (Right to be Forgotten) Requests — WatchDog Security](https://watchdogsecurity.io/gdpr/data-erasure-request-handling)
-
-### API Rate Limiting & Graceful Degradation
-- [Gemini API Rate Limits Explained 2026: Check Current Quotas Without Hard-Coding Tables — YingTu](https://yingtu.ai/en/blog/gemini-api-rate-limits-explained)
-- [Graceful Degradation Strategies for AI Agents Hitting Rate Limits in Production — Brandon Lincoln Hendricks](https://brandonlincolnhendricks.com/research/graceful-degradation-ai-agent-rate-limits)
-- [Gemini API Inference Architecture: System Design for Production Traffic [2026] — Markaicode](https://markaicode.com/architecture/inference-architecture-with-gemini-api/)
-- [Rate limits | Gemini API | Google AI for Developers](https://ai.google.dev/gemini-api/docs/rate-limits)
-
-### Telegram Webhook & Bot Security
-- [Marvin's Marvellous Guide to All Things Webhook — Telegram Core](https://core.telegram.org/bots/webhooks)
-- [Telegram bot webhook setup: complete guide for developers — Teleclaw](https://teleclaw.bot/blog/telegram-bot-webhook-setup)
-- [Secret Token in Telegram API: Secure Webhook Verification — Nguyen Thanh Luan](https://nguyenthanhluan.com/en/glossary/secret_token-for-setwebhook-en/)
-- [Telegram Token: Get, Manage, and Secure Your Bot API Key — CodeWords](https://www.codewords.ai/blog/telegram-token)

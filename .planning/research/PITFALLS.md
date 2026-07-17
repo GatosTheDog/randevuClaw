@@ -1,917 +1,537 @@
-# Domain Pitfalls: v1.1 Multi-Bot Telegram & Onboarding Migration
+# Pitfalls: Adding Billing & Membership to Booking System
 
-**Project:** RandevuClaw v1.1
-**Researched:** 2026-07-10
-**Domain:** Migrating from single shared Telegram bot to per-business bots with owner self-serve onboarding, multi-tenant isolation, GDPR deletion, and rate-limit resilience.
-**Confidence:** HIGH
-
----
+**Domain:** Chat-native membership/credit system for appointment booking  
+**Stack:** Telegram Bot API, Drizzle ORM, Neon Postgres, Gemini AI, setInterval pollers  
+**Researched:** 2026-07-17  
+**Confidence:** HIGH (Postgres/transaction patterns verified via official docs; notification dedup patterns from production systems)
 
 ## Critical Pitfalls
 
-These mistakes cause data corruption, security breaches, or complete architecture rewrites.
-
-### Pitfall 1: Telegram Bot Token Exposure in Webhook URL Path
+### Pitfall 1: Concurrent Session Deduction Race Condition (Double-Debit)
 
 **What goes wrong:**
-Storing bot token in the URL path (e.g., `/webhooks/telegram/:botToken`) or logging it during webhook registration makes the token visible in HTTP access logs, WAF logs, Cloudflare analytics, and error stack traces. Once exposed, an attacker immediately controls the bot and can impersonate your platform, send fake booking confirmations, collect client messages, or delete events.
+Owner books two back-to-back appointments for the same client within a few seconds. Both requests pass through Gemini function-calling sequentially (correct), but each independently reads the client's membership balance (e.g., 10 credits), validates it as ≥ 1, and then deducts. Both see the same initial balance, so both deduct 1 credit, leaving the balance at 9 instead of 8. Credits are lost; client can book without "paying" for the second session.
 
 **Why it happens:**
-Developers assume the webhook URL is "secret" because it's not published. Telegram's setWebhook API doesn't warn that tokens should never appear in URLs. Early multi-bot implementations often use tokens in URLs for "easy" routing without realizing the security implication.
+- Read-then-write pattern without locking: `SELECT balance FROM memberships WHERE client_id = X` followed by `UPDATE ... SET balance = balance - 1` has a gap where a concurrent transaction reads the old balance.
+- Gemini sequential execution prevents double *booking* (two events at the same time), but doesn't prevent double *deduction* if the Gemini calls themselves race in response processing.
+- Default Postgres READ COMMITTED isolation level doesn't prevent lost updates in read-modify-write scenarios.
 
-**Consequences:**
-- Bot takeover: attacker sends malicious messages, collects booking/payment data
-- Reputation damage: business receives fake confirmations or cancellations
-- Data breach: all conversations with clients become readable to attacker
-- Requires immediate bot token revocation and registration with new token (1-2 business hours downtime)
-
-**Prevention:**
-1. **Never include bot token in URL paths.** Extract from request headers or body after signature verification.
-2. **Use bot_id (UUID) in URL, not token:** `/webhooks/telegram/:botId` → look up token from database → verify signature with token.
-3. **Store bot_token → webhook_url mapping in database**, not in the URL itself. Webhook registration should store the mapping, not expose it.
-4. **Verify X-Telegram-Bot-Api-Secret-Token header first** before looking up any database records. This signature is your first gate.
-5. **Rotate tokens immediately on suspected exposure.** Use `deleteWebhook()` then `setWebhook()` with a new URL.
-6. **Scan git history for leaked tokens.** Use `git-secrets` or `trufflehog` in CI; fail deployment if tokens are found.
-7. **Filter tokens from all logs.** Redact bot_token values in application logs, error tracking (Sentry), and fly.io logs.
-
-**Detection:**
-- Alert on unusual `setWebhook` calls with new URLs
-- Monitor for spike in bot messages (sudden volume change)
-- Alerts for permission failures (bot attempts to send message but is revoked)
-- Regular git history audit for exposed tokens
-
-**Phase:** Phase 1 (Infrastructure Setup) — This must be addressed before registering the first webhook. Include token security in the webhook registration design checklist.
-
----
-
-### Pitfall 2: Webhook Conflict — "another webhook is active" on Token Reuse
-
-**What goes wrong:**
-When transitioning to per-business bots, if a bot token is registered with an old webhook URL and you try to set it to a new URL, Telegram returns: `Error: Conflict: another webhook is active`. The service fails to register, hangs waiting for webhooks that never arrive, and customers cannot reach the bot.
-
-This happens because Telegram only allows **one active webhook per bot token**. If an old webhook is still set, the new registration fails. Multiple environments (dev, staging, prod) or app instances competing for the same token also trigger this conflict.
-
-**Why it happens:**
-Developers assume old webhooks are automatically cleaned up or can be skipped. No explicit delete-then-set pattern. Multiple environments or app instances try to claim the same token without coordinating.
-
-**Consequences:**
-- Bot becomes unreachable; customers cannot book or cancel
-- Service restart worsens the problem (tries to set webhook again, fails again)
-- Silent failure: the app logs a webhook setup error but continues, leading customers to think the bot is live when it's actually broken
-- Recovery requires manual BotFather intervention or token revocation
-
-**Prevention:**
-1. **Always delete old webhook before setting new one:**
+**How to avoid:**
+1. **Use `SELECT FOR UPDATE` within a transaction** to lock the membership record during the entire deduction operation:
    ```typescript
-   // On service startup, before setWebhook:
-   try {
-     await bot.deleteWebhook();  // Idempotent; safe even if no webhook was set
-   } catch (e) {
-     // Log but don't fail; deleteWebhook might not exist on new tokens
-   }
-   const result = await bot.setWebhook(newUrl, { secret_token: newSecret });
-   if (!result) throw new Error('Failed to set webhook');
-   ```
-
-2. **Verify webhook configuration on startup.** Call `getWebhookInfo()` and compare expected vs. actual URL. Raise an alarm if mismatch.
-3. **Use separate tokens per environment.** Each environment (dev, staging, prod) gets its own bot from BotFather. Prevents conflicts and enforces isolation.
-4. **Document token → environment mapping.** Maintain a table of token ↔ business_id ↔ environment to detect ownership conflicts.
-5. **Add webhook healthcheck.** Telegram sends a test request to your webhook URL when `setWebhook()` is called. Log the result; if healthcheck fails, reject the webhook configuration change.
-6. **Implement startup verification.** If webhook setup fails at startup, fail the service entirely (don't proceed with stale config). Force manual intervention.
-
-**Detection:**
-- Alert on webhook setup failures in startup logs
-- Alert if `getWebhookInfo()` shows unexpected URL
-- Daily audit: compare active webhooks in Telegram API vs. expected configuration
-- Health check: test webhook endpoints daily (send test message, verify received)
-
-**Phase:** Phase 1 (Infrastructure Setup) — Implement webhook lifecycle management (delete + verify) before routing logic. Include webhook health checks in startup.
-
----
-
-### Pitfall 3: Multi-Bot Express Routing — Shared Middleware State Leaks Across Bots
-
-**What goes wrong:**
-When handling multiple bot tokens in a single Express app (e.g., `/webhooks/telegram/:botId`), shared middleware state (in-memory caches, request context, global variables) causes cross-bot data leakage:
-
-```typescript
-// WRONG: Shared state
-let currentOwner = null;  // Global; shared across all requests
-let pendingBooking = null;  // Another global
-
-app.post('/webhooks/telegram/:botId', async (req, res) => {
-  const owner = await db.getOwner(req.body.message.from.id);
-  currentOwner = owner;  // Bot A sets this
-  pendingBooking = req.body.message.text;  // Bot A sets this
-  
-  // Concurrent request from Bot B reads currentOwner and thinks it belongs to Bot B
-  // Booking intended for business A gets routed to business B
-  // Owner data from business A is visible to business B's handlers
-});
-```
-
-One bot's owner data is visible to another bot. Client messages from business A are routed to business B's logic.
-
-**Why it happens:**
-Developers migrate from single-bot to multi-bot by adding a `:botId` parameter, assuming request handlers are isolated. But global/module-level state is shared across all requests. Express middleware is also shared. Request handler isolation holds only if there's no async suspension or callback-based code.
-
-**Consequences:**
-- Data leakage: business A's clients see business B's availability, prices, or bookings
-- Booking corruption: a booking intended for business A is stored for business B
-- Service degradation: one bot's crash affects all bots
-- Silent corruption: no obvious error; incorrect behavior masquerades as a bug elsewhere
-
-**Prevention:**
-1. **Never use global or module-level variables for request state.** Every request must carry its context from start to finish.
-
-2. **Use request-scoped context (res.locals or AsyncLocalStorage):**
-   ```typescript
-   app.post('/webhooks/telegram/:botId', async (req, res) => {
-     res.locals.botId = req.params.botId;
-     res.locals.bot = bots[req.params.botId];
-     res.locals.owner = await db.getOwner(req.body.message.from.id);
-     // Pass res.locals to all downstream functions
-     await handleBookingRequest(res.locals);
-   });
-   ```
-
-3. **Isolate session stores per bot token.** Don't use in-memory caches. Use Neon or Redis with bot_token as key prefix:
-   ```typescript
-   const sessionKey = `${botToken}:${userId}:onboarding_state`;
-   const session = await redis.get(sessionKey);
-   ```
-
-4. **Avoid middleware that modifies global state.** Every middleware must leave global state unchanged between requests.
-
-5. **Test concurrent requests from multiple bots.** Unit tests won't catch cross-bot isolation failures. Use integration tests or load tests hammering multiple bots in parallel.
-
-6. **Code review checklist:** In every bot handler, verify:
-   - No assignments to global variables
-   - No in-memory caches without bot_token isolation
-   - All state read from `res.locals` or database
-
-**Detection:**
-- Integration tests sending concurrent requests to different bots, verifying isolation
-- Logs that correlate `botId` with every operation
-- Unit tests for request-scoped helpers (ensure no shared state)
-- Smoke test: create two business bots, send concurrent messages, verify data doesn't leak
-
-**Phase:** Phase 2 (Multi-Bot Routing) — Build request isolation patterns before writing any handler logic. This is foundational; retrofitting isolation is expensive.
-
----
-
-### Pitfall 4: Telegram Signature Verification — Wrong Secret Per Token
-
-**What goes wrong:**
-Telegram sends an `X-Telegram-Bot-Api-Secret-Token` header with each webhook request. If you verify signatures with a shared secret or the wrong token's secret, attackers can forge webhooks:
-
-```typescript
-// WRONG: Shared secret for all bots
-const sharedSecret = process.env.TELEGRAM_SECRET;  // Used for ALL bots
-const receivedSignature = req.headers['x-telegram-bot-api-secret-token'];
-const expectedSignature = crypto.createHmac('sha256', sharedSecret)
-  .update(JSON.stringify(req.body))
-  .digest('hex');
-// If attacker knows sharedSecret, they can forge messages for ANY bot
-```
-
-Attacker sends fake booking cancellations, confirmations, or payment notifications to any bot in your system.
-
-**Why it happens:**
-Developers assume one shared secret is simpler. They don't realize that secrets must be unique per bot or that Telegram's header name is generic (doesn't hint at per-bot uniqueness). The security implication isn't obvious until after implementation.
-
-**Consequences:**
-- Forged webhooks: attacker sends fake cancellations, bookings, or payments
-- Business reputation: customers see malicious or false messages
-- Financial impact: fake cancellations disrupt revenue
-- Regulatory: GDPR violations if forged data incorrectly deletes customer records
-
-**Prevention:**
-1. **Generate unique secret token per bot.** When onboarding a business, create a random secret:
-   ```typescript
-   const botSecret = crypto.randomBytes(32).toString('hex');
-   await db.saveBotConfig({
-     business_id,
-     bot_token,
-     bot_secret_token: botSecret  // Store securely in Neon
-   });
-   ```
-
-2. **Bind secret verification to the bot_token in request.** Extract bot_id from URL, look up its secret, verify with that secret:
-   ```typescript
-   app.post('/webhooks/telegram/:botId', async (req, res) => {
-     const botConfig = await db.getBotConfig(req.params.botId);
-     const receivedSignature = req.headers['x-telegram-bot-api-secret-token'];
-     const expectedSignature = crypto
-       .createHmac('sha256', botConfig.bot_secret_token)
-       .update(JSON.stringify(req.body))
-       .digest('hex');
+   await db.transaction(async (tx) => {
+     const membership = await tx
+       .select()
+       .from(memberships)
+       .where(eq(memberships.id, membershipId))
+       .for('update');  // Lock the row
      
-     // Constant-time comparison (prevents timing attacks)
-     if (!crypto.timingSafeEqual(
-       Buffer.from(receivedSignature),
-       Buffer.from(expectedSignature)
-     )) {
-       return res.status(401).send('Unauthorized');
-     }
+     if (membership.balance < 1) throw new Error('No credits');
+     
+     await tx
+       .update(memberships)
+       .set({ balance: sql`balance - 1` })
+       .where(eq(memberships.id, membershipId));
    });
    ```
+2. **Make Gemini function-calling atomic per booking:** The booking confirmation must be the *only* point where credits are deducted. Do not deduct in confirmation *and* in a separate audit/log step.
+3. **Use `SERIALIZABLE` isolation level if high-contention environment emerges:** For now, `SELECT FOR UPDATE` is sufficient for a single-digit concurrent user base, but be prepared to escalate if >100 simultaneous bookings/day.
+4. **Test with concurrent booking requests:** Simulate two rapid bookings for the same client; verify balance decreases by exactly 2, not 1.
 
-3. **Use constant-time comparison** (`crypto.timingSafeEqual`) to prevent timing attacks.
+**Warning signs:**
+- Balance audit logs show fewer total deductions than bookings created (e.g., 50 bookings but only 48 credits deducted).
+- Client reports "I had 10 credits, booked twice, now I have 9" instead of 8.
+- Test with `ab -c 10 -n 100` (10 concurrent requests) to confirm locking prevents race.
 
-4. **Log verification failures** with botId, but never log the secret itself:
+**Phase to address:**
+**Phase 8 (Enforcement & Session Deduction)** — This is the phase where `create_booking` Gemini function calls `deductMembership()`. Must implement row-level locking before this phase ships.
+
+---
+
+### Pitfall 2: Timezone Edge Cases in Rolling 30/90-Day Expiry Calculations
+
+**What goes wrong:**
+Owner records a payment for a client on 2026-07-17 at 2 PM (Athens time, UTC+3). Package says "valid for 30 days." The bot calculates expiry as `2026-07-17 + 30 days = 2026-08-16`. But:
+- If a cron poller runs at midnight UTC (3 AM Athens time), it might check expiry as `current_date - expiry_date` without time-of-day, marking the membership as expired on 2026-08-17 when the owner intended 2026-08-17 as the last valid day.
+- DST transition (late Oct 2026, Athens shifts from UTC+3 to UTC+2): If the membership is checked at the DST boundary, the `now()` call might jump back 1 hour, causing time-based expiry checks to behave unexpectedly.
+- Clients in different timezones (e.g., Greek diaspora) may book via Telegram and expect expiry to respect their local time, not Athens time.
+
+**Why it happens:**
+- Storing expiry as a bare `DATE` (without time) loses the intent of "30 days from payment time."
+- Using `now()` in Postgres (which respects server timezone, not application timezone) causes silent misalignment.
+- Daylight Saving Time transitions cause `now() - timestamp` arithmetic to shift by 1 hour without warning.
+- setInterval polling doesn't account for DST transitions; if a poller runs daily at "8 AM", DST means it actually runs at 9 AM for part of the year.
+
+**How to avoid:**
+1. **Store expiry as `TIMESTAMP WITH TIME ZONE` (not `DATE`):**
    ```typescript
-   if (verificationFailed) {
-     logger.warn('Webhook signature verification failed', {
-       botId: req.params.botId,
-       receivedSignaturePrefix: receivedSignature.substring(0, 8),
-       reason: 'signature_mismatch'  // Don't log actual values
+   // When recording payment at 2:00 PM Athens time
+   const expiryTime = new Date('2026-07-17T14:00:00+03:00');
+   const expiryTimestamp = new Date(expiryTime.getTime() + 30 * 24 * 60 * 60 * 1000);
+   // Stores: 2026-08-16T14:00:00+03:00 (exactly 30 days later, same local time)
+   
+   await db
+     .insert(memberships)
+     .values({
+       client_id,
+       expires_at: expiryTimestamp.toISOString(), // ISO 8601 w/ tz
+       created_at: new Date().toISOString(),
+     });
+   ```
+2. **Use explicit timezone context in expirycheck queries:**
+   ```typescript
+   // Set application timezone to Athens for consistency
+   await db.execute(sql`SET TIME ZONE 'Europe/Athens'`);
+   
+   // Then all now() calls use Athens time
+   const expired = await db
+     .select()
+     .from(memberships)
+     .where(lt(memberships.expires_at, sql`now()`));
+   ```
+3. **For setInterval pollers, use a fixed absolute time (UTC) and convert in code:**
+   ```typescript
+   setInterval(() => {
+     const nowUTC = new Date();
+     const nowAthens = new Date(nowUTC.toLocaleString('en-US', { timeZone: 'Europe/Athens' }));
+     // Check expiry using Athens local time, not server time
+   }, 24 * 60 * 60 * 1000);
+   ```
+4. **Test expiry at DST boundaries:** Simulate a membership expiring on late Oct 2026 (DST transition day); verify notifications fire on the correct local date, not shifted.
+5. **Document timezone assumption:** Add a comment in the db schema: `-- All timestamps stored as UTC; app timezone is Europe/Athens for expiry checks.`
+
+**Warning signs:**
+- Expiry notifications arrive on wrong date (e.g., user expects Aug 16, gets notified Aug 15 or Aug 17).
+- Membership appears expired in app but UI shows "expires tomorrow."
+- DST transition (late Oct) causes batch of false expiry notifications.
+- Audit log shows `expires_at = 2026-08-16 00:00:00` (midnight) for a payment recorded at 2 PM.
+
+**Phase to address:**
+**Phase 9 (Notifications & Expiry)** — Expiry notifications and enforcement are Phase 9. But **Phase 7 (Config & Payment Recording)** must establish the timezone convention when membership is created. Flag for dual validation: Phase 7 schema, Phase 9 notification logic.
+
+---
+
+### Pitfall 3: Data Integrity on Cancellation After Membership Expired
+
+**What goes wrong:**
+Client has a 5-session pass valid until 2026-08-10. On 2026-08-12, the bot marks the membership as expired (no more bookings allowed). But on 2026-08-15, the client asks to cancel an appointment that was booked *before* 2026-08-10. Should the credit be restored?
+
+Outcome A: Credit is restored (naive refund-on-cancel logic), but the membership is expired—so the restored credit is unreachable. Client loses 1 credit, payment dispute ensues.
+
+Outcome B: Credit is *not* restored (refund only if membership is valid), but then the cancel logic must check expiry status *at the time of cancellation*, not at the time of the original booking. If ownership uses a generic "cancel any booking" function without membership awareness, it might restore credits unconditionally.
+
+**Why it happens:**
+- The cancel booking flow doesn't distinguish between "cancel within validity window" (refund credit) and "cancel after membership expired" (no refund).
+- The membership table doesn't track a "validity_start_date," so there's no way to know if the credit was *ever* valid when the booking was made.
+- Compensation/refund logic is written at the booking level without coordination with the membership level.
+
+**How to avoid:**
+1. **Store membership validity window explicitly:**
+   ```typescript
+   const membership = {
+     id: UUID,
+     client_id: UUID,
+     business_id: UUID,
+     valid_from: TIMESTAMP, // When membership begins
+     expires_at: TIMESTAMP, // When membership ends
+     balance: INT,          // Credits remaining
+     booked_sessions: []    // Track which bookings used this membership
+   };
+   ```
+2. **Link each booking to the membership used:**
+   ```typescript
+   const booking = {
+     id: UUID,
+     membership_id: UUID | NULL, // NULL if booked outside membership, or if no membership
+     ...
+   };
+   ```
+3. **Refund only if booking was created *within* membership validity:**
+   ```typescript
+   async function cancelBookingWithRefund(bookingId: UUID) {
+     const booking = await getBooking(bookingId);
+     const membership = await getMembership(booking.membership_id);
+     
+     // Refund only if booking was created during membership validity
+     if (membership && membership.valid_from <= booking.created_at && booking.created_at < membership.expires_at) {
+       await restoreCredits(membership.id, 1);
+     } else {
+       // No refund; log reason
+       console.log(`No refund: booking created outside membership validity`);
+     }
+   }
+   ```
+4. **Audit trail for every credit change:**
+   ```typescript
+   await db.insert(credit_audit_log).values({
+     membership_id,
+     reason: 'BOOKING_CANCELLED',
+     booking_id,
+     delta: +1,
+     timestamp: new Date(),
+     notes: `Membership valid ${membership.valid_from} to ${membership.expires_at}`,
+   });
+   ```
+5. **Test cancellation edge cases:**
+   - Cancel booking created *before* expiry, but cancelled *after* expiry → refund ✓
+   - Cancel booking created *after* expiry → no refund ✓
+   - Cancel booking created during validity, membership later extended → still refund (because it *was* valid) ✓
+
+**Warning signs:**
+- Audit log shows `delta: -1` (credit deducted) but no corresponding `delta: +1` when cancelled.
+- Client reports "My membership expired but I still have old bookings; I can't cancel without losing credits."
+- Refund transaction logs show credits restored to expired memberships, creating orphaned credits.
+
+**Phase to address:**
+**Phase 8 (Enforcement & Session Deduction)** — Must establish the booking↔membership link and track validity window. Refund logic is part of the cancel-booking flow, which is already implemented in v1.0 but must be extended to handle membership awareness. **Prerequisite:** Phase 7 must create the `membership_id` foreign key on bookings.
+
+---
+
+### Pitfall 4: Chat UX Ambiguity in Owner Payment Recording Commands
+
+**What goes wrong:**
+Owner sends: `"Πλήρωσε ο Γιάννης 5 περάσματα"` (Giannis paid for 5 passes).
+
+Ambiguities:
+- Is "5 passes" a quantity of passes (e.g., 5 × 1-session pass) or 5 sessions within one multi-session pass?
+- Is the price included? (e.g., "5 passes for €25" vs. "5 passes" — what's the price?)
+- Which package? If the business has "5-session pass €50" and "unlimited pass €100", did Giannis buy one or the other?
+- When does it expire? Some passes are "30 days," some are "rolling 90 days."
+
+Outcome: Gemini LLM might guess incorrectly, creating a membership with wrong credit balance, expiry date, or package type. Owner doesn't realize until booking disputes arise.
+
+**Why it happens:**
+- Natural language is inherently ambiguous. "5 passes" doesn't specify the package type.
+- Owner doesn't follow a structured format (chat is free-form).
+- Gemini's function-calling for `create_membership()` has many optional parameters (expiry_type, credit_count, price, etc.), and it must guess the intent.
+- No confirmation step: Gemini creates the membership immediately; owner might not realize the mistake until later.
+- The bot doesn't ask clarifying questions (e.g., "Is this the 5-session €50 pass or a different package?").
+
+**How to avoid:**
+1. **Define a structured payment recording format, but make it optional:**
+   - Preferred: `"Γιάννης: 5-pass-50EUR"` (unambiguous, package ID + price)
+   - Fallback: `"Γιάννης πλήρωσε"` (Gemini tries to infer, but with caveats)
+   
+2. **Implement multi-turn clarification:**
+   ```typescript
+   // Gemini detects ambiguity
+   if (geminiResponse.confidence < 0.8 || geminiResponse.clarifications_needed) {
+     await sendOwner({
+       text: `Γιάννης πλήρωσε; Πιστεύω ότι είναι:\n1️⃣ 5-session pass (€50, expires 30 days)\n2️⃣ Unlimited pass (€100, expires 90 days)\nΕπιλέξτε αριθμό ή γράψτε το σωστό.`,
+       reply_markup: quickReplyButtons(['1', '2', 'Cancel']),
+     });
+   }
+   ```
+3. **Require confirmation before creating membership:**
+   ```typescript
+   const summary = `Δημιουργία:\nΠελάτης: Γιάννης\nΠακέτο: 5-session (€50)\nΛήγει: 2026-08-17\nΗμερομηνία: σήμερα\n\nΣωστό; (Ναι/Όχι)`;
+   await sendOwner(summary);
+   // Wait for "Yes" before actually inserting
+   ```
+4. **Make package lookup mandatory, not optional:**
+   - When recording payment, bot *first* asks "Which package did Giannis buy?" by listing all configured packages.
+   - Only after owner confirms package does the bot ask for payment amount.
+   - This removes the need for Gemini to guess the package.
+
+5. **Add an "undo" command:**
+   ```
+   Owner: "Ακύρωση τελευταίας πληρωμής"
+   Bot: "Ακύρωση: Γιάννης, 5-session €50, δημιουργία 2026-07-17 14:30\nΤα περάσματα έχουν αφαιρεθεί. Σωστό;"
+   ```
+
+**Warning signs:**
+- Owner reports "I recorded that Giannis paid for 5 passes, but the bot gave him an unlimited membership."
+- Audit log shows `create_membership` with `confidence: 0.4` (Gemini was unsure).
+- Multiple membership records for same client on same day (owner tried to fix a mistake by recording payment again).
+- Chat history shows bot asking "Is this the 5-session pass?" but owner's response was not parsed.
+
+**Phase to address:**
+**Phase 7 (Config & Payment Recording)** — This is the UX design phase. Must establish a payment recording flow that prioritizes clarity over brevity. Use callback queries (buttons) for package selection, not free-form Gemini parsing. Test with actual owners before Phase 7 ships.
+
+---
+
+### Pitfall 5: Duplicate Notification Alerts from setInterval Polling
+
+**What goes wrong:**
+A membership expires on 2026-08-10. At 8 AM Athens time, a setInterval poller runs and sends:
+```
+"Γιάννης, το πακέτό σας λήγει σε 3 ημέρες."
+```
+
+But a second poller (or the same poller running twice due to a long-running query) fires 2 minutes later and sends the same message again. Client receives two identical notifications. If the poller runs daily, client gets notified multiple times per day for the same expiry.
+
+Outcome: notification spam, trust erosion, support complaints ("Your bot won't stop bothering me").
+
+**Why it happens:**
+- setInterval runs at fixed intervals regardless of how long the previous iteration took. If a poller runs every 60 seconds and takes 30 seconds to complete, another iteration starts before the first is done, causing overlapping execution.
+- No deduplication logic: the bot sends a notification without checking "have I already sent this for this membership today?"
+- Neon serverless DB might have delayed query responses during cold starts, causing the poller to time out and re-run, duplicating the notification.
+- No shared state between poller instances (if code is deployed multiple times or in multiple processes, each sends its own notification).
+
+**How to avoid:**
+1. **Track sent notifications in the database:**
+   ```typescript
+   const notificationLog = {
+     id: UUID,
+     membership_id: UUID,
+     notification_type: 'EXPIRY_3_DAYS' | 'EXPIRY_1_DAY' | 'EXPIRED',
+     sent_at: TIMESTAMP,
+     business_id: UUID,
+   };
+   
+   // Before sending expiry notification
+   const lastNotif = await db
+     .select()
+     .from(notificationLog)
+     .where(
+       and(
+         eq(notificationLog.membership_id, membershipId),
+         eq(notificationLog.notification_type, 'EXPIRY_3_DAYS'),
+         gte(notificationLog.sent_at, sql`now() - interval '1 day'`)
+       )
+     )
+     .limit(1);
+   
+   if (!lastNotif) {
+     // Send notification and log it
+     await sendNotification(...);
+     await db.insert(notificationLog).values({
+       membership_id: membershipId,
+       notification_type: 'EXPIRY_3_DAYS',
+       sent_at: new Date(),
      });
    }
    ```
 
-5. **Rotate secrets if exposed.** Call `setWebhook()` again with a new secret.
-
-**Detection:**
-- Alert on verification failure spikes (401 Unauthorized responses)
-- Rate of failed signatures per botId
-- Unexpected bot behavior (messages from unknown sources)
-- Review webhook logs for unsigned or incorrectly-signed requests
-
-**Phase:** Phase 2 (Multi-Bot Routing) — Implement per-token signature verification BEFORE handling any webhooks. Make this part of the webhook registration checklist.
-
----
-
-### Pitfall 5: Owner Onboarding State Machine — Incomplete State & Dropout Recovery
-
-**What goes wrong:**
-Owner begins onboarding via chat:
-1. "Hi, I want to set up my business"
-2. Bot: "What's your business name?"
-3. Owner: "Pilates Athens"
-4. Bot: "What are your hours?"
-5. **Owner closes chat, forgets, comes back 2 hours later**
-6. Owner: "Monday to Friday, 9am-6pm"
-7. Bot **doesn't know if this is continuing the old conversation or starting fresh.** It may:
-   - Ask for the business name again (confusing)
-   - Ignore the hours because it lost the onboarding state
-   - Partially save data, leaving the database in an undefined state
-
-Also: what if the same message arrives twice (network retry)? The bot might execute onboarding twice, creating duplicate business configs.
-
-**Why it happens:**
-Stateless webhook handlers don't track where in the onboarding flow the owner is. Each message is processed independently. No resumption logic; no idempotency. The onboarding "flow" is implicit in the code, not explicitly modeled.
-
-**Consequences:**
-- Owner frustration: repeated questions, unclear progress
-- Data corruption: partial business configs, duplicate services/hours
-- Abandoned onboarding: owners give up and never complete setup
-- Silent failures: database has incomplete/inconsistent owner data
-
-**Prevention:**
-1. **Model onboarding as explicit state machine:**
-   ```typescript
-   enum OnboardingState {
-     Started = 'started',
-     AwaitingBusinessName = 'awaiting_business_name',
-     AwaitingHours = 'awaiting_hours',
-     AwaitingServices = 'awaiting_services',
-     Completed = 'completed'
-   }
-
-   interface OnboardingSession {
-     owner_id: string;
-     bot_id: string;
-     state: OnboardingState;
-     business_name?: string;
-     hours?: string;
-     services?: string[];
-     started_at: Date;
-     last_message_at: Date;
-   }
-   ```
-
-2. **Persist state in database.** On each message, load session state, process message, update state, save:
-   ```typescript
-   const session = await db.getOnboardingSession(ownerId);
-   if (!session) throw new Error('Onboarding not started');
-   
-   switch (session.state) {
-     case OnboardingState.AwaitingBusinessName:
-       session.business_name = req.body.message.text;
-       session.state = OnboardingState.AwaitingHours;
-       break;
-     // ... other states
-   }
-   await db.saveOnboardingSession(session);
-   ```
-
-3. **Implement idempotent state transitions.** Detect duplicate messages and don't update state twice:
-   ```typescript
-   const dedupeKey = `onboarding:${ownerId}:${messageId}`;
-   const alreadyProcessed = await redis.get(dedupeKey);
-   if (alreadyProcessed) {
-     return res.status(200).send('Already processed');
-   }
-   // Process the message...
-   await redis.setex(dedupeKey, 3600, 'done');  // 1-hour expiry
-   ```
-
-4. **Add timeout for incomplete onboarding.** If an owner hasn't progressed in 7 days, reset and ask to restart.
-
-5. **Provide resume/status command.** Owner types `/status` to see where they are and skip completed steps.
-
-6. **Log state transitions.** Audit trail: who started, who completed, what data was saved.
-
-**Detection:**
-- Onboarding sessions in "awaiting_*" state for >24 hours
-- Duplicate onboarding sessions for the same owner
-- Business configs with missing required fields
-- Error log spike during onboarding flows
-
-**Phase:** Phase 3 (Owner Onboarding) — Implement state machine and database persistence BEFORE handling first owner message. State machine is the foundation; retrofit is expensive.
-
----
-
-### Pitfall 6: Token Registration Race — Duplicate Bot Claims
-
-**What goes wrong:**
-Two owners try to register the same bot token simultaneously:
-
-1. Owner A: "Set up my bot @mybusiness_bot" → provides token: `123:ABCDEF`
-2. Owner B: "Set up my bot" → provides the same token: `123:ABCDEF`
-3. Both requests hit your API at the same time.
-4. Both check: `SELECT * FROM bots WHERE bot_token = '123:ABCDEF'` — both see it's free.
-5. Both call `setWebhook()` and save to the database.
-6. Now two business rows point to the same bot token. Webhook requests are routed to the first business (A), but business B thinks they own the token and can manage the bot.
-
-**Why it happens:**
-Check-then-act is not atomic. Time-of-check to time-of-act window allows concurrent registrations. No database uniqueness constraint. Developers assume sequential webhook processing.
-
-**Consequences:**
-- Bot token belongs to business A in the database, but business B thinks they own it.
-- Webhook routing sends B's customers' messages to A's handlers.
-- Ownership confusion: both businesses claim ownership; resolving requires manual intervention.
-- Data corruption: a booking from B's customer is stored under A's business.
-
-**Prevention:**
-1. **Add UNIQUE database constraint on bot_token:**
+2. **Use database UNIQUE constraint to prevent duplicate inserts:**
    ```sql
-   CREATE UNIQUE INDEX idx_bot_token_unique ON bots(bot_token);
+   CREATE UNIQUE INDEX uq_notification_log_daily
+   ON notification_log (membership_id, notification_type, DATE(sent_at AT TIME ZONE 'Europe/Athens'))
+   WHERE sent_at > now() - interval '24 hours';
    ```
-   This ensures the database rejects duplicate tokens at the storage layer.
+   This allows only one notification per membership per notification_type per day.
 
-2. **Use atomic upsert or INSERT with conflict handling:**
+3. **Use idempotent notification IDs:**
    ```typescript
-   const result = await db
-     .insert(bots)
-     .values({ bot_token, business_id, bot_secret_token })
-     .onConflict('bot_token')
-     .doThrow();  // Throw error if token already registered
-   if (!result) {
-     throw new Error('Bot token already in use');
-   }
-   ```
-
-3. **Verify token ownership with Telegram API.** After registration, call `getMe()` to validate:
-   ```typescript
-   const botMe = await bot.getMe();  // Validates token and gets bot info
-   if (!botMe.username) throw new Error('Invalid bot token');
-   ```
-
-4. **Return clear error to owner if token is in use:**
-   ```
-   Sorry, this bot token is already registered by another business.
-   Please contact support or create a new bot in BotFather.
-   ```
-
-5. **Implement distributed lock for registration if needed.** Use Redis SETNX or database transaction lock:
-   ```typescript
-   const lock = await redis.set(
-     `bot_registration_lock:${botToken}`,
-     '1',
-     'NX',
-     'EX',
-     30  // 30-second lock
-   );
-   if (!lock) {
-     throw new Error('Registration in progress; please try again');
-   }
-   ```
-
-**Detection:**
-- Database uniqueness constraint violations in error logs
-- Duplicate bot_token entries (run audit query)
-- Mismatches between expected and actual bot ownership
-
-**Phase:** Phase 3 (Owner Onboarding) — Add uniqueness constraint BEFORE owner registration logic. Also verify token ownership with Telegram API.
-
----
-
-### Pitfall 7: Migration from Single Shared Bot — Existing Clients Orphaned
-
-**What goes wrong:**
-v1.0 operated with a single shared bot token. In v1.1, each business has its own bot. You deploy the per-business bot architecture. But the old shared bot is still running or clients still have the old chat link.
-
-Result:
-- Existing clients continue messaging the old shared bot, expecting it to work.
-- The old bot is no longer maintained; messages go unanswered or are processed by stale code.
-- New clients don't know about the per-business bots.
-- Confusion: which bot should I use?
-
-**Why it happens:**
-Big-bang migration: v1.0 is shut down completely, v1.1 deployed. No dual-mode operation. No migration messaging. The platform assumes all clients will switch overnight.
-
-**Consequences:**
-- Customer support burden: existing clients confused why the old bot doesn't respond
-- Lost bookings: clients give up and use competitors
-- Reputation damage: perceived service outage or abandonment
-- Data loss: if the old shared bot's database is shut down, existing bookings orphaned
-
-**Prevention:**
-1. **Operate both architectures in parallel during transition.** Keep the old shared bot active for 2–4 weeks after deploying v1.1 per-business bots.
-
-2. **Detect old shared bot messages and redirect:**
-   ```typescript
-   // In old shared bot handler:
-   if (clientKnownToBusiness && businessNowHasPerBotId) {
-     return bot.sendMessage(chatId, `
-       We've upgraded! Your business now has a dedicated bot:
-       @${business.per_bot_username}
-       Click to switch: [link to new bot]
-       All your bookings have been moved.
-     `);
-   }
-   ```
-
-3. **Migrate existing bookings to per-business schema.** Write a migration script:
-   ```sql
-   -- Copy bookings from old shared bot table to new per-business schema
-   INSERT INTO bookings (business_id, customer_id, slot_time, status, created_at)
-   SELECT b.business_id, c.customer_id, b.slot_time, b.status, b.created_at
-   FROM legacy_bookings b
-   JOIN customers c ON b.customer_phone = c.phone
-   WHERE b.migrated_at IS NULL;
-   UPDATE legacy_bookings SET migrated_at = NOW() WHERE migrated_at IS NULL;
-   ```
-
-4. **Send migration message to all existing clients** via the old bot:
-   ```
-   Your booking bot has moved to a new dedicated number!
-   We've moved your bookings to: @${business.per_bot_username}
-   All your appointments are safe; no action needed.
-   ```
-
-5. **Support dual-mode during transition.** The old shared bot can query the database and forward relevant messages to the new per-business bot, so clients aren't completely orphaned.
-
-6. **Monitor old bot usage.** Track how many clients are still messaging the old bot. Set a deadline for shutdown (e.g., 4 weeks after migration).
-
-**Detection:**
-- Spike in "bot not responding" support tickets
-- Drop in booking activity during migration period
-- Orphaned bookings (bookings with business_id but no corresponding per_bot)
-
-**Phase:** Phase 2 (Multi-Bot Routing) — Plan migration messaging and backward compatibility BEFORE per-business bot launch. Migration is critical to avoid user churn.
-
----
-
-## Moderate Pitfalls
-
-These mistakes cause data inconsistency or service degradation but are recoverable.
-
-### Pitfall 8: GDPR Deletion — Cascade Delete Breaks Audit Trails
-
-**What goes wrong:**
-A customer requests deletion under GDPR. Your code deletes the customer record via:
-```sql
-DELETE FROM customers WHERE customer_id = ?;
-```
-
-This cascades to delete all bookings, reviews, and audit logs for that customer. Later, a business owner disputes a chargeback or questions a booking. You can't prove the booking existed or was completed—the audit trail is gone. Or: a government audit requires proof of deletion compliance, but you have no record of *what* was deleted *when*.
-
-**Why it happens:**
-Developers use `DELETE ... CASCADE` as a shortcut. They conflate "personal data deletion" with "all traces of the person must vanish." They don't realize that audit/compliance requires historical records of deleted data.
-
-**Consequences:**
-- Lost audit trail: no proof of deletion compliance
-- Chargeback disputes: no historical evidence
-- Regulatory penalties: EDPB or HDPA fines for incomplete audit logs
-- Business risk: can't defend against false claims
-
-**Prevention:**
-1. **Use soft deletes (logical deletion), not hard deletes:**
-   ```sql
-   ALTER TABLE customers ADD COLUMN deleted_at TIMESTAMP;
-   UPDATE customers SET deleted_at = NOW() WHERE customer_id = ?;
-   -- When querying: WHERE deleted_at IS NULL
-   ```
-
-2. **Maintain separate deletion audit log:**
-   ```sql
-   CREATE TABLE deletion_audit_log (
-     id UUID PRIMARY KEY,
-     deleted_entity_type VARCHAR,  -- 'customer', 'booking'
-     deleted_entity_id UUID,
-     deleted_by VARCHAR,  -- 'customer_request', 'admin'
-     deleted_at TIMESTAMP,
-     reason TEXT,
-     retained_fields JSONB  -- Store critical data (booking_id, date) before deletion
-   );
-   ```
-
-3. **Retain minimal data for compliance:**
-   - Delete PII (name, phone, email)
-   - Retain anonymous booking history (dates, times, prices) for audit
-   - Separate tables: `customers_pii` (deleted) vs. `bookings` (retained with nulled customer_id)
-
-4. **Don't cascade deletes through business relationships.** If customer deletes their account:
-   - Delete: customer name, phone, email, payment info
-   - Retain: booking records (with customer_id nulled), timestamps
-
-5. **Create deletion report for compliance.** Log every deletion:
-   ```
-   2026-07-10 15:30: Customer deletion request for customer_id=abc123
-   Deleted: name, email, phone, payment methods
-   Retained: 5 bookings (2026-06-01 to 2026-07-01)
-   Erasure confirmed via audit_log/uuid-xyz
-   ```
-
-**Detection:**
-- Compare deletion requests to deletion audit log; alert on mismatches
-- Monthly audit: verify all requested deletions are logged
-- Check for orphaned bookings (booking with no customer record)
-
-**Phase:** Phase 5 (GDPR Deletion) — Design soft-delete strategy BEFORE implementing deletion logic. Retrofitting soft deletes is expensive.
-
----
-
-### Pitfall 9: GDPR Deletion — Backup Restoration Undoes Deletions
-
-**What goes wrong:**
-Customer requests deletion on 2026-07-10. Your system deletes the record and logs it. Later that day, you restore a backup from 2026-07-09 to fix a corruption issue. The "forgotten" customer's data is restored into the live database.
-
-Now the customer's data is back—you've violated GDPR's "Right to be Forgotten."
-
-**Why it happens:**
-Backup restoration is not coordinated with deletion tracking. DBAs restore from backup unaware of deletion requests. No pre-restore check against the deletion audit log.
-
-**Consequences:**
-- GDPR violation: data subject's data re-appears without consent
-- Regulatory penalties: fines up to 4% of global revenue
-- Customer breach notification required
-- Loss of trust
-
-**Prevention:**
-1. **Query deletion audit log before restoring:**
-   ```bash
-   # Before restore:
-   SELECT COUNT(*) FROM deletion_audit_log 
-   WHERE deleted_at > backup_timestamp;
-   # If count > 0, alert and require manual review
-   ```
-
-2. **Use point-in-time recovery aware deletion.** If restoring to time T:
-   - Restore database to time T
-   - Re-apply all deletions that occurred after T from the audit log
-
-3. **Archive deletion audit logs separately** (Cloudflare R2, S3) so they survive a full database restore.
-
-4. **Create erasure retention marker.** Mark customers as `erasure_requested_at`. During backup restoration, automatically re-delete records with erasure_requested_at < restore_time.
-
-5. **Manual approval for backup restores.** Require a compliance lead to approve restores from before a deletion date.
-
-**Detection:**
-- Alert if soft-deleted customer suddenly has active bookings
-- Audit: scan for customers with both deleted_at timestamp and active data
-- Deletion log audit: verify no customer appears in active tables after deletion_at
-
-**Phase:** Phase 5 (GDPR Deletion) — Coordinate backup strategy with deletion tracking BEFORE handling any deletions. This is a legal requirement, not optional.
-
----
-
-### Pitfall 10: Gemini Rate Limiting — Naive Exponential Backoff Without Jitter
-
-**What goes wrong:**
-Your app hits Gemini rate limit (429 RESOURCE_EXHAUSTED). Your code retries with exponential backoff:
-
-```typescript
-let delay = 1000;  // 1 second
-for (let attempt = 0; attempt < maxRetries; attempt++) {
-  try {
-    return await gemini.generateContent(prompt);
-  } catch (error) {
-    if (error.status === 429) {
-      await sleep(delay);
-      delay *= 2;  // 1s, 2s, 4s, 8s, ...
-    }
-  }
-}
-```
-
-With one instance, this works fine. But with 10 concurrent instances (fly.io autoscale), all hit the rate limit at the same time. All wait 1 second, then retry at the same millisecond. All retry together at 2s, then 4s. This creates a **thundering herd**—the rate limiter never recovers.
-
-**Why it happens:**
-Developers assume exponential backoff is sufficient. They don't consider multiple app instances retrying in lockstep. The algorithm is correct for single-client but amplifies with multiple clients.
-
-**Consequences:**
-- Bookings fail or are delayed by minutes
-- Rate limit window extends (more retries = more 429s)
-- Customer experience: booking is slow; they cancel and try competitors
-- Operational: rapid alert spam (all instances triggering rate-limit alarms)
-
-**Prevention:**
-1. **Add jitter (randomization) to backoff delays.** Full jitter strategy:
-   ```typescript
-   // Full jitter: random delay between 0 and (2^attempt - 1)
-   const maxJitter = Math.pow(2, attempt) - 1;
-   const jitterMs = Math.random() * maxJitter * 1000;
-   await sleep(jitterMs);
-   ```
-
-2. **Respect Retry-After header if provided:**
-   ```typescript
-   if (error.status === 429) {
-     const retryAfter = error.headers['retry-after'] || '60';
-     await sleep(parseInt(retryAfter) * 1000);
-   }
-   ```
-
-3. **Use circuit breaker pattern.** If 429s persist, stop retrying and return user-facing error:
-   ```typescript
-   const breaker = new CircuitBreaker({
-     timeout: 30000,
-     errorThresholdPercentage: 50,
-     resetTimeout: 60000
+   const notifId = `${membershipId}:EXPIRY_3_DAYS:${todayDateInAthens}`;
+   await sendNotification({
+     idempotency_key: notifId, // External message queue deduplicates by this
+     text: '...',
    });
-   await breaker.fire(async () => gemini.generateContent(prompt));
    ```
 
-4. **Queue requests locally to avoid thundering herd.** Serialize requests:
+4. **Prevent concurrent poller execution:**
    ```typescript
-   const queue = new PQueue({ concurrency: 1 });  // One at a time
-   queue.add(() => gemini.generateContent(prompt));
-   ```
-
-5. **Log every rate limit.** Track the rate and alert when it exceeds a threshold (e.g., >10/minute).
-
-**Detection:**
-- Alert on rate-limit error spike (429s per minute)
-- Correlation: rate-limit errors spike when concurrent requests spike
-- Slow booking confirmations during peak load
-
-**Phase:** Phase 4 (Resilience) — Implement jitter and circuit breaker BEFORE high-load testing.
-
----
-
-### Pitfall 11: Gemini Rate Limiting — Context Window Loss on Retry
-
-**What goes wrong:**
-Your booking bot sends a multi-turn prompt to Gemini with full context (business hours, available slots, customer preferences). Gemini starts responding. While processing, Gemini throws a 429. Your code retries, but on retry, you send a minimal prompt:
-
-```typescript
-// WRONG: Lost context
-const retryPrompt = `Please try again.`;  // Context is gone!
-await gemini.generateContent(retryPrompt);
-```
-
-Gemini has no knowledge of the customer, business, or available slots. It responds with a generic error. The customer is confused; conversation coherence breaks.
-
-**Why it happens:**
-Developers assume Gemini conversations are stateful (like ChatGPT) and that retrying with a minimal prompt will pick up where it left off. But Gemini is stateless; each request is independent. On retry, you must send the full original prompt—but many codebases lose the prompt context during error handling.
-
-**Consequences:**
-- Booking fails: Gemini doesn't understand the context
-- Customer sees incoherent bot responses
-- User trust: bot appears broken or confused
-- Hidden race: conversation is partially processed; retrying with different context creates unpredictable behavior
-
-**Prevention:**
-1. **Cache the original request immutably.** Don't modify the prompt between retries:
-   ```typescript
-   const originalRequest = {
-     prompt: fullPromptWithContext,
-     generationConfig: { ... },
-     timestamp: Date.now()
-   };
-
-   let attempt = 0;
-   while (attempt < maxRetries) {
+   let isRunning = false;
+   setInterval(async () => {
+     if (isRunning) return; // Skip this cycle if previous one is still running
+     isRunning = true;
      try {
-       return await gemini.generateContent(originalRequest);  // Full context
-     } catch (error) {
-       if (error.status === 429) {
-         attempt++;
-         await sleep(jitter(attempt));
-       }
+       await scanAndNotifyExpiries();
+     } finally {
+       isRunning = false;
      }
+   }, 60_000);
+   ```
+
+5. **Use a distributed lock (if multi-process):**
+   Since you're using fly.io with a single process (scale: 1 for the cron poller), the above `isRunning` flag is sufficient. But if you ever scale to multiple processes:
+   ```typescript
+   // Acquire lock in Postgres
+   const lock = await db.execute(sql`
+     SELECT pg_advisory_lock(${POLLER_LOCK_ID});
+   `);
+   try {
+     await scanAndNotifyExpiries();
+   } finally {
+     await db.execute(sql`SELECT pg_advisory_unlock(${POLLER_LOCK_ID});`);
    }
    ```
 
-2. **Make prompts idempotent.** If the same prompt is sent twice, response should be identical:
-   ```typescript
-   const prompt = `
-   [System instructions]
-   Request ID: ${requestId}  // Gemini can deduplicate
-   [rest of prompt]
-   `;
-   ```
+**Warning signs:**
+- Client says "I got the same message 3 times in 5 minutes."
+- Notification log has duplicate rows for the same membership on the same day with timestamps 1–2 minutes apart.
+- User mutes the bot's notifications to avoid spam.
+- Support ticket: "Why do I keep getting told my membership expires?"
 
-3. **Never strip context on retry.** If you need to simplify the prompt for token limits, do so BEFORE the initial request, not during retry.
-
-4. **Use idempotency keys in your database.** Before retrying, check if the exact request was already processed:
-   ```typescript
-   const requestHash = sha256(JSON.stringify(originalRequest));
-   const cached = await db.getCachedGeminiResponse(requestHash);
-   if (cached) return cached.response;  // Return cached result, no retry needed
-   ```
-
-**Detection:**
-- Incoherent bot responses (Gemini response doesn't match context)
-- Alert on retries followed by different response content
-- User feedback: "bot forgot my request details"
-
-**Phase:** Phase 4 (Resilience) — Implement immutable request caching BEFORE retry logic.
+**Phase to address:**
+**Phase 9 (Notifications & Expiry)** — The notification scanning and sending logic lives here. Must implement deduplication before sending the first notification. Test by running the poller twice manually and confirming only one notification is sent.
 
 ---
 
-### Pitfall 12: Gemini Rate Limiting — Queue Ordering Guarantees Lost
+## Technical Debt Patterns
 
-**What goes wrong:**
-Your booking system queues requests to handle rate limits. Customer A sends: "Book me Friday 3pm". Customer B sends: "Book me Friday 3pm". Both hit rate limit and are queued.
+Shortcuts that seem reasonable but create long-term problems.
 
-But due to async or race conditions, they may process out of order. Customer B's booking is processed first, consuming the Friday 3pm slot. Then Customer A's booking fails.
-
-But Customer A's message was sent *first*. They should have priority.
-
-**Why it happens:**
-The queue doesn't enforce strict ordering. Async operations are processed in parallel. Or: the queue is per-bot, not per-business, so different businesses' requests are interleaved.
-
-**Consequences:**
-- Unfair bookings: customer who asked second gets the slot instead of customer who asked first
-- Customer complaints: "I clearly asked first"
-- Double-booking: both customers think they booked the same slot (queue corruption)
-- Revenue loss: unfair slot allocation damages reputation
-
-**Prevention:**
-1. **Enforce sequential processing per business.** Use a distributed lock or queue:
-   ```typescript
-   // Process one booking at a time for each business
-   const queue = new PQueue({ concurrency: 1 });
-   const queueKey = `booking:${business_id}`;
-   queue.add(() => processBooking(...), { priority: message.timestamp });
-   ```
-
-2. **Use message timestamps as tiebreaker.** If two requests arrive simultaneously:
-   ```typescript
-   const bookings = [
-     { customer_a, slot: 'friday_3pm', timestamp: 1000 },
-     { customer_b, slot: 'friday_3pm', timestamp: 1001 }
-   ].sort((a, b) => a.timestamp - b.timestamp);
-   // customer_a processed first
-   ```
-
-3. **Verify bookings atomically in database.** Use a UNIQUE constraint to ensure only one booking per slot:
-   ```sql
-   CREATE UNIQUE INDEX idx_booking_slot 
-     ON bookings(business_id, calendar_date, calendar_time) 
-     WHERE status = 'confirmed';
-   ```
-
-4. **Persist queue state.** If the app restarts, the queue is lost. Store pending bookings in database:
-   ```sql
-   CREATE TABLE booking_queue (
-     id UUID PRIMARY KEY,
-     business_id UUID,
-     customer_message TEXT,
-     requested_at TIMESTAMP,
-     status VARCHAR,  -- 'pending', 'processing', 'confirmed', 'failed'
-     retry_count INT
-   );
-   ```
-
-5. **Test with concurrent requests.** Simulate multiple customers booking the same slot; verify FIFO order.
-
-**Detection:**
-- Alert on double-bookings (two confirmed bookings for same slot)
-- Audit: compare message timestamp order vs. booking confirmation order
-- User complaints about unfair slot allocation
-
-**Phase:** Phase 4 (Resilience) — Implement sequential-per-business processing BEFORE handling multiple concurrent bookings.
+| Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
+|----------|-------------------|----------------|-----------------|
+| **Deduct credits without transaction lock (SELECT for UPDATE)** | Faster response, simpler code (~5 lines of SQL vs. 15 with transaction) | Double-spending bugs, data integrity loss, refund disputes, angry users | Never. Use transaction locking from Phase 8 day 1. Recovery is expensive. |
+| **Store expiry as DATE (not TIMESTAMP)** | Simpler schema, easier date math | Timezone bugs, DST issues, ambiguous expiry time (midnight? end of day?), confusion about "30 days" | Never in a timezone-aware app. Use TIMESTAMP WITH TIME ZONE always. |
+| **Rely on app-level deduplication instead of DB constraints** | Faster to implement (one line of code vs. migration + index) | Race conditions between dedup check and insert, duplicate notifications in high-traffic scenarios, audit confusion | Only for testing. For production, add UNIQUE constraint + handle conflict in code. |
+| **Skip confirmation step for payment recording** | Fewer chat turns, faster UX | Mistakes are silent, support load increases, data integrity issues | Only if package ID is machine-readable and unambiguous. Require confirmation for free-form input. |
+| **Use setInterval with no timeout guard** | Simpler code, fewer edge cases | Overlapping poller executions, duplicate notifications, cascade failures if DB query hangs | Never. Always add `isRunning` flag or distributed lock. |
+| **No audit trail for membership changes** | Fewer schema columns, smaller DB | Impossible to debug disputes, no way to trace credit origins, GDPR audit compliance risk | Never. Every credit change (deduct, restore, expire) must log reason + context. |
+| **Gemini function-calling for ambiguous payment records** | Fewer structured inputs, conversational feel | Silent mistakes, wrong packages assigned, Gemini hallucination risks | Only with explicit confirmation step. Never create membership without owner approval. |
 
 ---
 
-## Minor Pitfalls
+## Integration Gotchas
 
-### Pitfall 13: Onboarding Timeout — Incomplete Setup Lingers in Database
+Common mistakes when connecting to external services.
 
-If an owner starts onboarding but never completes, the database is left with a partially initialized business. After 7+ days, manual cleanup is needed or stale records clutter reports.
-
-**Prevention:**
-- Add `onboarding_expires_at` timestamp to onboarding session.
-- Write a cron job (Supercronic on fly.io) that cleans up expired sessions daily.
-- Send "resume onboarding?" reminder after 24 hours of inactivity.
-
-**Phase:** Phase 3 (Owner Onboarding).
-
----
-
-### Pitfall 14: Telegram Chat History Lost on Client Reset
-
-If a customer resets their Telegram app or switches devices, they lose chat history with the bot. They won't see previous booking confirmation or cancellation.
-
-**Prevention:**
-- Send booking confirmations via message AND store in database.
-- Provide `/history` command so customers can retrieve past bookings.
-- Include booking reference code in confirmation: "Ref: BOOK-2026-07-001".
-
-**Phase:** Phase 2 (Messaging).
+| Integration | Common Mistake | Correct Approach |
+|-------------|----------------|------------------|
+| **Neon Serverless Postgres** | Assuming persistent connection pooling like traditional DBaaS. Long-running queries cause connection reuse delays. | Use Drizzle's connection pooling; set `statement_timeout = 30s` to prevent long queries from blocking pollers. Test poller latency under load. |
+| **Drizzle ORM + SELECT FOR UPDATE** | Trying to use `.for('update')` outside of a transaction, or forgetting to read the locked row before updating. | Always wrap in `db.transaction(async (tx) => { const row = await tx.select()...for('update'); ... })`. Don't try to lock and then query separately. |
+| **Gemini function-calling + membership validation** | Gemini hallucinating a package ID that doesn't exist, or making up an expiry date. | Always validate Gemini's proposed membership against the actual packages in the database. Return an error to Gemini if invalid, force it to ask the owner to clarify. |
+| **Telegram Bot API + async message sending** | Fire-and-forget notifications without waiting for success. If Telegram rate-limits or the message fails, there's no retry. | Wrap message sends in retry logic with exponential backoff. Log send failures to audit trail. |
+| **setInterval + time-based expiry checks** | Using `new Date()` in JavaScript (client-side timezone) instead of `now()` in Postgres (server timezone). Expiry checks happen at wrong times. | Set application timezone globally. Use Postgres `now()` for all expiry logic. Convert to Athens time explicitly in app code. |
+| **Google Calendar API + DST transitions** | Calendar events are created in one timezone, but DST changes the effective time. Users see their appointment at a different time than expected. | Store appointment times in ISO 8601 format with timezone. Use `datetime.tzinfo` in Python or `.toISOString()` in Node for explicit timezone handling. Test at DST boundaries. |
 
 ---
 
-### Pitfall 15: Gemini Token Limit — Prompt Gets Truncated
+## Performance Traps
 
-If your prompt is very long (large list of services, availability, history), it may exceed Gemini's token limit (1M tokens for Flash-Lite), failing silently or being truncated.
+Patterns that work at small scale but fail as usage grows.
 
-**Prevention:**
-- Monitor token usage via `getTokenCount()` before sending to Gemini.
-- Summarize or paginate large lists (show top 5 services, not all 100).
-- Implement fallback: if prompt is too large, use simpler query.
-
-**Phase:** Phase 4 (Resilience).
-
----
-
-## Phase-Specific Warnings
-
-| Phase | Topic | Likely Pitfall | Mitigation |
-|-------|-------|----------------|-----------|
-| **Phase 1: Infra Setup** | Token storage | Token exposure via URL or logs | Environment variables, secret masking, git-secrets scanning |
-| **Phase 1: Infra Setup** | Webhook setup | Webhook conflicts (another webhook is active) | Delete old webhook, verify via getWebhookInfo(), per-env tokens |
-| **Phase 2: Multi-Bot Routing** | Express routing | Shared state leaking across bots | Request-scoped context (res.locals), no global variables, isolation tests |
-| **Phase 2: Multi-Bot Routing** | Signature verification | Wrong secret per token | Unique secret per bot, bind verification to token, constant-time comparison |
-| **Phase 2: Multi-Bot Routing** | Migration | Existing clients orphaned | Dual-mode operation, migration messages, booking migration script |
-| **Phase 3: Owner Onboarding** | State machine | Incomplete state, dropout, no resume | Explicit state model, database persistence, idempotency keys, timeout cleanup |
-| **Phase 3: Owner Onboarding** | Token registration | Duplicate claims, race condition | UNIQUE constraint, atomic upsert, token validation via getMe() |
-| **Phase 4: Resilience** | Gemini retry | Naive backoff, thundering herd | Exponential backoff + full jitter, circuit breaker, queue limits |
-| **Phase 4: Resilience** | Gemini context | Context loss on retry | Immutable request cache, idempotent prompts, request deduplication |
-| **Phase 4: Resilience** | Booking ordering | Out-of-order processing, unfair slot allocation | Sequential per-business, timestamp tiebreaker, DB uniqueness constraint |
-| **Phase 5: GDPR Deletion** | Cascade delete | Audit trail loss | Soft delete, separate audit log, retain anonymized bookings |
-| **Phase 5: GDPR Deletion** | Backup restore | Un-erased data restored | Pre-restore deletion audit check, point-in-time recovery, erasure retention markers |
+| Trap | Symptoms | Prevention | When It Breaks |
+|------|----------|------------|----------------|
+| **Full table scan for expiry notifications** | Poller takes 10 seconds to complete when there are 100 memberships; 5 minutes when there are 10,000. | Add index on `(expires_at, notified_at)` and query only memberships expiring in the next 3 days. | 1,000+ memberships per business, or 100+ businesses. |
+| **SELECT FOR UPDATE on heavily-booked membership** | Lock waits pile up; bookings start failing with "lock timeout." | Shorten the critical section: lock only during the `balance - 1` operation, not for validation. Use `SKIP LOCKED` in rare conflict scenarios. | 50+ concurrent bookings/minute for same client. |
+| **setInterval poller running every 60 seconds** | CPU usage stays low, but notifications arrive 1–2 minutes late instead of immediately. | For expiry notifications (non-urgent), 60s is fine. For booking alerts (time-sensitive), use webhook instead of polling. | 1,000+ notifications/minute. Switch to event-driven architecture. |
+| **Duplicate notification query without index** | Poller scans entire `notification_log` for each membership before sending. | Add composite index: `(membership_id, notification_type, DATE(sent_at))`. Query only last 24 hours. | 100,000+ notification log rows. |
+| **Logging every credit change** | Audit log grows unbounded; queries slow as table size increases. | Partition audit log by month. Archive old logs. Add retention policy (e.g., keep 1 year). | 1M+ audit log rows. |
+| **No connection pooling with Neon** | Each booking request opens a new connection to Neon. Connection overhead dominates query time. | Use Drizzle's built-in pooling or Neon's PgBouncer. Set pool size to 10–20. | 100+ concurrent requests. |
 
 ---
 
-## Confidence Assessment
+## Security Mistakes
 
-| Area | Confidence | Notes |
-|------|------------|-------|
-| **Telegram Token Exposure** | HIGH | Token security is well-documented in Telegram Bot API and security literature; URL exposure is a known anti-pattern. |
-| **Webhook Conflicts** | HIGH | "another webhook is active" is a common error in Telegram forums and GitHub issues; setWebhook API docs are clear. |
-| **Multi-Bot Express Routing** | HIGH | Shared state isolation is a fundamental async/Node.js pattern; tested across frameworks. |
-| **Signature Verification** | HIGH | HMAC-SHA256 verification is standard; per-token binding is explicit in webhook security best practices. |
-| **Onboarding State Machine** | MEDIUM-HIGH | State machine pitfalls are well-known in distributed systems; application-specific patterns vary. Recommendation is sound. |
-| **Token Registration Race** | HIGH | Check-then-act race conditions are classic database concurrency issues; UNIQUE constraints are proven mitigations. |
-| **Migration & Backward Compatibility** | MEDIUM | Migration strategies depend on business context; dual-mode operation is standard. |
-| **GDPR Deletion (Cascade)** | HIGH | EDPB Feb 2026 report confirms cascade-delete-related compliance failures; soft delete is recommended. |
-| **GDPR Deletion (Backup)** | HIGH | GDPR compliance guide on backups is explicit; backup restoration + deletion is a known gap. |
-| **Gemini Rate Limiting (Jitter)** | HIGH | Exponential backoff + jitter is industry standard (AWS, Stripe, Google docs). |
-| **Gemini Rate Limiting (Context)** | MEDIUM-HIGH | Context loss on retry is specific to stateless LLM APIs; recommendation is sound but requires implementation testing. |
-| **Gemini Rate Limiting (Queue Ordering)** | MEDIUM | Ordering guarantees depend on queue implementation; FIFO + DB constraints are proven. Implementation complexity varies. |
+Domain-specific security issues beyond general web security.
+
+| Mistake | Risk | Prevention |
+|---------|------|-----------|
+| **Logging credit balance in chat messages** | If chat logs are leaked or archived unencrypted, attacker sees how much each client is "worth" (target for fraud). | Only log balance changes in audit table, never in chat message content. If you must show balance, encrypt sensitive fields. |
+| **Allowing Gemini to infer client identity from payment text** | Owner says "Γιάννης πλήρωσε," Gemini matches it to a client by name search. But what if two clients have similar names? Wrong client gets the credit. | Never infer client from text. Require explicit client selection (buttons with client names, or a phone number lookup). |
+| **No validation of payment amounts** | Owner says "Γιάννης πλήρωσε 1,000 EUR" by accident (instead of 100). Bot creates membership worth 1,000 EUR. | Validate that payment amount matches a known package price. If it doesn't, ask owner to confirm or re-enter. |
+| **Storing payment records without context** | If a client disputes a charge, you have no way to prove they requested the membership (they could claim unauthorized access). | Require owner to explicitly confirm the payment before recording (via button click or typed confirmation). Log the confirmation timestamp + content. |
+| **Exposing membership IDs in chat** | Owner sees "Membership 12345 created." If an attacker finds this ID, they might be able to query or modify it. | Use opaque client IDs in chat (e.g., "Γιάννης" instead of "client_12345"). Never leak internal UUIDs to users. |
+| **No rate limiting on payment recording** | Attacker (or buggy script) sends 1,000 payment commands to the bot in 1 second. All are processed. | Implement rate limiting: max 5 payment records per hour per business. Log and alert on rate limit exceeded. |
 
 ---
 
-## Gaps to Address
+## UX Pitfalls
 
-- **Token rotation testing:** How to test token rotation without disrupting live service? Need a testing strategy.
-- **Migration window duration:** How long to keep dual-mode operation? No clear industry standard; suggest 2–4 weeks.
-- **Deletion audit compliance:** What format should the deletion audit log take for regulatory approval? Consult with legal.
-- **Rate-limit monitoring dashboard:** What metrics matter most? Recommend: 429 rate, retry latency, queue depth, Gemini quota usage.
+Common user experience mistakes in this domain.
+
+| Pitfall | User Impact | Better Approach |
+|---------|-------------|-----------------|
+| **Unclear expiry notification timing** | Client gets notified "Your membership expires in 3 days," but doesn't know if that means 3 calendar days, 72 hours, or "by the end of the third day." Books another appointment, then finds out they can't book it. | Use precise language: "Your pass expires 2026-08-17 at 23:59 (Athens time)" or "You have 3 days left: Aug 14, 15, 16." Show the exact expiry date and time. |
+| **No way to see membership balance mid-conversation** | Client asks "How many classes do I have left?" Bot responds with a static balance that might be outdated (especially if a booking was just created). | Add a client-facing "balance" query command. Query live balance from DB every time. Cache result for 1 minute to avoid overload. |
+| **"You have no credits" error without recovery path** | Client books and gets rejected: "No valid membership." Bot doesn't explain what to do next (buy a pass? contact owner?). | On rejection, immediately suggest next steps: "You have no credits. Your owner is Alice (alice@example.com). Send her 'I want to buy a pass.' in this chat." |
+| **Owner doesn't know what packages they've configured** | Owner tries to record a payment: "I sold a 5-session pass." But they actually created a "5-class package," and the names don't match. Confusion ensues. | When owner starts payment recording, bot lists all active packages: "Which package did they buy? 1️⃣ 5-class €50 (30 days) 2️⃣ Unlimited €100 (90 days)". Buttons, not free text. |
+| **No confirmation of membership creation** | Owner records payment. Bot immediately creates membership. Owner realizes they made a typo (e.g., "Γιάννη" instead of "Γιάννης"). Undo is not intuitive. | Show a summary before committing: "Creating: Giannis, 5-class €50, expires Aug 17. Correct? ✅ Confirm / ❌ Cancel". Only create on "Confirm." |
+| **Notification spam** | Client gets 5 identical "Your membership expires soon" messages. Stops reading bot messages altogether. | Deduplicate by membership + notification_type + date. Send once per day maximum. Provide a "do not remind me" option. |
+
+---
+
+## "Looks Done But Isn't" Checklist
+
+Things that appear complete but are missing critical pieces.
+
+- [ ] **Session Deduction:** Deduction logic prevents double-spending even if two bookings are confirmed simultaneously *for the same client*. Verify with concurrent test: 2 rapid bookings, check balance decreases by exactly 2.
+
+- [ ] **Cancellation Refunds:** Cancelled bookings restore credits *only if the booking was created during membership validity*. Test: book during valid period, cancel after membership expired → no refund. Book after expiry → no refund (or error).
+
+- [ ] **Expiry Enforcement:** Bookings are rejected (or flagged for owner review) if client has no valid membership. Verify: membership expires, next booking is rejected with clear message.
+
+- [ ] **Timezone Consistency:** All expiry dates are stored as TIMESTAMP WITH TIME ZONE. Expiry checks use Athens timezone explicitly (not server timezone). DST transitions don't cause silent date shifts. Test: create membership expiring on Oct 26, 2026 (DST boundary in Greece), verify expiry notification fires on correct date.
+
+- [ ] **Notification Deduplication:** Client receives each expiry notification (3 days before, 1 day before, on expiry day) *at most once per day*. Test: run poller twice, confirm only one notification sent. Check notification_log for duplicates.
+
+- [ ] **Audit Trail:** Every credit change (deduct, restore, expire) is logged to audit table with reason, amount, booking_id, and timestamp. Verify: run 10 bookings, check audit log has 10 entries with correct deltas.
+
+- [ ] **Payment Recording UX:** Owner must explicitly confirm payment amount and package before membership is created. Test: owner tries to record payment; bot shows summary; if owner doesn't confirm, membership is not created. Undo is available if owner made a mistake.
+
+- [ ] **Error Messages:** When membership validation fails (expired, insufficient credits), bot shows client the expiry date *and* owner contact info. Verify: rejected booking includes "Contact Alice (alice@example.com) to buy a pass."
+
+- [ ] **Rate Limiting:** Payment recording commands are rate-limited (e.g., max 10 per hour per business). Test: send 20 payment records in 1 minute, verify 11–20 are rejected with "rate limited" message.
+
+---
+
+## Recovery Strategies
+
+When pitfalls occur despite prevention, how to recover.
+
+| Pitfall | Recovery Cost | Recovery Steps |
+|---------|---------------|----------------|
+| **Double-deducted credits (Pitfall 1)** | MEDIUM | 1. Query audit_log for duplicate deductions on same booking/time. 2. Identify affected memberships. 3. INSERT compensating credit in audit_log with reason='RACE_CONDITION_CORRECTION'. 4. UPDATE memberships SET balance = balance + 1 WHERE id IN (affected). 5. Notify affected clients "credit restored due to system error." 6. Log incident & root cause in retro. |
+| **Incorrect expiry date (Pitfall 2)** | MEDIUM | 1. Query memberships WHERE expires_at is wrong (e.g., midnight instead of intended time). 2. Fix with UPDATE memberships SET expires_at = correct_date WHERE id IN (...). 3. Resend expiry notifications if expiry date was extended. 4. If memships were marked expired prematurely, restore any cancelled-with-no-refund bookings. |
+| **Cancelled booking with no refund when should have been refunded (Pitfall 3)** | LOW–MEDIUM | 1. Query booking WHERE cancelled_at, check membership.valid_from vs booking.created_at. 2. If booking was created during validity, issue compensating credit. 3. Notify client "credit restored for booking cancelled in error." |
+| **Wrong package assigned during payment recording (Pitfall 4)** | LOW | 1. Owner notices mistake immediately (within same chat session). 2. Issue undo command or call support flow. 3. If discovered later, manually correct: UPDATE memberships SET package_id = correct_id. 4. If balance changed, audit & notify. |
+| **Duplicate notifications sent (Pitfall 5)** | LOW | 1. Query notification_log, identify duplicates. 2. DELETE duplicate rows (keep the first one per membership per day). 3. Implement dedup check & rerun poller. 4. Notify affected clients "duplicate notifications were a system error; one real notification was sent." |
+| **Membership expired but old bookings exist** | MEDIUM | 1. Write one-off migration: for each cancelled booking after membership expired, check if refund should have been issued. 2. Issue credits to affected clients. 3. Audit trail explains correction. |
+
+---
+
+## Pitfall-to-Phase Mapping
+
+How roadmap phases should address these pitfalls.
+
+| Pitfall | Prevention Phase | Verification |
+|---------|------------------|--------------|
+| Concurrent session deduction race condition | **Phase 8 (Enforcement & Session Deduction)** | Run concurrent booking requests (e.g., `ab -c 5 -n 20`); verify final balance is correct. Check for missing transactions in audit_log. |
+| Timezone edge cases in rolling expiry | **Phase 7 (Config & Payment Recording)** [schema] + **Phase 9 (Notifications & Expiry)** [enforcement] | Create membership at 2 PM, set expiry to +30 days. Verify expiry timestamp is 2026-08-16T14:00:00+03:00 (not midnight). Run poller at DST boundary; confirm notification fires on correct date. |
+| Data integrity on cancellation after expiry | **Phase 8 (Enforcement & Session Deduction)** | Create booking, let membership expire, cancel booking. Verify: no credit restored. Create booking, cancel before expiry. Verify: credit restored. Test both paths. |
+| Chat UX ambiguity in payment recording | **Phase 7 (Config & Payment Recording)** | Walk through payment recording flow with actual owner. Confirm package selection is unambiguous (buttons, not free text). Verify confirmation step is required. |
+| Duplicate notification alerts from setInterval polling | **Phase 9 (Notifications & Expiry)** | Run poller twice manually; verify only one notification sent. Query notification_log for duplicates (should be zero). Test under load with 100+ memberships. |
+| No transaction locking on deduction | **Phase 8** | Same as session deduction race. |
+| No audit trail | **Phase 7** [schema] + **Phase 8** [write operations] | For each credit-affecting operation (deduct, restore, expire), verify audit_log has exactly one entry with correct reason + context. |
+| Ambiguous confirmation for payment | **Phase 7** | Owner records payment; bot shows summary; verify owner must click "Confirm" to proceed. Test: close chat without confirming → membership not created. |
+| Rate limiting not implemented | **Phase 7** | Send 20 payment records in 1 minute; verify 11–20 are rejected with rate-limit error. |
 
 ---
 
 ## Sources
 
-- [Telegram Bot Security Best Practices (2025)](https://alexhost.com/faq/what-are-the-best-practices-for-building-secure-telegram-bots/)
-- [Secure Telegram Bots: API Key Protection Guide](https://www.bitget.com/academy/12560603879287)
-- [Telegram Bot Webhooks Guide (Official)](https://core.telegram.org/bots/webhooks)
-- [Telegram Bot FAQ (Official)](https://core.telegram.org/bots/faq)
-- [Webhook Security Best Practices](https://hooque.io/guides/webhook-security/)
-- [GitHub Webhook Signature Verification](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries)
-- [State Machine Pitfalls in Embedded Systems](https://www.archimetric.com/common-pitfalls-state-machine-diagrams-embedded-systems/)
-- [Why Users Drop Off During Onboarding](https://www.saasfactor.co/blogs/why-users-drop-off-during-onboarding-and-how-to-fix-it)
-- [Best Practices for GDPR-Compliant Data Deletion](https://www.reform.app/blog/best-practices-gdpr-compliant-data-deletion)
-- [GDPR and Backups: Right to be Forgotten](https://www.struto.io/blog/gdpr-and-backups-how-to-restore-data-without-breaking-the-right-to-be-forgotten)
-- [GDPR Compliance Audit Failures 2026](https://www.red-gate.com/simple-talk/databases/its-2026-why-are-databases-still-failing-gdpr-compliance-audits/)
-- [Gemini API Rate Limits Guide](https://blog.laozhang.ai/en/posts/gemini-api-rate-limits-guide)
-- [Gemini API 429 RESOURCE_EXHAUSTED Fix (2026)](https://www.aifreeapi.com/en/posts/gemini-api-error-429-resource-exhausted-fix)
-- [Google Cloud: Handle 429 Resource Exhaustion Errors](https://cloud.google.com/blog/products/ai-machine-learning/learn-how-to-handle-429-resource-exhaustion-errors-in-your-llms)
-- [API Rate Limiting: 2026 Engineering Reference](https://www.digitalapplied.com/blog/api-rate-limiting-strategies-2026-engineering-reference/)
-- [API Rate Limiting at Scale: Patterns & Strategies](https://www.gravitee.io/blog/rate-limiting-apis-scale-patterns-strategies)
-- [GitHub Bot User to GitHub App Migration (2026)](https://brtkwr.com/posts/2026-01-06-migrating-from-github-bot-user-to-github-app/)
-- [Chatbot Platform Migration Guide](https://seamly.ai/resources/switching-from-one-chatbot-platform-to-another-heres-how-to-migrate-effortlessly)
-- [Multi-Tenant Webhook Security](https://instatunnel.substack.com/p/from-proxy-to-gateway-managing-multi)
+### Concurrent Access & Race Conditions
+- [How to Solve Race Conditions in a Booking System](https://hackernoon.com/how-to-solve-race-conditions-in-a-booking-system) — HackerNoon, discusses lost updates and SELECT FOR UPDATE
+- [Hands-on Preventing Database Race Conditions with Redis](https://iniakunhuda.medium.com/hands-on-preventing-database-race-conditions-with-redis-2c94453c1e47) — Medium, distributed locking strategies
+- [PostgreSQL Transaction Isolation Levels](https://www.postgresql.org/docs/current/transaction-iso.html) — Official PostgreSQL docs
+- [Understanding Isolation in PostgreSQL: MVCC & ACID](https://dev.to/kfir-g/understanding-isolation-in-postgresql-a-deep-dive-into-the-i-in-acid-3650) — DEV Community
+
+### Timezone Issues & DST Handling
+- [How to Handle Date and Time Correctly to Avoid Timezone Bugs](https://dev.to/kcsujeet/how-to-handle-date-and-time-correctly-to-avoid-timezone-bugs-4o03) — DEV Community
+- [Time Zones in Billing: Why Getting This Wrong Costs Real Money](https://getlago.com/blog/time-zone-nightmares) — Lago Blog (billing-specific)
+- [Understanding Time Zones and Subscription Billing](https://help.supliful.com/en/articles/8498900-understanding-time-zones-and-subscription-billing-a-guide-for-subscribers) — Supliful Help Center
+
+### Payment Integrity & Double-Spending
+- [Stripe Refunds Documentation](https://docs.stripe.com/refunds) — Official Stripe docs on refund processing & double-refund risks
+- [Clear Refund Rules in Membership Agreements](https://www.glueup.com/blog/clear-refund-rules-sample-membership-agreement) — Glue Up blog, membership refund best practices
+- [Understanding Refund Policies for Subscription Services](https://www.19pine.ai/blog/refund-policies-subscription) — Pine AI
+
+### Notification Deduplication & Polling
+- [How to Build Alert Deduplication Logic](https://oneuptime.com/blog/post/2026-01-30-alert-deduplication/view) — Oneuptime Blog
+- [How Deduplication Works in Zapier](https://docs.zapier.com/platform/build/deduplication) — Zapier Platform Docs
+- [Idempotency & Deduplication in System Design](https://www.systemdesignsandbox.com/learn/idempotency-deduplication) — System Design Sandbox
+- [How to Handle Kafka Message Deduplication](https://oneuptime.com/blog/post/2026-01-24-kafka-message-deduplication/view) — Oneuptime Blog
+
+### Chat UX & Natural Language
+- [Chatbot UX Fail & Design Best Practices 2026](https://lollypop.design/blog/2025/january/chatbot-ui-ux-design-best-practices-examples/) — Lollypop Design
+- [Reducing User Query Ambiguity Through Chatbot Clarifying Questions](https://image-ppubs.opensource.google/dirsearch-public/print/downloadPdf/11423066) — USPTO patent, clarification patterns
+
+### Drizzle ORM & Postgres Integration
+- [Drizzle ORM Transactions Documentation](https://orm.drizzle.team/docs/transactions) — Official Drizzle docs
+- [SELECT FOR UPDATE Support in Drizzle](https://github.com/drizzle-team/drizzle-orm/discussions/1337) — Drizzle GitHub discussion
+- [Drizzle Row-Level Security (RLS)](https://orm.drizzle.team/docs/rls) — Drizzle docs for multi-tenant isolation
+
+### Membership & Subscription Cancellation Patterns
+- [Stripe Cancel Subscriptions Documentation](https://docs.stripe.com/billing/subscriptions/cancel) — Stripe best practices for cancellation
+- [Cancel Flow Examples: Netflix, Canva, Spotify 2026](https://www.subjolt.com/guides/cancel-flows-that-convert/) — Subjolt, UX patterns for cancellation
 
 ---
 
-*Pitfalls research for: v1.1 multi-bot Telegram migration with owner onboarding, multi-tenant isolation, GDPR deletion, and rate-limit resilience*
-*Researched: 2026-07-10*
-*Overall confidence: HIGH*
+*Pitfalls research for: Chat-native appointment booking with membership/credit system*  
+*Researched: 2026-07-17*  
+*Confidence: HIGH (core patterns verified; recommendations based on production SaaS + Postgres best practices)*
