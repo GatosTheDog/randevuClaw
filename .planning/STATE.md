@@ -1,14 +1,12 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.1
-milestone_name: Per-Bot Infrastructure & Owner Onboarding
-status: Awaiting next milestone
-stopped_at: v1.2 roadmap creation complete
-last_updated: "2026-07-17T13:23:09.982Z"
+milestone: v1.2
+milestone_name: Billing & Membership System
+status: planning
+last_updated: "2026-07-17T13:36:46.976Z"
 last_activity: 2026-07-17
-last_activity_desc: Milestone v1.1 completed and archived
 progress:
-  total_phases: 2
+  total_phases: 0
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -26,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-07-17 after v1.1 milestone close)
 
 ## Current Position
 
-Phase: Milestone v1.1 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-07-17 — Milestone v1.1 completed and archived
+Status: Defining requirements
+Last activity: 2026-07-17 — Milestone v1.2 started
 
 ## Performance Metrics
 
