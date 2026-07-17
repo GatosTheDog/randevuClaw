@@ -128,10 +128,21 @@ Plans:
 
 **Plans**: 5 plans
 Plans:
+**Wave 1**
+
 - [ ] 07-01-PLAN.md — Wave 0: Test scaffolding (8 billing test stubs + COVERAGE.md)
 - [ ] 07-02-PLAN.md — Wave 1: Schema extension (3 new tables + client_name column) + migration SQL + [BLOCKING] drizzle-kit push
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 07-03-PLAN.md — Wave 2: Billing query layer (billing/queries.ts) + client_name upsert + test fixtures
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 07-04-PLAN.md — Wave 3: Billing command handlers (tools.ts) + payment flow keyboard (payment-flow.ts)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 07-05-PLAN.md — Wave 4: NLU integration (ai-owner-agent.ts) + callback routing (telegram.ts)
 
 ### Phase 8: Enforcement & Session Deduction

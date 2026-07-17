@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Billing & Membership System
 current_phase_name: defining requirements
-status: planning
+status: executing
 stopped_at: Phase 7 context gathered
-last_updated: "2026-07-17T13:51:46.145Z"
+last_updated: "2026-07-17T15:04:34.729Z"
 last_activity: 2026-07-17
 last_activity_desc: Milestone v1.2 started
 progress:
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-17 after v1.1 milestone close)
 
 Phase: Not started (defining requirements)
 Plan: —
-Status: Defining requirements
+Status: Ready to execute
 Last activity: 2026-07-17 — Milestone v1.2 started
 
 ## Performance Metrics
