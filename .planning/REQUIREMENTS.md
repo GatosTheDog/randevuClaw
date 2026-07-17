@@ -1,66 +1,79 @@
-# Requirements: RandevuClaw v1.1
+# Requirements: RandevuClaw v1.2
 
-**Milestone:** v1.1 — Per-Business Bots & Telegram PoC Completion  
-**Goal:** Pivot from shared platform bot to per-business Telegram bots; enable owner self-serve onboarding via chat; close Telegram PoC with GDPR compliance and production resilience.  
-**Status:** Active  
-**Last updated:** 2026-07-10
-
----
-
-## v1.1 Requirements
-
-### Bot Infrastructure
-
-- [x] **BOT-01**: Owner can register a Telegram bot by submitting their bot token via chat; platform automatically calls Telegram's `setWebhook` API to activate it
-- [x] **BOT-02**: All Telegram webhooks route via `/webhooks/telegram/:botToken`; each incoming request is matched to the correct business by token lookup
-- [x] **BOT-03**: Each registered bot token has a unique HMAC webhook secret; all incoming webhook requests are verified with constant-time comparison
-- [x] **BOT-04**: Telegram client layer is migrated from `node-telegram-bot-api` to Telegraf 4.15+; all existing booking and owner flows continue working unchanged
-- [x] **BOT-05**: PostgreSQL RLS policies enforce per-business DB isolation; cross-tenant row access is impossible even if application code omits a `WHERE business_id` clause
-
-### Owner Onboarding
-
-- [x] **ONB-01**: Owner completes a guided chat conversation to configure their business: name, weekly hours per day, and each service (name, price, duration in minutes)
-- [x] **ONB-02**: Onboarding state is persisted to the database; an owner who drops off mid-flow can resume exactly where they left off without restarting
-- [x] **ONB-03**: Owner can edit their business configuration after initial setup via chat: update hours, add/remove services, change prices
-- [x] **ONB-04**: All hardcoded fixture/seed businesses are removed; every business in the system is the result of an owner completing the onboarding flow
-
-### GDPR & Compliance
-
-- [ ] **COMP-02** *(continues from v1.0 Active)*: Client or owner sends a data-deletion request via chat (e.g., "διαγράψτε τα δεδομένα μου") and receives confirmation once completed
-- [ ] **COMP-03**: Soft-deleted data is permanently hard-deleted by a background job 30 days after the deletion request
-- [ ] **COMP-04**: A deletion audit log records every deletion request and its completion; the log is retained independently of the deleted data
-
-### Rate-Limit Resilience
-
-- [ ] **RESIL-01**: All Gemini API calls are processed through an in-process p-queue with concurrency limits; no messages are dropped under burst load within the free-tier rate limit
+**Milestone:** v1.2 Billing & Membership System
+**Goal:** Businesses can configure flexible billing models; owners record payments via chat; the bot tracks balances, enforces booking rules, and notifies before credits expire.
+**Updated:** 2026-07-17
 
 ---
 
-## Future Requirements (Deferred)
+## v1.2 Requirements
+
+### BILL — Package Configuration
+
+- [ ] **BILL-01**: Owner can create a billing package via chat (name, price, duration in days, session count or "unlimited")
+- [ ] **BILL-02**: Owner can view all active packages for their business via chat
+- [ ] **BILL-03**: Owner can deactivate a package via chat (existing memberships unaffected)
+
+### PAY — Payment Recording
+
+- [ ] **PAY-01**: Owner can record a client payment via chat using structured package selection (buttons) + Greek confirmation before creating membership
+- [ ] **PAY-02**: Bot creates a membership record with `expires_at = purchase_date + valid_days` (rolling window, TIMESTAMP WITH TIME ZONE, Athens timezone)
+- [ ] **PAY-03**: Owner can view a client's active membership and remaining sessions via chat
+
+### SESS — Session Tracking
+
+- [ ] **SESS-01**: On confirmed booking, bot atomically deducts 1 session from client's active membership in the same transaction as the booking insert
+- [ ] **SESS-02**: On booking cancellation where the booking was created within membership validity, bot restores 1 session credit atomically
+- [ ] **SESS-03**: On cancellation where membership has expired at time of cancellation, no credit is restored (sessions forfeited)
+- [ ] **SESS-04**: For unlimited-session memberships, no session count is decremented — only expiry date is checked
+
+### ENFC — Enforcement
+
+- [ ] **ENFC-01**: Owner can set booking enforcement policy per business via chat: "block if no valid membership" or "allow and flag"
+- [ ] **ENFC-02**: When policy is "block": bot refuses booking if client has no active membership and notifies client in Greek
+- [ ] **ENFC-03**: When policy is "flag": bot allows booking but sends owner a Greek alert about the unpaid client
+
+### NOTF — Billing Notifications
+
+- [ ] **NOTF-01**: Bot notifies client in Greek 7 days before their membership expires
+- [ ] **NOTF-02**: Bot notifies owner 7 days before any client's membership expires
+- [ ] **NOTF-03**: Expiry notifications are sent at most once per membership (dedup via notification log with UNIQUE constraint)
+- [ ] **NOTF-04**: Client can query their own balance via chat ("πόσα μαθήματα μου έχουν απομείνει;") and receive a Greek reply with sessions remaining and expiry date
+
+---
+
+## Deferred from v1.1 Phase 6 (not in v1.2 scope)
 
 | ID | Requirement | Deferred To |
 |----|-------------|-------------|
-| PLAT-01 | Deep-link business resolution on shared WhatsApp number | v1.2+ (blocked on Meta BV) |
-| COMP-01 | Client shown data-consent notice on first contact | v1.2+ (code complete; needs live WhatsApp to be observed) |
-| OWNR2-01 | Web dashboard as alternative to chat for owner management | v2.0 |
-| OWNR2-02 | Waitlist for fully-booked slots | v2.0 |
-| BOOK2-01 | Cancellation cutoff window (notice-period rule) | v2.0 |
+| COMP-02 | Client/owner data deletion via chat | v1.3 |
+| COMP-03 | 30-day hard-delete background job | v1.3 |
+| COMP-04 | Deletion audit log | v1.3 |
+| RESIL-01 | Gemini rate-limit p-queue | v1.3 |
+
+## Future Requirements (deferred to v1.3+)
+
+- Partial credit rollover on renewal (carry unused sessions, capped %) — v1.3
+- No-expiry punch cards (configurable per package) — v1.3
+- Bulk credit adjustments by owner with reason tracking — v1.3
+- Refund/proration on early membership cancellation — v1.3
+- Payment gateway integration (Viva Wallet / Stripe) — v2.0
+- Automatic invoicing / receipts — v2.0
 
 ---
 
-## Out of Scope (v1.1)
+## Out of Scope for v1.2
 
 | Item | Reason |
 |------|--------|
-| Meta Business Verification | External 1–6 week process; defer until Telegram PoC is perfected |
-| WhatsApp activation | Depends on Meta BV; deferred to v1.2+ |
-| Per-business WhatsApp numbers | Requires Meta BV per business; post-PoC |
-| Platform operator admin dashboard | Not needed for PoC; owners self-configure via chat |
-| Business owner web dashboard | Breaks "chat-only" PoC principle |
-| Multi-staff / per-instructor calendars | Single shared schedule sufficient for PoC |
-| Payments / deposits | Out of scope per original constraints |
-| English language support | Greek-only for PoC |
-| Queue persistence (Postgres-backed p-queue) | In-process queue sufficient for PoC; revisit if crashes occur |
+| Payment gateway or online payment collection | Manual owner recording sufficient for PoC; gateway adds cost + complexity |
+| Automatic/recurring billing | Out of PoC scope |
+| Refunds or chargebacks | Deferred |
+| Multiple simultaneous active memberships per client | One active membership per client per business for PoC; extend later |
+| Per-service-type token restrictions | Overkill for PoC |
+| WhatsApp activation / Meta Business Verification | Deferred to v1.2+ (still blocked on external process) |
+| GDPR deletion (COMP-02/03/04) | Deferred from v1.1 Phase 6; carry to v1.3 |
+| Gemini resilience (RESIL-01) | Deferred from v1.1 Phase 6; carry to v1.3 |
 
 ---
 
@@ -68,16 +81,20 @@
 
 | REQ-ID | Phase | Plan |
 |--------|-------|------|
-| BOT-01 | Phase 5 | — |
-| BOT-02 | Phase 4 | — |
-| BOT-03 | Phase 4 | — |
-| BOT-04 | Phase 4 | — |
-| BOT-05 | Phase 4 | — |
-| ONB-01 | Phase 5 | — |
-| ONB-02 | Phase 5 | — |
-| ONB-03 | Phase 5 | — |
-| ONB-04 | Phase 5 | — |
-| COMP-02 | Phase 6 | — |
-| COMP-03 | Phase 6 | — |
-| COMP-04 | Phase 6 | — |
-| RESIL-01 | Phase 6 | — |
+| BILL-01 | Phase 7 | TBD |
+| BILL-02 | Phase 7 | TBD |
+| BILL-03 | Phase 7 | TBD |
+| PAY-01 | Phase 7 | TBD |
+| PAY-02 | Phase 7 | TBD |
+| PAY-03 | Phase 7 | TBD |
+| SESS-01 | Phase 8 | TBD |
+| SESS-02 | Phase 8 | TBD |
+| SESS-03 | Phase 8 | TBD |
+| SESS-04 | Phase 8 | TBD |
+| ENFC-01 | Phase 8 | TBD |
+| ENFC-02 | Phase 8 | TBD |
+| ENFC-03 | Phase 8 | TBD |
+| NOTF-01 | Phase 9 | TBD |
+| NOTF-02 | Phase 9 | TBD |
+| NOTF-03 | Phase 9 | TBD |
+| NOTF-04 | Phase 9 | TBD |
