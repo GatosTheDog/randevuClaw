@@ -2,11 +2,11 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Billing & Membership System
-status: planning
-last_updated: "2026-07-17T06:43:46.486Z"
+status: roadmap_ready
+last_updated: "2026-07-17T07:00:00.000Z"
 last_activity: 2026-07-17
 progress:
-  total_phases: 0
+  total_phases: 3
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -17,17 +17,22 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-07-09 after v1.0)
+See: .planning/PROJECT.md (updated 2026-07-17 for v1.2)
 
 **Core value:** A client can book or cancel an appointment with a Greek business entirely through a chat conversation, in Greek, with zero friction — and the owner's calendar updates automatically.
-**Current focus:** Phase 04 — per-bot-foundation
+**Current focus:** v1.2 Billing & Membership System — roadmap defined, ready to plan Phase 7
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: Phase 7 — Billing Configuration & Payment Recording (not yet started)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-07-17 — Milestone v1.2 started
+Status: Roadmap ready; awaiting /gsd-plan-phase 7
+Last activity: 2026-07-17 — v1.2 roadmap created (3 phases, 17 requirements)
+
+```
+[Phase 7] [Phase 8] [Phase 9]
+[  0%  ]  [  0%  ]  [  0%  ]
+```
 
 ## Performance Metrics
 
@@ -128,6 +133,13 @@ Recent decisions affecting current work:
 - [Phase 05-04]: Respond-before-process: res.status(200).send('OK') fires before await botTokenStore.run() so Telegram never retries on slow getMeBotInfo calls
 - [Phase 05-04]: platform route registered BEFORE :webhookId router in server.ts — Express shadow prevention (RESEARCH.md Pitfall 1)
 - [Phase 05-04]: botToken update on re-registration requires separate db.update — activateBusiness only updates webhookId+webhookSecret per its contract
+- [Roadmap v1.2]: 3 phases derived from 17 requirements — Phase 7 (schema + owner billing tools), Phase 8 (booking enforcement + session deduction), Phase 9 (expiry notifications + client balance)
+- [Roadmap v1.2]: BILL/PAY grouped in Phase 7 — owner-facing only, zero changes to booking flow; SESS/ENFC in Phase 8 — requires Phase 7 schema; NOTF in Phase 9 — requires Phase 8 membership state machine
+- [Roadmap v1.2]: Session deduction must be atomic with booking insert (SELECT FOR UPDATE inside db.transaction()) to prevent concurrent deduction race conditions
+- [Roadmap v1.2]: All expiry timestamps stored as TIMESTAMP WITH TIME ZONE; all rolling window calculations use Europe/Athens timezone to prevent DST bugs
+- [Roadmap v1.2]: Immutable ledger pattern (membership_ledger append-only) chosen over mutable counter update — idempotency_key UNIQUE constraint prevents duplicate deductions
+- [Roadmap v1.2]: date-fns 4.4.0 is the only new dependency for rolling window calculations; no other new packages
+- [Roadmap v1.2]: NOTF-03 (dedup) implemented via membership_expiry_notifications table with UNIQUE constraint on (membership_id, notification_type, date) — same proven pattern as v1.0 reminder dedup
 
 ### Pending Todos
 
@@ -151,6 +163,9 @@ None yet.
 - [Phase 4]: Telegraf migration must keep all 208 tests green — run full suite before marking Phase 4 complete.
 - [Phase 5]: deleteWebhook must be called before setWebhook on any re-registration to prevent "another webhook is active" conflicts.
 - [Phase 6]: GDPR cascade must cover ALL tables holding user data — document full cascade chain before implementing.
+- [Phase 8]: Concurrent session deduction race (two simultaneous bookings both deducting from same membership) — must use SELECT FOR UPDATE inside db.transaction().
+- [Phase 8]: Cancel-after-expiry credit leak — bookings.membership_id FK required so cancellation handler knows which membership window to check.
+- [Phase 9]: Expiry sweep isRunning guard required (same pattern as v1.0 reminder poller) to prevent overlapping sweep executions.
 
 ## Deferred Items
 
@@ -166,13 +181,16 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-07-09:
 | v2 | OWNR2-01: Web dashboard alternative | Deferred to v2 |
 | v2 | OWNR2-02: Waitlist for fully-booked slots | Deferred to v2 |
 | v2 | BOOK2-01: Cancellation cutoff window | Deferred to v2 |
+| v1.3 | COMP-02/03/04: GDPR data deletion | Deferred from v1.1 Phase 6 |
+| v1.3 | RESIL-01: Gemini p-queue rate-limit resilience | Deferred from v1.1 Phase 6 |
 
 ## Session Continuity
 
-Last session: 2026-07-16T10:33:53.352Z
-Stopped at: context exhaustion at 75% (2026-07-16)
+Last session: 2026-07-17T07:00:00.000Z
+Stopped at: v1.2 roadmap creation complete
 Resume file: None
 
 ## Operator Next Steps
 
-- Plan Phase 4 with /gsd-plan-phase 4
+- Complete Phase 5 (05-07-PLAN.md still pending) before starting v1.2 work
+- Plan Phase 7 with /gsd-plan-phase 7

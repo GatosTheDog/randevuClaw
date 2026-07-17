@@ -4,6 +4,7 @@
 
 - ✅ **v1.0 MVP** — Phases 1-3 (shipped 2026-07-09)
 - 📋 **v1.1** — Phases 4-6 (planned)
+- 📋 **v1.2 Billing & Membership System** — Phases 7-9 (planned)
 
 ## Phases
 
@@ -23,6 +24,12 @@ See: `.planning/milestones/v1.0-ROADMAP.md`
 - [x] **Phase 4: Per-Bot Foundation** — Telegraf migration, per-token webhook routing, HMAC secret verification, and PostgreSQL RLS establish the infrastructure every v1.1 feature depends on. (completed 2026-07-11)
 - [ ] **Phase 5: Owner Self-Serve Onboarding** — Owners register their bot, complete guided business setup, and maintain their config entirely through chat; fixtures are removed.
 - [ ] **Phase 6: GDPR Compliance & Rate-Limit Resilience** — Data-deletion rights via chat, 30-day hard-delete job, audit trail, and p-queue Gemini resilience close out the Telegram PoC.
+
+### 📋 v1.2 Billing & Membership System (Planned)
+
+- [ ] **Phase 7: Billing Configuration & Payment Recording** — Owner defines billing packages and records client payments via chat; the bot creates memberships with rolling expiry windows and an immutable session ledger.
+- [ ] **Phase 8: Enforcement & Session Deduction** — Booking confirmation and cancellation atomically update session balances; the bot enforces per-business membership policies before accepting bookings.
+- [ ] **Phase 9: Expiry Notifications & Client Balance** — The platform sweeps for near-expiry memberships and notifies clients and owners proactively; clients can query their own session balance at any time via chat.
 
 ## Phase Details
 
@@ -100,6 +107,49 @@ Plans:
 
 **Plans**: TBD
 
+### Phase 7: Billing Configuration & Payment Recording
+
+**Goal**: Owner can configure billing packages and record client payments via chat; the bot creates memberships with rolling expiry windows and an immutable session ledger — with no changes to the existing booking flow.
+**Depends on**: Phase 5 (owner identity established via onboarding), Phase 4 (per-bot routing)
+**Requirements**: BILL-01, BILL-02, BILL-03, PAY-01, PAY-02, PAY-03
+**Success Criteria** (what must be TRUE):
+
+  1. Owner creates a billing package via chat (name, price, duration in days, session count or unlimited); the bot confirms and the package is immediately selectable for new client payments.
+  2. Owner records a client payment via chat using button-based package selection followed by an explicit Greek confirmation step; the bot creates a membership with the correct expiry date (purchase date + valid days, Europe/Athens timezone).
+  3. Owner lists all active packages for their business with a single chat command and receives a formatted Greek reply.
+  4. Owner deactivates a package via chat; it no longer appears in new payment flows while all existing memberships with that package remain intact.
+  5. Owner queries a specific client's membership via chat and receives a Greek reply showing package name, sessions remaining, and membership expiry date.
+
+**Plans**: TBD
+
+### Phase 8: Enforcement & Session Deduction
+
+**Goal**: Booking confirmation and cancellation atomically update the session ledger; the bot enforces per-business membership policies before accepting any booking.
+**Depends on**: Phase 7
+**Requirements**: SESS-01, SESS-02, SESS-03, SESS-04, ENFC-01, ENFC-02, ENFC-03
+**Success Criteria** (what must be TRUE):
+
+  1. When a client confirms a booking, the bot deducts exactly 1 session from the client's active membership in the same database transaction as the booking insert — the updated balance is immediately visible when the owner queries that client.
+  2. When a client cancels a booking that was created within their membership validity window, 1 session credit is restored atomically; when the membership has expired at the time of cancellation, no credit is restored.
+  3. For unlimited-session memberships, bookings and cancellations succeed with no session count change — only the expiry date is checked to determine validity.
+  4. Owner sets the business enforcement policy via chat ("block if no membership" or "allow and flag"); the chosen policy takes effect immediately for all subsequent booking attempts.
+  5. With "block" policy active, a client without a valid membership receives a Greek refusal message; with "flag" policy, the booking proceeds and the owner receives a Greek alert identifying the unpaid client.
+
+**Plans**: TBD
+
+### Phase 9: Expiry Notifications & Client Balance
+
+**Goal**: The platform proactively notifies clients and owners 7 days before a membership expires, and clients can query their own session balance at any time via chat.
+**Depends on**: Phase 8
+**Requirements**: NOTF-01, NOTF-02, NOTF-03, NOTF-04
+**Success Criteria** (what must be TRUE):
+
+  1. Seven days before a membership expires, the client receives a Greek notification with their sessions remaining and expiry date; the business owner simultaneously receives a Greek alert naming the expiring client and their remaining balance.
+  2. Expiry notifications are sent at most once per membership per notification trigger regardless of how many times the expiry sweep runs — duplicate notifications never reach clients or owners.
+  3. A client sends a Greek balance query (e.g. "πόσα μαθήματα μου έχουν απομείνει;") and receives an accurate Greek reply with sessions remaining and the membership expiry date for their active membership.
+
+**Plans**: TBD
+
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
@@ -107,6 +157,9 @@ Plans:
 | 1. Foundation, Webhook & Business Resolution | v1.0 | 3/4 | Complete | 2026-07-07 |
 | 2. AI Booking Conversations & Owner Alerts | v1.0 | 9/9 | Complete | 2026-07-08 |
 | 3. Calendar Sync, Agenda & Reminders | v1.0 | 6/6 | Complete | 2026-07-09 |
-| 4. Per-Bot Foundation | v1.1 | 6/6 | Complete    | 2026-07-11 |
-| 5. Owner Self-Serve Onboarding | v1.1 | 6/7 | In Progress|  |
+| 4. Per-Bot Foundation | v1.1 | 6/6 | Complete | 2026-07-11 |
+| 5. Owner Self-Serve Onboarding | v1.1 | 6/7 | In Progress | - |
 | 6. GDPR Compliance & Rate-Limit Resilience | v1.1 | 0/TBD | Not started | - |
+| 7. Billing Configuration & Payment Recording | v1.2 | 0/TBD | Not started | - |
+| 8. Enforcement & Session Deduction | v1.2 | 0/TBD | Not started | - |
+| 9. Expiry Notifications & Client Balance | v1.2 | 0/TBD | Not started | - |

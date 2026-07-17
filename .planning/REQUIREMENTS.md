@@ -79,22 +79,22 @@
 
 ## Traceability
 
-| REQ-ID | Phase | Plan |
-|--------|-------|------|
-| BILL-01 | Phase 7 | TBD |
-| BILL-02 | Phase 7 | TBD |
-| BILL-03 | Phase 7 | TBD |
-| PAY-01 | Phase 7 | TBD |
-| PAY-02 | Phase 7 | TBD |
-| PAY-03 | Phase 7 | TBD |
-| SESS-01 | Phase 8 | TBD |
-| SESS-02 | Phase 8 | TBD |
-| SESS-03 | Phase 8 | TBD |
-| SESS-04 | Phase 8 | TBD |
-| ENFC-01 | Phase 8 | TBD |
-| ENFC-02 | Phase 8 | TBD |
-| ENFC-03 | Phase 8 | TBD |
-| NOTF-01 | Phase 9 | TBD |
-| NOTF-02 | Phase 9 | TBD |
-| NOTF-03 | Phase 9 | TBD |
-| NOTF-04 | Phase 9 | TBD |
+| REQ-ID | Phase | Status | Plan |
+|--------|-------|--------|------|
+| BILL-01 | Phase 7 | Pending | TBD |
+| BILL-02 | Phase 7 | Pending | TBD |
+| BILL-03 | Phase 7 | Pending | TBD |
+| PAY-01 | Phase 7 | Pending | TBD |
+| PAY-02 | Phase 7 | Pending | TBD |
+| PAY-03 | Phase 7 | Pending | TBD |
+| SESS-01 | Phase 8 | Pending | TBD |
+| SESS-02 | Phase 8 | Pending | TBD |
+| SESS-03 | Phase 8 | Pending | TBD |
+| SESS-04 | Phase 8 | Pending | TBD |
+| ENFC-01 | Phase 8 | Pending | TBD |
+| ENFC-02 | Phase 8 | Pending | TBD |
+| ENFC-03 | Phase 8 | Pending | TBD |
+| NOTF-01 | Phase 9 | Pending | TBD |
+| NOTF-02 | Phase 9 | Pending | TBD |
+| NOTF-03 | Phase 9 | Pending | TBD |
+| NOTF-04 | Phase 9 | Pending | TBD |
