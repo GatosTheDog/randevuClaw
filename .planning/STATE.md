@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.2
-milestone_name: Billing & Membership System
-status: roadmap_ready
-last_updated: "2026-07-17T07:00:00.000Z"
+milestone: v1.1
+milestone_name: Per-Bot Infrastructure & Owner Onboarding
+status: in_progress
+last_updated: "2026-07-17T10:00:00.000Z"
 last_activity: 2026-07-17
 progress:
   total_phases: 3
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  completed_phases: 2
+  total_plans: 13
+  completed_plans: 13
+  percent: 67
 ---
 
 # Project State
@@ -20,18 +20,18 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-17 for v1.2)
 
 **Core value:** A client can book or cancel an appointment with a Greek business entirely through a chat conversation, in Greek, with zero friction — and the owner's calendar updates automatically.
-**Current focus:** v1.2 Billing & Membership System — roadmap defined, ready to plan Phase 7
+**Current focus:** v1.1 — Phase 6 (GDPR Compliance & Rate-Limit Resilience) is next; v1.2 roadmap documented for later
 
 ## Current Position
 
-Phase: Phase 7 — Billing Configuration & Payment Recording (not yet started)
+Phase: Phase 6 — GDPR Compliance & Rate-Limit Resilience (not yet started)
 Plan: —
-Status: Roadmap ready; awaiting /gsd-plan-phase 7
-Last activity: 2026-07-17 — v1.2 roadmap created (3 phases, 17 requirements)
+Status: Phase 4 ✅ Phase 5 ✅ Phase 6 pending planning
+Last activity: 2026-07-17 — corrected focus back to v1.1 Phase 6
 
 ```
-[Phase 7] [Phase 8] [Phase 9]
-[  0%  ]  [  0%  ]  [  0%  ]
+[Phase 4] [Phase 5] [Phase 6]
+[ 100% ]  [ 100% ]  [  0%  ]
 ```
 
 ## Performance Metrics
