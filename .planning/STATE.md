@@ -2,37 +2,34 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Per-Bot Infrastructure & Owner Onboarding
-status: in_progress
-last_updated: "2026-07-17T10:00:00.000Z"
+status: Awaiting next milestone
+stopped_at: v1.2 roadmap creation complete
+last_updated: "2026-07-17T13:23:09.982Z"
 last_activity: 2026-07-17
+last_activity_desc: Milestone v1.1 completed and archived
 progress:
-  total_phases: 3
-  completed_phases: 2
-  total_plans: 13
-  completed_plans: 13
-  percent: 67
+  total_phases: 2
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-07-17 for v1.2)
+See: .planning/PROJECT.md (updated 2026-07-17 after v1.1 milestone close)
 
 **Core value:** A client can book or cancel an appointment with a Greek business entirely through a chat conversation, in Greek, with zero friction — and the owner's calendar updates automatically.
-**Current focus:** v1.1 — Phase 6 (GDPR Compliance & Rate-Limit Resilience) is next; v1.2 roadmap documented for later
+**Current focus:** v1.1 closed — v1.2 Billing & Membership System is next (Phase 7)
 
 ## Current Position
 
-Phase: Phase 6 — GDPR Compliance & Rate-Limit Resilience (not yet started)
+Phase: Milestone v1.1 complete
 Plan: —
-Status: Phase 4 ✅ Phase 5 ✅ Phase 6 pending planning
-Last activity: 2026-07-17 — corrected focus back to v1.1 Phase 6
-
-```
-[Phase 4] [Phase 5] [Phase 6]
-[ 100% ]  [ 100% ]  [  0%  ]
-```
+Status: Awaiting next milestone
+Last activity: 2026-07-17 — Milestone v1.1 completed and archived
 
 ## Performance Metrics
 
@@ -192,5 +189,4 @@ Resume file: None
 
 ## Operator Next Steps
 
-- Complete Phase 5 (05-07-PLAN.md still pending) before starting v1.2 work
-- Plan Phase 7 with /gsd-plan-phase 7
+- Start the next milestone with /gsd-new-milestone

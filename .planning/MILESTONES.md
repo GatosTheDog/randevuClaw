@@ -1,5 +1,24 @@
 # Milestones
 
+## v1.1 Per-Bot Infrastructure & Owner Onboarding (Shipped: 2026-07-17)
+
+**Phases completed:** 2 phases, 13 plans, 25 tasks  
+**Code:** +3,571 / -654 lines TypeScript/SQL across 47 files (5,162 total src/ LOC)  
+**Timeline:** 2026-07-10 → 2026-07-17 (7 days)
+
+**Key accomplishments:**
+
+- Telegraf migration + per-bot UUID-keyed webhook routing: each business runs its own Telegram bot with a dedicated `/webhooks/telegram/:webhookId` entry point (BOT-04/BOT-05)
+- PostgreSQL RLS enforcement via AsyncLocalStorage context threading: per-request botTokenStore dispatches tenant context into every Drizzle transaction, enforced at the DB layer not just application layer (BOT-03)
+- HMAC constant-time webhook verification per bot with `crypto.timingSafeEqual` replacing string equality (BOT-02)
+- 25-step DB-backed owner onboarding state machine via Telegram chat: TIME_REGEX validation, incremental business_hours writes, service collection loop (ONB-01/ONB-02)
+- Platform bot 3-path routing (new/resume/re-registration) with HMAC-verified webhook handler + automatic `setWebhook`/`deleteWebhook` sequencing (BOT-01)
+- Owner edit flows post-onboarding (ONB-03) + fixture seed removal replacing all hardcoded businesses with real onboarded ones (ONB-04)
+- AI-powered owner agent (Gemini NLU replacing keyword matching), inline keyboard buttons UX, and streamlined hours entry (3 quick-task improvements)
+- 25-test suite (8 integration + 17 unit) with full mock isolation — no real Telegram API or DB in CI
+
+---
+
 ## v1.0 MVP (Shipped: 2026-07-09)
 
 **Phases completed:** 3 phases, 19 plans, 32 tasks

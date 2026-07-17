@@ -51,6 +51,56 @@
 
 ---
 
+## Milestone: v1.1 — Per-Bot Infrastructure & Owner Onboarding
+
+**Shipped:** 2026-07-17
+**Phases:** 2 | **Plans:** 13 | **Tasks:** 25
+**Code:** +3,571 / -654 lines | 5,162 total src/ LOC | 7 days
+
+### What Was Built
+
+- Telegraf migration: each business gets its own bot token; UUID-keyed webhook routing at `/webhooks/telegram/:webhookId` with HMAC constant-time verification
+- AsyncLocalStorage RLS context threading: `withBusinessContext` injects per-transaction tenant identity into every Drizzle call, enforced at the PostgreSQL layer
+- 25-step DB-backed owner onboarding state machine: bot token registration, `getMe`/`setWebhook` automation, business hours (including split-hours), services + prices, all via guided Telegram chat
+- Platform bot 3-path routing (new owner / resume / re-registration) with unregister-then-register sequencing
+- Owner edit flows post-onboarding (hours, services, prices) + removal of all hardcoded seed fixtures
+- AI-powered owner agent (Gemini NLU), inline keyboard buttons, streamlined hours entry (3 quick-task improvements post Phase 5)
+
+### What Worked
+
+- **AsyncLocalStorage for RLS context:** Threading tenant identity through async Drizzle calls without modifying every function signature was the right call. Zero cross-contamination in tests, clean isolation in prod.
+- **UUID webhook IDs:** Keeping bot tokens out of URL paths and logs eliminated a whole class of accidental token exposure. The UUID lookup table adds one DB read but is the correct security tradeoff.
+- **DB-backed resumable onboarding:** Storing step state in `onboarding_sessions` (not memory) meant an owner's dropout mid-flow is completely invisible to them on resume — no complex session management.
+- **Unregister-before-register sequencing (handleActivate):** Pre-emptive `deleteWebhook` before `setWebhook` prevented the "another webhook active" conflict on re-registration; established as a hard invariant.
+- **Quick-task UX improvements:** The AI owner agent + keyboard buttons were 3 quick tasks that dramatically improved the onboarding experience without entering the full plan/execute cycle. Good use of the quick-task track.
+
+### What Was Inefficient
+
+- **Phase 4/5 planning docs archived before milestone close:** Commit `8f2f3ec` deleted the SUMMARY.md files, requiring a git-restore step during milestone close. Archive should happen during `milestone.complete`, not manually before.
+- **Phase 6 requirement drift:** COMP-02/03/04/RESIL-01 were in the ROADMAP as Phase 6 but had already been moved to v1.3 in REQUIREMENTS.md — the ROADMAP wasn't updated. Led to a planning conflict at close time.
+- **Plan count in milestone.complete:** The gsd-tools CLI reported "0 plans" because phase directories were already empty. Archiving phases before running `milestone.complete` breaks the plan-count aggregation.
+
+### Patterns Established
+
+- `botTokenStore.run()` wrapping pattern: every handler that dispatches per-bot logic must enter the AsyncLocalStorage context explicitly — even in tests (Jest auto-mock of `AsyncLocalStorage.run` returns undefined and silently skips the inner body)
+- Schema-push via Node.js script (not drizzle-kit push) for `UNIQUE` constraint additions in CI-like environments — drizzle-kit push requires a TTY prompt that isn't available in automated flows
+- RLS GRANT CONNECT migrations need dynamic DB name substitution — never hardcode `neondb` when the live Neon DB name may differ from local test DBs
+- `res.status(200).send('OK')` before `await botTokenStore.run()` in platform webhook handler — respond before processing to prevent Telegram retries on slow `getMeBotInfo` calls
+
+### Key Lessons
+
+1. Keep ROADMAP.md and REQUIREMENTS.md in sync whenever requirements are deferred — don't let the two documents diverge silently.
+2. Run `milestone.complete` CLI before manually archiving phase directories — the CLI needs the SUMMARY.md files in place to generate accurate accomplishment lists and plan counts.
+3. `botTokenStore.run` in tests requires an explicit call-through mock, not Jest's auto-mock — the async context doesn't propagate through mocked `AsyncLocalStorage.run`.
+4. Schema push for UNIQUE constraints: always check if drizzle-kit requires a TTY before using it in automated scripts; have a Node.js fallback ready.
+
+### Cost Observations
+
+- Model mix: ~100% Sonnet 4.6
+- Notable: per-bot RLS + Telegraf migration planned and executed entirely on Sonnet budget profile
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -58,14 +108,18 @@
 | Milestone | Phases | Plans | Key Change |
 |-----------|--------|-------|------------|
 | v1.0 | 3 | 19 | Initial build — established all core patterns |
+| v1.1 | 2 | 13 | Per-bot routing + DB-backed onboarding state machine |
 
 ### Cumulative Quality
 
 | Milestone | Tests | TypeScript | Notes |
 |-----------|-------|------------|-------|
 | v1.0 | 208 | Clean | All 3 phases Nyquist-compliant |
+| v1.1 | 28 test files | Clean | Full mock isolation; no real Telegram API or DB in CI |
 
 ### Top Lessons (Verified Across Milestones)
 
 1. External human actions (Meta BV, OAuth) must start on day 1 — they gate delivery, not code.
 2. Atomic claim guards prevent double-send/double-sync races — apply universally to any idempotent poller.
+3. Keep ROADMAP.md and REQUIREMENTS.md in sync when deferring requirements — silent divergence creates planning confusion at milestone close.
+4. Run `milestone.complete` CLI before archiving phase docs manually — the CLI needs SUMMARY.md files in place for accurate stats.

@@ -4,7 +4,7 @@
 
 A WhatsApp-native appointment booking platform for Greek service businesses (pilates studios, gyms, hair salons, etc.). Clients book, cancel, or ask questions by chatting with a shared number; an AI agent understands the request, figures out which business they mean, and handles the booking. Business owners run everything — accepting/rejecting bookings, cancellations, daily agenda — through chat too, no separate app or dashboard required.
 
-**PoC state (v1.0):** Telegram is the active messaging channel — WhatsApp is shelved pending Meta Business Verification (1-6 week external process). All booking logic, calendar sync, and reminders are implemented and tested via Telegram; the same code wires to WhatsApp once verification clears.
+**PoC state (v1.1):** Each business runs its own Telegram bot. Owners register and configure their business entirely through a guided Telegram chat — no manual DB intervention. WhatsApp is shelved pending Meta Business Verification (1-6 week external process); the same booking logic wires to WhatsApp once verification clears.
 
 ## Core Value
 
@@ -38,6 +38,11 @@ A client can book or cancel an appointment with a Greek business entirely throug
 - ✓ Owner receives daily agenda message (8am Athens time) — v1.0 (OWNR-03)
 - ✓ Confirmed bookings auto-sync to Google Calendar; cancellations remove/update the event — v1.0 (OWNR-04, code complete; OAuth credentials pending)
 - ✓ Client receives DST-safe 24h/1h reminder before their appointment — v1.0 (NOTF-01)
+- ✓ Each business runs its own Telegram bot; per-bot webhook routing via UUID; HMAC-verified — v1.1 (BOT-02, BOT-03, BOT-04, BOT-05)
+- ✓ Owner registers bot token via chat; platform auto-calls setWebhook and activates the bot — v1.1 (BOT-01)
+- ✓ Owner completes full business setup (hours, services, prices) through a guided Telegram chat — v1.1 (ONB-01, ONB-02)
+- ✓ Owner can resume a dropped setup session and update config post-onboarding — v1.1 (ONB-03)
+- ✓ Hardcoded seed fixtures removed; every business is the result of real owner onboarding — v1.1 (ONB-04)
 
 ### Active
 
@@ -60,12 +65,13 @@ A client can book or cancel an appointment with a Greek business entirely throug
 
 ## Context
 
-- v1.0 shipped 2026-07-09: 3 phases, 19 plans, 32 tasks, 3,263 LOC TypeScript, 208 tests passing (Nyquist-compliant)
-- Tech stack: Node.js/TypeScript, Neon/Drizzle (Postgres), Telegram Bot API (active), WhatsApp Cloud API (wired, pending Meta BV), @google/genai (Gemini 2.5 Flash-Lite), Google Calendar API, fly.io
-- Telegram-first pivot (Phase 2 D-01): WhatsApp shelved after Meta BV delay emerged. Telegram webhook, client SDK, and owner callback_query flow are the PoC testing surface. WhatsApp client is built and wired; activating it requires Meta BV approval.
-- Meta Business Verification not yet submitted — submit immediately; approval takes 1-6 weeks and gates real WhatsApp delivery
-- OAuth consent flow (Google Calendar) CLI is ready; tokens to be provisioned before end-to-end calendar sync can be demonstrated live (`npm run setup-calendar -- --business-slug pilates-athens`)
-- 208/208 tests pass; TypeScript clean. All v1.0 gaps are operational (external human actions), not code defects.
+- v1.0 shipped 2026-07-09: 3 phases, 19 plans, 32 tasks, 3,263 LOC TypeScript, 208 tests
+- v1.1 shipped 2026-07-17: 2 phases, 13 plans, 25 tasks, +3,571/-654 lines, 5,162 total src/ LOC
+- Tech stack: Node.js/TypeScript, Neon/Drizzle (Postgres + RLS), Telegraf (per-bot Telegram), WhatsApp Cloud API (wired, pending Meta BV), @google/genai (Gemini 2.5 Flash-Lite), Google Calendar API, fly.io
+- Per-bot routing: each business has its own bot token; `businesses.webhook_id` (UUID) maps webhook path to tenant; AsyncLocalStorage threads RLS context per request
+- Meta Business Verification not yet submitted — submit immediately; gates real WhatsApp delivery (1-6 week approval)
+- OAuth consent flow (Google Calendar) CLI ready; tokens needed for live calendar sync demo
+- All tests pass; TypeScript clean. Open gaps are operational (external human actions), not code defects.
 
 ## Constraints
 
@@ -90,7 +96,11 @@ A client can book or cancel an appointment with a Greek business entirely throug
 | In-process setInterval pollers (no cron, no Redis) | Keeps stack near-$0; no extra infrastructure for 1-business PoC | ✓ Good |
 | MAX_CALENDAR_SYNC_RETRIES=10 at 5-min intervals (~50 min window) | Sufficient retry window before permanent abandonment; avoids infinite retry | ✓ Good |
 | owner-approval callback_query via atomic UPDATE...WHERE...RETURNING CAS | Eliminates read-then-write race on concurrent owner taps | ✓ Good |
-| Owner onboarding/config via chat, no web dashboard | Consistent "chat only" simplicity goal for PoC | — Phase 4 pending |
+| Owner onboarding/config via chat, no web dashboard | Consistent "chat only" simplicity goal for PoC | ✓ Good — v1.1 shipped |
+| Telegraf over raw Telegram Bot API | Type-safe middleware layer; easier webhook-to-bot dispatch | ✓ Good — clean per-bot routing |
+| AsyncLocalStorage for RLS context (not request locals or function params) | Thread-safe context propagation across async Drizzle calls without modifying every function signature | ✓ Good — zero cross-contamination in tests |
+| UUID webhook IDs (not bot token in URL) | Bot token must never appear in logs or URL paths; UUID-keyed lookup is opaque | ✓ Good — BOT-04 security requirement met |
+| 25-step Telegram onboarding state machine (DB-backed, resumable) | No session storage needed; owner can drop off and resume; chat is the only interface | ✓ Good — ONB-03 resume confirmed |
 
 ## Evolution
 
@@ -107,4 +117,4 @@ A client can book or cancel an appointment with a Greek business entirely throug
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-17 — v1.2 milestone started*
+*Last updated: 2026-07-17 — v1.1 milestone closed, v1.2 next*
