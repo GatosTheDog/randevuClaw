@@ -34,7 +34,7 @@ See: `.planning/milestones/v1.1-ROADMAP.md`
 ### 🚧 v1.2 Billing & Membership System (Planned)
 
 - [ ] **Phase 7: Billing Configuration & Payment Recording** — Owner defines billing packages and records client payments via chat; the bot creates memberships with rolling expiry windows and an immutable session ledger.
-- [ ] **Phase 8: Enforcement & Session Deduction** — Booking confirmation and cancellation atomically update session balances; the bot enforces per-business membership policies before accepting bookings.
+- [x] **Phase 8: Enforcement & Session Deduction** — Booking confirmation and cancellation atomically update session balances; the bot enforces per-business membership policies before accepting bookings. (completed 2026-07-20)
 - [ ] **Phase 9: Expiry Notifications & Client Balance** — The platform sweeps for near-expiry memberships and notifies clients and owners proactively; clients can query their own session balance at any time via chat.
 
 ## Phase Details
@@ -201,5 +201,5 @@ Plans:
 | 5. Owner Self-Serve Onboarding | v1.1 | 7/7 | Complete | 2026-07-17 |
 | 6. GDPR Compliance & Rate-Limit Resilience | v1.3 | 0/TBD | Deferred | - |
 | 7. Billing Configuration & Payment Recording | v1.2 | 5/5 | In Progress|  |
-| 8. Enforcement & Session Deduction | v1.2 | 5/5 | In Progress|  |
+| 8. Enforcement & Session Deduction | v1.2 | 5/5 | Complete    | 2026-07-20 |
 | 9. Expiry Notifications & Client Balance | v1.2 | 0/TBD | Not started | - |
