@@ -15,7 +15,7 @@ import { checkAvailability } from '../business/availability';
 import { sendTelegramMessage, sendTelegramMessageWithKeyboard } from '../telegram/client';
 import { deleteBookingFromCalendar } from '../calendar/sync';
 import { logger } from '../utils/logger';
-import { getActiveMembershipForDeduction, deductSession, getClientName, findMembershipByBooking, restoreCredit } from '../billing/queries';
+import { getActiveMembershipForDeduction, deductSession, getClientName, findMembershipByBooking, restoreCredit, ActiveMembershipForDeduction } from '../billing/queries';
 
 export interface ToolContext {
   business: { id: number; name: string; ownerTelegramId: string | null; enforcementPolicy?: string };
@@ -154,6 +154,11 @@ async function resolveConflictOrTaken(
   return { success: false, error: 'slot_taken' };
 }
 
+// CR-04: true when a membership has remaining capacity (unlimited = null, or > 0 sessions left).
+// Used to guard both enforcement checks and session deduction against exhausted packs.
+const hasCapacity = (m: ActiveMembershipForDeduction): boolean =>
+  m.sessionsRemaining === null || m.sessionsRemaining > 0;
+
 async function bookAppointmentTool(
   args: Record<string, unknown>,
   context: ToolContext
@@ -167,8 +172,12 @@ async function bookAppointmentTool(
   const enforcementPolicy = context.business.enforcementPolicy ?? 'allow';
   const membership = await getActiveMembershipForDeduction(context.business.id, context.clientPhone);
 
-  // ENFC-02: block policy + no membership → refuse before insertBooking (no booking row created)
-  if (enforcementPolicy === 'block' && membership === null) {
+  // CR-04: exhausted packs (sessionsRemaining === 0) must trigger enforcement same as no membership.
+  // noValidMembership = true when the client has no membership OR has a fully exhausted pack.
+  const noValidMembership = membership === null || !hasCapacity(membership);
+
+  // ENFC-02: block policy + no valid membership → refuse before insertBooking (no booking row created)
+  if (enforcementPolicy === 'block' && noValidMembership) {
     return {
       success: false,
       error: 'no_membership',
@@ -195,7 +204,8 @@ async function bookAppointmentTool(
     const clientName = await getClientName(context.business.id, context.clientPhone);
 
     // Phase 8: flag alert (ENFC-03, D-11) — BEFORE alertOwnerNewBooking, NOT in try/catch (critical)
-    if (enforcementPolicy === 'flag' && membership === null && context.business.ownerTelegramId) {
+    // CR-04: use noValidMembership to also flag exhausted packs (sessionsRemaining === 0)
+    if (enforcementPolicy === 'flag' && noValidMembership && context.business.ownerTelegramId) {
       const flagText =
         '⚠️ Νέα κράτηση από πελάτη χωρίς ενεργή συνδρομή: ' +
         (clientName ?? context.clientPhone) +
@@ -209,8 +219,9 @@ async function bookAppointmentTool(
       await sendTelegramMessage(context.business.ownerTelegramId, flagText);
     }
 
-    // Phase 8: session deduction (SESS-01, D-02) — only for finite memberships (D-06)
-    if (membership !== null && membership.sessionsRemaining !== null) {
+    // Phase 8: session deduction (SESS-01, D-02) — only for finite memberships with remaining sessions (D-06)
+    // CR-04: guard against sessionsRemaining === 0 to prevent driving the counter below zero
+    if (membership !== null && membership.sessionsRemaining !== null && membership.sessionsRemaining > 0) {
       await deductSession(membership.id, booking.id, 'booking:' + booking.id + ':deduction');
     }
 
