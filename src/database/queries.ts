@@ -33,6 +33,8 @@ export interface Business {
   botToken: string | null;
   webhookId: string | null;
   webhookSecret: string | null;
+  /** Phase 8 (D-07): 'allow' | 'block' | 'flag' — controls booking-engine behaviour when client has no active membership. */
+  enforcementPolicy: string;
   createdAt: Date;
 }
 

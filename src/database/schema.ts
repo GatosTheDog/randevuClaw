@@ -40,10 +40,12 @@ export const businesses = pgTable('businesses', {
   // Phase 4 (nullable — D-07): HMAC secret for webhook signature verification
   // via constant-time comparison (crypto.timingSafeEqual, D-06).
   webhookSecret: text('webhook_secret'),
-  // Phase 8 (ENFC-01 — nullable: table is non-empty; NULL treated as 'flag' at query time).
-  // Per-business booking enforcement policy: 'block' (refuse clients without active membership)
-  // or 'flag' (allow booking and alert owner). Queried fresh on every booking attempt — no caching.
-  enforcementPolicy: text('enforcement_policy'),
+  // Phase 8 (D-07): enforcement policy for clients with no active membership.
+  // 'allow' = proceed (default); 'block' = reject booking; 'flag' = allow with
+  // owner alert. NOT NULL with DEFAULT 'allow' — existing rows are safe after
+  // migration (permit-by-default). CHECK constraint in migration enforces valid
+  // values at DB level; Zod enforces at app level (Plan 05).
+  enforcementPolicy: text('enforcement_policy').notNull().default('allow'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 
