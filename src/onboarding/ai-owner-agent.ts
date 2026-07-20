@@ -26,7 +26,7 @@ import { showClientSelection } from '../telegram/handlers/payment-flow';
 import { sendTelegramMessageWithKeyboard } from '../telegram/client';
 
 const ai = new GoogleGenAI({ apiKey: config.geminiApiKey });
-const GEMINI_MODEL = 'gemini-3.1-flash-lite';
+const GEMINI_MODEL = 'gemini-2.5-flash-lite';
 const MAX_TOOL_ROUNDS = 5;
 
 const GREEK_WEEKDAYS = ['Κυριακή', 'Δευτέρα', 'Τρίτη', 'Τετάρτη', 'Πέμπτη', 'Παρασκευή', 'Σάββατο'];
