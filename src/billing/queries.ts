@@ -366,6 +366,26 @@ export async function findMembershipByBooking(bookingId: number): Promise<number
 }
 
 /**
+ * Returns the client's registered name from clientBusinessRelationships,
+ * or null if no relationship record exists or clientName is not set.
+ * Used by the flag alert in bookAppointmentTool (D-11) to identify the
+ * client by name rather than phone number.
+ */
+export async function getClientName(businessId: number, clientPhone: string): Promise<string | null> {
+  const rows = await getConn()
+    .select({ clientName: clientBusinessRelationships.clientName })
+    .from(clientBusinessRelationships)
+    .where(
+      and(
+        eq(clientBusinessRelationships.businessId, businessId),
+        eq(clientBusinessRelationships.senderPhone, clientPhone)
+      )
+    )
+    .limit(1);
+  return rows[0]?.clientName ?? null;
+}
+
+/**
  * Returns the enforcement policy for a business, or 'allow' if no row found
  * (backward-compatible fallback — D-08). Uses getConn() for RLS enforcement.
  */

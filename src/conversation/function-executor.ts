@@ -15,9 +15,10 @@ import { checkAvailability } from '../business/availability';
 import { sendTelegramMessage, sendTelegramMessageWithKeyboard } from '../telegram/client';
 import { deleteBookingFromCalendar } from '../calendar/sync';
 import { logger } from '../utils/logger';
+import { getActiveMembershipForDeduction, deductSession, getClientName } from '../billing/queries';
 
 export interface ToolContext {
-  business: { id: number; name: string; ownerTelegramId: string | null };
+  business: { id: number; name: string; ownerTelegramId: string | null; enforcementPolicy?: string };
   clientPhone: string;
   // Turn-constant identifier, stable across every tool call within the same
   // conversation turn — used for logging/tracing only.
@@ -162,6 +163,22 @@ async function bookAppointmentTool(
   const service = await findServiceById(context.business.id, parsed.service_id);
   if (!service) return { success: false, error: 'service_not_found' };
 
+  // Phase 8: enforcement pre-check (D-10 — must precede insertBooking)
+  const enforcementPolicy = context.business.enforcementPolicy ?? 'allow';
+  const membership = await getActiveMembershipForDeduction(context.business.id, context.clientPhone);
+
+  // ENFC-02: block policy + no membership → refuse before insertBooking (no booking row created)
+  if (enforcementPolicy === 'block' && membership === null) {
+    return {
+      success: false,
+      error: 'no_membership',
+      message:
+        'Για να κάνετε κράτηση, χρειάζεστε ενεργή συνδρομή. Επικοινωνήστε με ' +
+        context.business.name +
+        ' για ανανέωση.',
+    };
+  }
+
   const expiresAt = new Date(Date.now() + PENDING_BOOKING_TTL_MS);
   const booking = await insertBooking({
     businessId: context.business.id,
@@ -174,6 +191,29 @@ async function bookAppointmentTool(
   });
 
   if (booking) {
+    // Phase 8, step 4: look up client name for flag alert (D-11 — unconditional, before if-flag block)
+    const clientName = await getClientName(context.business.id, context.clientPhone);
+
+    // Phase 8: flag alert (ENFC-03, D-11) — BEFORE alertOwnerNewBooking, NOT in try/catch (critical)
+    if (enforcementPolicy === 'flag' && membership === null && context.business.ownerTelegramId) {
+      const flagText =
+        '⚠️ Νέα κράτηση από πελάτη χωρίς ενεργή συνδρομή: ' +
+        (clientName ?? context.clientPhone) +
+        ', ' +
+        service.name +
+        ', ' +
+        booking.calendarDate +
+        ' ' +
+        booking.calendarTime +
+        '.';
+      await sendTelegramMessage(context.business.ownerTelegramId, flagText);
+    }
+
+    // Phase 8: session deduction (SESS-01, D-02) — only for finite memberships (D-06)
+    if (membership !== null && membership.sessionsRemaining !== null) {
+      await deductSession(membership.id, booking.id, 'booking:' + booking.id + ':deduction');
+    }
+
     // CR-03c: same contract as CR-03b — DB mutation committed, so a
     // Telegram alert failure must never surface as a tool error or Gemini
     // will retry the booking in a loop until MAX_TOOL_ROUNDS fires.
