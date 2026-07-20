@@ -477,8 +477,11 @@ export async function restoreCredit(
   if (membership.sessionsRemaining === null) return;
 
   // Step 4: SESS-03 — membership expired at time of cancellation: no credit restore
-  const nowAthens = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/Athens' }));
-  if (membership.expiresAt < nowAthens) return;
+  // CR-03: membership.expiresAt is a UTC TIMESTAMP WITH TIME ZONE from PostgreSQL;
+  // compare directly against new Date() (UTC). The previous toLocaleString approach
+  // produced a Date whose epoch was offset 2–3 hours into the future, falsely
+  // flagging valid memberships as expired during the hours before actual UTC expiry.
+  if (membership.expiresAt < new Date()) return;
 
   // Step 5: Insert credit_restored ledger row (idempotency guard)
   const inserted = await getConn()
