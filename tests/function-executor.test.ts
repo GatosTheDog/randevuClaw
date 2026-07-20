@@ -2,12 +2,21 @@ import * as queries from '../src/database/queries';
 import * as availability from '../src/business/availability';
 import * as telegramClient from '../src/telegram/client';
 import * as calendarSync from '../src/calendar/sync';
+import * as billingQueries from '../src/billing/queries';
 import { executeTool, ToolContext } from '../src/conversation/function-executor';
 
 jest.mock('../src/database/queries');
 jest.mock('../src/business/availability');
 jest.mock('../src/telegram/client');
 jest.mock('../src/calendar/sync');
+// Phase 8: mock billing queries so enforcement/deduction/restore functions do not reach real DB
+jest.mock('../src/billing/queries', () => ({
+  getActiveMembershipForDeduction: jest.fn(),
+  findMembershipByBooking: jest.fn(),
+  deductSession: jest.fn(),
+  restoreCredit: jest.fn(),
+  getClientName: jest.fn(),
+}));
 
 const mockedFindServiceById = queries.findServiceById as jest.MockedFunction<typeof queries.findServiceById>;
 const mockedInsertBooking = queries.insertBooking as jest.MockedFunction<typeof queries.insertBooking>;
@@ -33,6 +42,22 @@ const mockedSendTelegramMessageWithKeyboard = telegramClient.sendTelegramMessage
 const mockedFindBusinessById = queries.findBusinessById as jest.MockedFunction<typeof queries.findBusinessById>;
 const mockedDeleteBookingFromCalendar = calendarSync.deleteBookingFromCalendar as jest.MockedFunction<
   typeof calendarSync.deleteBookingFromCalendar
+>;
+// Phase 8: billing mock variables
+const mockedGetActiveMembership = billingQueries.getActiveMembershipForDeduction as jest.MockedFunction<
+  typeof billingQueries.getActiveMembershipForDeduction
+>;
+const mockedFindMembershipByBooking = billingQueries.findMembershipByBooking as jest.MockedFunction<
+  typeof billingQueries.findMembershipByBooking
+>;
+const mockedDeductSession = billingQueries.deductSession as jest.MockedFunction<
+  typeof billingQueries.deductSession
+>;
+const mockedRestoreCredit = billingQueries.restoreCredit as jest.MockedFunction<
+  typeof billingQueries.restoreCredit
+>;
+const mockedGetClientName = billingQueries.getClientName as jest.MockedFunction<
+  typeof billingQueries.getClientName
 >;
 
 const BUSINESS: ToolContext['business'] = { id: 1, name: 'Pilates Athens', ownerTelegramId: '999' };
@@ -73,6 +98,12 @@ function makeBooking(overrides: Partial<queries.Booking> = {}): queries.Booking 
 describe('executeTool', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    // Phase 8: safe defaults — no membership exists; no deduction row; client name not registered
+    mockedGetActiveMembership.mockResolvedValue(null);
+    mockedFindMembershipByBooking.mockResolvedValue(null);
+    mockedDeductSession.mockResolvedValue(undefined);
+    mockedRestoreCredit.mockResolvedValue(undefined);
+    mockedGetClientName.mockResolvedValue(null);
   });
 
   it('Test 1: check_availability delegates to checkAvailability unchanged', async () => {
@@ -337,10 +368,145 @@ describe('executeTool', () => {
 });
 
 describe('Phase 8: enforcement + session deduction', () => {
-  it.todo('block policy: executeTool(book_appointment) returns Greek refusal and does NOT call insertBooking when client has no active membership');
-  it.todo('flag policy: executeTool(book_appointment) calls sendTelegramMessage with flag alert BEFORE sendTelegramMessageWithKeyboard when client has no active membership');
-  it.todo('finite membership: executeTool(book_appointment) calls deductSession(membershipId, bookingId, idempotencyKey) after insertBooking succeeds');
-  it.todo('unlimited membership (sessionsRemaining: null): executeTool(book_appointment) does NOT call deductSession');
-  it.todo('executeTool(cancel_appointment) calls restoreCredit(membershipId, bookingId, idempotencyKey) after updateBookingStatus when findMembershipByBooking returns a membershipId');
-  it.todo('executeTool(cancel_appointment) does NOT call restoreCredit when findMembershipByBooking returns null');
+  // Business + context with enforcementPolicy for Phase 8 tests
+  const PHASE8_BUSINESS: ToolContext['business'] = {
+    id: 1,
+    name: 'Pilates Athens',
+    ownerTelegramId: '999',
+    enforcementPolicy: 'block',
+  };
+  const PHASE8_CONTEXT: ToolContext = {
+    business: PHASE8_BUSINESS,
+    clientPhone: 'c1',
+    requestId: 'r1',
+    idempotencyKey: 'ik1',
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    // Phase 8: safe defaults — same as parent describe
+    mockedGetActiveMembership.mockResolvedValue(null);
+    mockedFindMembershipByBooking.mockResolvedValue(null);
+    mockedDeductSession.mockResolvedValue(undefined);
+    mockedRestoreCredit.mockResolvedValue(undefined);
+    mockedGetClientName.mockResolvedValue(null);
+  });
+
+  it('block policy: executeTool(book_appointment) returns Greek refusal and does NOT call insertBooking when client has no active membership', async () => {
+    mockedFindServiceById.mockResolvedValue(SERVICE);
+    // getActiveMembership returns null (no membership) — default from beforeEach
+    // insertBooking is mocked to confirm it is NOT called
+    mockedInsertBooking.mockResolvedValue(makeBooking());
+
+    const result = await executeTool(
+      'book_appointment',
+      { business_id: 1, service_id: 2, calendar_date: '2026-07-10', calendar_time: '10:00' },
+      PHASE8_CONTEXT
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('no_membership');
+    expect(typeof result.message).toBe('string');
+    expect(result.message as string).toContain('ενεργή συνδρομή');
+    // ENFC-02: insertBooking must NOT be called when block policy + no membership (D-10)
+    expect(mockedInsertBooking.mock.calls.length).toBe(0);
+  });
+
+  it('flag policy: executeTool(book_appointment) calls sendTelegramMessage with flag alert BEFORE sendTelegramMessageWithKeyboard when client has no active membership', async () => {
+    const flagContext: ToolContext = {
+      ...PHASE8_CONTEXT,
+      business: { ...PHASE8_BUSINESS, enforcementPolicy: 'flag' },
+    };
+    mockedFindServiceById.mockResolvedValue(SERVICE);
+    // getActiveMembership returns null (no membership) — default from beforeEach
+    mockedInsertBooking.mockResolvedValue(makeBooking());
+    mockedSendTelegramMessage.mockResolvedValue({ messageId: 100 });
+    mockedSendTelegramMessageWithKeyboard.mockResolvedValue({ messageId: 200 });
+
+    await executeTool(
+      'book_appointment',
+      { business_id: 1, service_id: 2, calendar_date: '2026-07-10', calendar_time: '10:00' },
+      flagContext
+    );
+
+    // Flag alert must have been sent with the owner's telegram ID and contain flag text
+    expect(mockedSendTelegramMessage).toHaveBeenCalledWith(
+      '999',
+      expect.stringContaining('χωρίς ενεργή συνδρομή')
+    );
+    // ENFC-03 / D-11: sendTelegramMessage (flag alert) must fire BEFORE sendTelegramMessageWithKeyboard (owner keyboard)
+    const flagCallOrder = mockedSendTelegramMessage.mock.invocationCallOrder[0];
+    const keyboardCallOrder = mockedSendTelegramMessageWithKeyboard.mock.invocationCallOrder[0];
+    expect(flagCallOrder).toBeLessThan(keyboardCallOrder);
+  });
+
+  it('finite membership: executeTool(book_appointment) calls deductSession(membershipId, bookingId, idempotencyKey) after insertBooking succeeds', async () => {
+    const allowContext: ToolContext = {
+      ...PHASE8_CONTEXT,
+      business: { ...PHASE8_BUSINESS, enforcementPolicy: 'allow' },
+    };
+    mockedFindServiceById.mockResolvedValue(SERVICE);
+    mockedGetActiveMembership.mockResolvedValue({
+      id: 10,
+      sessionsRemaining: 5,
+      expiresAt: new Date(Date.now() + 86400000),
+    });
+    mockedInsertBooking.mockResolvedValue(makeBooking({ id: 42 }));
+    mockedSendTelegramMessageWithKeyboard.mockResolvedValue({ messageId: 555 });
+
+    await executeTool(
+      'book_appointment',
+      { business_id: 1, service_id: 2, calendar_date: '2026-07-10', calendar_time: '10:00' },
+      allowContext
+    );
+
+    expect(mockedDeductSession).toHaveBeenCalledWith(10, 42, 'booking:42:deduction');
+  });
+
+  it('unlimited membership (sessionsRemaining: null): executeTool(book_appointment) does NOT call deductSession', async () => {
+    const allowContext: ToolContext = {
+      ...PHASE8_CONTEXT,
+      business: { ...PHASE8_BUSINESS, enforcementPolicy: 'allow' },
+    };
+    mockedFindServiceById.mockResolvedValue(SERVICE);
+    mockedGetActiveMembership.mockResolvedValue({
+      id: 10,
+      sessionsRemaining: null,
+      expiresAt: new Date(Date.now() + 86400000),
+    });
+    mockedInsertBooking.mockResolvedValue(makeBooking({ id: 42 }));
+    mockedSendTelegramMessageWithKeyboard.mockResolvedValue({ messageId: 555 });
+
+    await executeTool(
+      'book_appointment',
+      { business_id: 1, service_id: 2, calendar_date: '2026-07-10', calendar_time: '10:00' },
+      allowContext
+    );
+
+    // D-06: unlimited membership — deductSession must NOT be called
+    expect(mockedDeductSession.mock.calls.length).toBe(0);
+  });
+
+  it('executeTool(cancel_appointment) calls restoreCredit(membershipId, bookingId, idempotencyKey) after updateBookingStatus when findMembershipByBooking returns a membershipId', async () => {
+    mockedFindBookingById.mockResolvedValue(makeBooking({ id: 42, bookingStatus: 'confirmed' }));
+    mockedFindServiceById.mockResolvedValue(SERVICE);
+    mockedFindMembershipByBooking.mockResolvedValue(77);
+    mockedUpdateBookingStatus.mockResolvedValue(undefined);
+
+    await executeTool('cancel_appointment', { business_id: 1, booking_id: 42 }, CONTEXT);
+
+    expect(mockedRestoreCredit).toHaveBeenCalledWith(77, 42, 'booking:42:credit');
+  });
+
+  it('executeTool(cancel_appointment) does NOT call restoreCredit when findMembershipByBooking returns null', async () => {
+    mockedFindBookingById.mockResolvedValue(makeBooking({ id: 42, bookingStatus: 'confirmed' }));
+    mockedFindServiceById.mockResolvedValue(SERVICE);
+    // findMembershipByBooking returns null — default from beforeEach
+    mockedUpdateBookingStatus.mockResolvedValue(undefined);
+
+    await executeTool('cancel_appointment', { business_id: 1, booking_id: 42 }, CONTEXT);
+
+    // Pitfall 4: no membership deduction row → restoreCredit must NOT be called
+    expect(mockedRestoreCredit.mock.calls.length).toBe(0);
+  });
 });
