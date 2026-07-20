@@ -18,7 +18,7 @@ import {
 // admin db (superuser) which bypasses RLS — this is intentional for cross-tenant ops.
 const currentTx = new AsyncLocalStorage<typeof db>();
 
-function getConn(): typeof db {
+export function getConn(): typeof db {
   return currentTx.getStore() ?? db;
 }
 
