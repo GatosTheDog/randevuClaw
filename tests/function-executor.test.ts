@@ -334,3 +334,12 @@ describe('executeTool', () => {
     expect(result).toEqual({ error: "Tool 'not_a_real_tool' not found" });
   });
 });
+
+describe('Phase 8: enforcement + session deduction', () => {
+  it.todo('block policy: executeTool(book_appointment) returns Greek refusal and does NOT call insertBooking when client has no active membership');
+  it.todo('flag policy: executeTool(book_appointment) calls sendTelegramMessage with flag alert BEFORE sendTelegramMessageWithKeyboard when client has no active membership');
+  it.todo('finite membership: executeTool(book_appointment) calls deductSession(membershipId, bookingId, idempotencyKey) after insertBooking succeeds');
+  it.todo('unlimited membership (sessionsRemaining: null): executeTool(book_appointment) does NOT call deductSession');
+  it.todo('executeTool(cancel_appointment) calls restoreCredit(membershipId, bookingId, idempotencyKey) after updateBookingStatus when findMembershipByBooking returns a membershipId');
+  it.todo('executeTool(cancel_appointment) does NOT call restoreCredit when findMembershipByBooking returns null');
+});
