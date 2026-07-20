@@ -645,14 +645,16 @@ All required tools and services are available (Phase 8 uses no new external depe
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **CHECK constraint vs. app-layer validation for `enforcement_policy`**
+   RESOLVED: Add both — CHECK constraint in the migration (Pattern 6, defense in depth) AND Zod `.enum(['allow', 'block', 'flag'])` in the NLU tool handler (billing/tools.ts). Plan 01 adds the CHECK constraint; Plan 02 adds the Zod validation. No downside; DB-level safety supplements app-layer guard.
    - What we know: CONTEXT.md says "Planner decides." The CHECK constraint is free to add in the migration and provides DB-level safety. App-layer validation via Zod is already planned.
    - What's unclear: Whether the `randevuclaw_app` role can violate the constraint (it shouldn't but a direct SQL injection attack bypasses Zod).
    - Recommendation: Add both — CHECK constraint in the migration (defense in depth) AND Zod `.enum()` in the NLU tool handler. No downside.
 
 2. **`getClientActiveMembership` vs. a new `getActiveMembershipForDeduction` function**
+   RESOLVED: Add a new `getActiveMembershipForDeduction()` function with `.for('update')` SELECT locking. The existing `getClientActiveMembership` stays untouched (PAY-03 read path does not need row locking). New function created in Plan 03 (billing/queries.ts extension).
    - What we know: Existing `getClientActiveMembership` in billing/queries.ts does NOT use `.for('update')`. Phase 8 needs the locked variant.
    - What's unclear: Whether to overload the existing function with a `lockForUpdate?: boolean` param or add a new function.
    - Recommendation: Add a new `getActiveMembershipForDeduction()` function that returns the raw membership row (including `id`) and uses `.for('update')`. The existing `getClientActiveMembership` stays untouched (PAY-03 doesn't need locking).
