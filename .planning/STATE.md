@@ -5,15 +5,15 @@ milestone_name: Billing & Membership System
 current_phase: 07
 current_phase_name: billing-configuration-payment-recording
 status: executing
-stopped_at: Completed 07-03-PLAN.md (billing queries layer, clientName upsert, DST tests all green)
-last_updated: "2026-07-20T09:37:39.288Z"
+stopped_at: Completed 07-04-PLAN.md (billing tools.ts, payment-flow.ts, BILL-02/03/PAY-01 all green)
+last_updated: "2026-07-20T10:15:28.391Z"
 last_activity: 2026-07-20
 last_activity_desc: Phase 07 execution started
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 5
-  completed_plans: 3
+  completed_plans: 4
   percent: 0
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-17 after v1.1 milestone close)
 ## Current Position
 
 Phase: 07 (billing-configuration-payment-recording) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
 Last activity: 2026-07-20 — Phase 07 execution started
 
@@ -81,6 +81,7 @@ Last activity: 2026-07-20 — Phase 07 execution started
 | Phase 07 P01 | 4 | 2 tasks | 9 files |
 | Phase 07 P02 | 5 | 2 tasks | 2 files |
 | Phase 07 P03 | 12 | 3 tasks | 8 files |
+| Phase 07 P04 | 3 | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -154,6 +155,8 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 07-03]: Exported getConn from database/queries.ts — needed by billing/queries.ts for RLS-scoped reads (T-07-03)
 - [Phase ?]: [Phase 07-03]: Each billing integration test uses unique clientPhone per test to avoid same-day idempotencyKey collisions
 - [Phase ?]: [Phase 07-03]: billing integration tests follow jest.resetModules() + require() pattern from booking-queries.test.ts
+- [Phase ?]: [Phase 07-04]: handleCreatePackage inserts isActive:false pending before owner confirmation (D-03)
+- [Phase ?]: [Phase 07-04]: callback_data contains only IDs (billing:package:{clientRelId}:{packageId}) — price in button text only (T-07-05)
 
 ### Pending Todos
 
@@ -200,8 +203,8 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-07-09:
 
 ## Session Continuity
 
-Last session: 2026-07-20T09:37:39.273Z
-Stopped at: Completed 07-03-PLAN.md (billing queries layer, clientName upsert, DST tests all green)
+Last session: 2026-07-20T10:15:28.380Z
+Stopped at: Completed 07-04-PLAN.md (billing tools.ts, payment-flow.ts, BILL-02/03/PAY-01 all green)
 Resume file: None
 
 ## Operator Next Steps
