@@ -12,6 +12,7 @@ import {
   clientBusinessRelationships,
   bookings,
   services,
+  businesses,
 } from '../database/schema';
 import { getConn } from '../database/queries';
 import { isoDateInAthens, addCalendarDays } from '../utils/timezone';
@@ -42,6 +43,17 @@ export interface Membership {
   sessionsRemaining: number | null;
   isActive: boolean;
   createdAt: Date;
+}
+
+/**
+ * Minimal membership fields needed for session deduction.
+ * Returned by getActiveMembershipForDeduction — includes only the three
+ * fields required for the Phase 8 enforcement + deduction flow.
+ */
+export interface ActiveMembershipForDeduction {
+  id: number;
+  sessionsRemaining: number | null;
+  expiresAt: Date;
 }
 
 /** Result type for getRecentClientsForBusiness. */
@@ -292,6 +304,78 @@ export async function createMembership(
 
     return { memberId, expiresAtDate, sessionsRemaining: pkg.sessionCount };
   });
+}
+
+// ---------------------------------------------------------------------------
+// Phase 8: Session deduction read queries
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns the client's active non-expired membership for deduction purposes,
+ * or null if none exists. Includes SELECT FOR UPDATE to acquire a PostgreSQL
+ * row-level lock — serializes concurrent session deductions (SESS-01 / T-08-01).
+ *
+ * Uses getConn() (not db.transaction()) — atomicity comes from the
+ * withBusinessContext wrapper in telegram.ts (Pitfall 1/2 in RESEARCH.md).
+ *
+ * IMPORTANT: must be called inside an active withBusinessContext transaction
+ * so the lock is held until the surrounding transaction commits/rolls back.
+ */
+export async function getActiveMembershipForDeduction(
+  businessId: number,
+  clientPhone: string
+): Promise<ActiveMembershipForDeduction | null> {
+  const rows = await getConn()
+    .select({
+      id: memberships.id,
+      sessionsRemaining: memberships.sessionsRemaining,
+      expiresAt: memberships.expiresAt,
+    })
+    .from(memberships)
+    .where(
+      and(
+        eq(memberships.businessId, businessId),
+        eq(memberships.clientPhone, clientPhone),
+        eq(memberships.isActive, true),
+        gt(memberships.expiresAt, new Date())
+      )
+    )
+    .for('update')
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+/**
+ * Looks up the membershipId for a booking via the session_deducted ledger row.
+ * Returns null when no session was deducted (unlimited memberships, pre-Phase-8
+ * bookings, or bookings that were never charged against a membership).
+ * Returning null is the correct signal for "skip credit restore" (Pitfall 4).
+ */
+export async function findMembershipByBooking(bookingId: number): Promise<number | null> {
+  const rows = await getConn()
+    .select({ membershipId: membershipLedger.membershipId })
+    .from(membershipLedger)
+    .where(
+      and(
+        eq(membershipLedger.bookingId, bookingId),
+        eq(membershipLedger.operationType, 'session_deducted')
+      )
+    )
+    .limit(1);
+  return rows[0]?.membershipId ?? null;
+}
+
+/**
+ * Returns the enforcement policy for a business, or 'allow' if no row found
+ * (backward-compatible fallback — D-08). Uses getConn() for RLS enforcement.
+ */
+export async function getBusinessEnforcementPolicy(businessId: number): Promise<string> {
+  const rows = await getConn()
+    .select({ enforcementPolicy: businesses.enforcementPolicy })
+    .from(businesses)
+    .where(eq(businesses.id, businessId))
+    .limit(1);
+  return rows[0]?.enforcementPolicy ?? 'allow';
 }
 
 /**
