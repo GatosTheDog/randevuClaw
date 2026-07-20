@@ -2,96 +2,108 @@
 phase: 08-enforcement-session-deduction
 plan: "02"
 subsystem: database/schema
-tags: [schema, migration, enforcement, drizzle, postgres]
-status: partial
-requirements: [ENFC-01]
-
+tags: [migration, schema, drizzle, enforcement-policy, phase-8]
 dependency_graph:
   requires: [08-01]
-  provides: [businesses.enforcementPolicy column, 0005-enforcement-policy.sql]
-  affects: [src/billing/queries.ts, src/onboarding/ai-owner-agent.ts]
-
+  provides: [businesses.enforcement_policy column, Business.enforcementPolicy TS field]
+  affects: [src/database/schema.ts, src/database/queries.ts, migrations/0007_enforcement_policy.sql]
 tech_stack:
   added: []
-  patterns: [nullable-column-extension, sql-migration-file]
-
+  patterns: [ADD COLUMN IF NOT EXISTS idempotency guard, CHECK constraint defense-in-depth]
 key_files:
   created:
-    - src/database/migrations/0005-enforcement-policy.sql
+    - migrations/0007_enforcement_policy.sql
   modified:
     - src/database/schema.ts
-
+    - src/database/queries.ts
+    - tests/ai-agent.test.ts
+    - tests/billing-package-creation.test.ts
+    - tests/calendar-poller.test.ts
+    - tests/calendar-sync.test.ts
+    - tests/consent.test.ts
+    - tests/conversation-router.test.ts
+    - tests/expiry-poller.test.ts
+    - tests/function-executor.test.ts
+    - tests/idempotency.test.ts
+    - tests/onboarding-flow.test.ts
+    - tests/onboarding-platform.test.ts
+    - tests/scheduler-agenda.test.ts
+    - tests/telegram-webhook.test.ts
+    - tests/webhook.test.ts
 decisions:
-  - "Nullable column (no .notNull(), no DEFAULT) — businesses table is non-empty; existing rows get NULL which the app maps to 'flag' at query time per ENFC-01"
-  - "No SQL DEFAULT clause in migration — application layer provides the 'flag' fallback in getEnforcementPolicy()"
-  - "No CHECK constraint in SQL — application enforces 'block'/'flag' enum via Zod at write time (Wave 4)"
-
+  - "[Phase 08-02]: CHECK constraint (enforcement_policy IN ('allow','block','flag')) added at DB layer — defense in depth alongside Zod app-layer validation planned for Plan 05"
+  - "[Phase 08-02]: enforcementPolicy: string (not nullable) in Business interface — NOT NULL DEFAULT 'allow' in migration guarantees no null values after column is added"
 metrics:
-  duration: "~5 minutes"
-  completed_date: "2026-07-21"
-  tasks_total: 2
-  tasks_completed: 1
-  files_modified: 2
+  duration: 10 min
+  completed: "2026-07-20"
+  tasks_completed: 2
+  files_changed: 16
+status: complete
 ---
 
-# Phase 08 Plan 02: Schema Migration — Enforcement Policy Column Summary
+# Phase 08 Plan 02: Enforcement Policy Schema Extension Summary
 
-One-liner: Add nullable `enforcement_policy` TEXT column to businesses table and write 0005-enforcement-policy.sql migration — schema change is committed, DB push requires human action.
+Schema extension for Phase 8 enforcement policy. Created the migration SQL, added the `enforcementPolicy` column to the Drizzle schema, updated the Business TypeScript interface, and applied the migration to the local test database.
 
-## Task Status
+## What Was Built
 
-| Task | Name | Status | Commit |
-|------|------|--------|--------|
-| 1 | Add enforcementPolicy to schema.ts + write migration SQL | DONE | e8d8724 |
-| 2 | Run drizzle-kit push to apply column to live DB | PENDING HUMAN ACTION | — |
+### Task 1: Migration SQL + schema.ts + queries.ts (commit 55f819a)
 
-## Task 1: DONE
+**`migrations/0007_enforcement_policy.sql`** — Idempotent ALTER TABLE adding `enforcement_policy TEXT NOT NULL DEFAULT 'allow'` with a CHECK constraint enforcing `('allow', 'block', 'flag')`. Includes GRANT UPDATE for `randevuclaw_app` role (natively idempotent).
 
-**What was built:**
+**`src/database/schema.ts`** — `enforcementPolicy: text('enforcement_policy').notNull().default('allow')` added to the `businesses` pgTable after `webhookSecret`, following the established camelCase→snake_case naming convention.
 
-- `src/database/schema.ts`: Added `enforcementPolicy: text('enforcement_policy')` to the businesses pgTable, inserted after `webhookSecret` and before `createdAt`. Column is nullable (no `.notNull()`) — consistent with the established Phase 2–7 pattern for adding columns to a non-empty table.
-- `src/database/migrations/0005-enforcement-policy.sql`: Migration SQL file with `ALTER TABLE businesses ADD COLUMN enforcement_policy TEXT;`. No explicit default — Postgres leaves NULL for existing rows; app provides 'flag' fallback at query time.
+**`src/database/queries.ts`** — `enforcementPolicy: string` field added to the `Business` interface after `webhookSecret`, with a JSDoc comment referencing D-07.
 
-**Verification:**
+TypeScript compilation: `npx tsc --noEmit` exits 0.
 
-- `grep -c "enforcementPolicy" src/database/schema.ts` returns 1
-- `npx tsc --noEmit` produces no errors in schema.ts (pre-existing errors in other files are unrelated missing node_modules: googleapis, @google/genai, telegraf)
-- Migration SQL contains the required `ALTER TABLE businesses ADD COLUMN enforcement_policy TEXT` statement
+### Task 2: Migration applied to randevuclaw_test (commit 664789a)
 
-## Task 2: PENDING HUMAN ACTION
-
-`drizzle-kit push` cannot run non-interactively for `ADD COLUMN` on a non-empty table (prompts for confirmation). The code change is committed and ready. A human must run:
-
-```bash
-npx drizzle-kit push
-```
-
-When prompted about non-destructive changes (ADD COLUMN only), confirm with `y`.
-
-**Verification after push:**
-```sql
-SELECT column_name FROM information_schema.columns
-WHERE table_name = 'businesses' AND column_name = 'enforcement_policy';
--- Must return 1 row
-```
-
-**Resume signal:** Type "schema pushed" after drizzle-kit push completes successfully, or describe any errors encountered.
+- Migration applied to `randevuclaw_test` local DB: `ALTER TABLE` succeeded; GRANT error for `randevuclaw_app` is expected (role does not exist on local DB — same behavior as Phase 7 migrations).
+- Column confirmed: `SELECT column_name, data_type, column_default FROM information_schema.columns WHERE table_name='businesses' AND column_name='enforcement_policy'` returns 1 row with `data_type=text`, `column_default='allow'::text`.
+- Full test suite: 37 passed, 1 skipped (rls-enforcement requires `DATABASE_APP_URL`), 0 failures.
 
 ## Deviations from Plan
 
-None — plan executed exactly as written for Task 1.
+### Auto-fixed Issues
+
+**1. [Rule 1 - Bug] Added `enforcementPolicy: 'allow'` to 14 mock Business objects in test fixtures**
+
+- **Found during:** Task 2 (running `npx jest --no-coverage`)
+- **Issue:** Adding `enforcementPolicy: string` (non-nullable) to the `Business` interface caused ts-jest type errors in 13 test files. Every inline or factory mock `Business` object was missing the new required field, producing: `Type 'string | undefined' is not assignable to type 'string'`.
+- **Fix:** Added `enforcementPolicy: 'allow'` to all 14 mock Business objects across 14 test files (13 failing + `billing-package-creation.test.ts` as preventive fix).
+- **Files modified:** tests/ai-agent.test.ts, tests/billing-package-creation.test.ts, tests/calendar-poller.test.ts, tests/calendar-sync.test.ts, tests/consent.test.ts, tests/conversation-router.test.ts, tests/expiry-poller.test.ts, tests/function-executor.test.ts, tests/idempotency.test.ts, tests/onboarding-flow.test.ts, tests/onboarding-platform.test.ts, tests/scheduler-agenda.test.ts, tests/telegram-webhook.test.ts, tests/webhook.test.ts
+- **Commit:** 664789a
+
+### Deferred Items
+
+**Live Neon DB migration not applied** — The `.env.local` read permission is restricted in this session's security policy, preventing automated dotenv-based psql invocation. The migration SQL is idempotent (IF NOT EXISTS guard) and must be applied manually:
+
+```bash
+psql $DATABASE_URL -f migrations/0007_enforcement_policy.sql
+```
+
+This does not block test-suite execution (tests run against `randevuclaw_test`). The live DB migration should be applied before Plan 04 code ships.
+
+## Verification Results
+
+- `npx tsc --noEmit`: exits 0 (both times: after Task 1 and after Task 2 auto-fix)
+- `psql ... WHERE column_name='enforcement_policy'`: 1 row, `data_type=text`, `column_default='allow'::text`
+- `npx jest --testPathPattern="billing-session-deduction" --no-coverage`: 5 todo, exits 0
+- `npx jest --no-coverage`: 37 passed, 1 skipped, 0 failed, exits 0
 
 ## Known Stubs
 
-None — this plan only adds a schema column. No UI or query logic introduced.
+None — this plan adds schema/interface only. No UI rendering or data flow stubs.
 
 ## Threat Flags
 
-None — the ALTER TABLE is non-destructive (ADD COLUMN nullable). The new column introduces no new network endpoints or auth paths. Zod validation at write time (Wave 4) will enforce the 'block'/'flag' enum before any DB write.
+None — no new network endpoints or trust boundary changes. The CHECK constraint directly mitigates T-08-04 (invalid enforcement_policy value stored).
 
 ## Self-Check: PASSED
 
-- [x] `src/database/schema.ts` exists with enforcementPolicy column
-- [x] `src/database/migrations/0005-enforcement-policy.sql` exists with ALTER TABLE statement
-- [x] Commit e8d8724 exists on worktree-agent-abf796e2f5f092f0e
-- [x] schema.ts produces no TypeScript errors of its own
+- [x] `migrations/0007_enforcement_policy.sql` exists
+- [x] `src/database/schema.ts` contains `enforcementPolicy`
+- [x] `src/database/queries.ts` Business interface contains `enforcementPolicy: string`
+- [x] Commits 55f819a and 664789a exist in git log
+- [x] Full test suite green (37/37 non-skipped pass)
