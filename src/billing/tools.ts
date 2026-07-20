@@ -10,6 +10,7 @@ import {
   listPackages,
   deactivatePackage,
   getClientActiveMembership,
+  setBusinessEnforcementPolicy,
 } from './queries';
 import { logger } from '../utils/logger';
 
@@ -29,6 +30,14 @@ export interface CreatePackageResult {
   confirmationText: string;
   pendingPackageId: number;
 }
+
+// ---------------------------------------------------------------------------
+// Zod schema for set_enforcement_policy Gemini tool args (ENFC-01 input validation)
+// ---------------------------------------------------------------------------
+
+export const SetEnforcementPolicySchema = z.object({
+  policy: z.enum(['allow', 'block', 'flag']),
+});
 
 // ---------------------------------------------------------------------------
 // Tool handlers
@@ -123,6 +132,32 @@ export async function handleDeactivatePackage(packageId: number): Promise<string
   } catch (err) {
     logger.error({ err, packageId }, 'handleDeactivatePackage failed');
     return 'Σφάλμα κατά την απενεργοποίηση πακέτου. Δοκιμάστε ξανά.';
+  }
+}
+
+/**
+ * Validates Gemini-parsed args (ENFC-01) and updates the business enforcement policy.
+ *
+ * SetEnforcementPolicySchema Zod enum validates the policy value before any DB write.
+ * On invalid args, returns a Greek error string and performs NO DB write (T-08-10 / T-08-11).
+ * On success, logs the change and returns a Greek confirmation string.
+ */
+export async function handleSetEnforcementPolicy(
+  businessId: number,
+  args: Record<string, unknown>
+): Promise<string> {
+  const parsed = SetEnforcementPolicySchema.safeParse(args);
+  if (!parsed.success) {
+    return 'Μη έγκυρη πολιτική. Επιτρεπτές τιμές: allow, block, flag.';
+  }
+
+  try {
+    await setBusinessEnforcementPolicy(businessId, parsed.data.policy);
+    logger.info({ businessId, policy: parsed.data.policy }, 'Enforcement policy set via NLU');
+    return 'Η πολιτική κρατήσεων ορίστηκε σε: ' + parsed.data.policy + '.';
+  } catch (err) {
+    logger.error({ err, businessId }, 'handleSetEnforcementPolicy failed');
+    return 'Σφάλμα κατά την ενημέρωση πολιτικής. Δοκιμάστε ξανά.';
   }
 }
 
