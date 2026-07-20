@@ -10,15 +10,15 @@
 
 ### BILL — Package Configuration
 
-- [ ] **BILL-01**: Owner can create a billing package via chat (name, price, duration in days, session count or "unlimited")
-- [ ] **BILL-02**: Owner can view all active packages for their business via chat
-- [ ] **BILL-03**: Owner can deactivate a package via chat (existing memberships unaffected)
+- [x] **BILL-01**: Owner can create a billing package via chat (name, price, duration in days, session count or "unlimited")
+- [x] **BILL-02**: Owner can view all active packages for their business via chat
+- [x] **BILL-03**: Owner can deactivate a package via chat (existing memberships unaffected)
 
 ### PAY — Payment Recording
 
-- [ ] **PAY-01**: Owner can record a client payment via chat using structured package selection (buttons) + Greek confirmation before creating membership
-- [ ] **PAY-02**: Bot creates a membership record with `expires_at = purchase_date + valid_days` (rolling window, TIMESTAMP WITH TIME ZONE, Athens timezone)
-- [ ] **PAY-03**: Owner can view a client's active membership and remaining sessions via chat
+- [x] **PAY-01**: Owner can record a client payment via chat using structured package selection (buttons) + Greek confirmation before creating membership
+- [x] **PAY-02**: Bot creates a membership record with `expires_at = purchase_date + valid_days` (rolling window, TIMESTAMP WITH TIME ZONE, Athens timezone)
+- [x] **PAY-03**: Owner can view a client's active membership and remaining sessions via chat
 
 ### SESS — Session Tracking
 
@@ -81,12 +81,12 @@
 
 | REQ-ID | Phase | Status | Plan |
 |--------|-------|--------|------|
-| BILL-01 | Phase 7 | Pending | TBD |
-| BILL-02 | Phase 7 | Pending | TBD |
-| BILL-03 | Phase 7 | Pending | TBD |
-| PAY-01 | Phase 7 | Pending | TBD |
-| PAY-02 | Phase 7 | Pending | TBD |
-| PAY-03 | Phase 7 | Pending | TBD |
+| BILL-01 | Phase 7 | Complete | TBD |
+| BILL-02 | Phase 7 | Complete | TBD |
+| BILL-03 | Phase 7 | Complete | TBD |
+| PAY-01 | Phase 7 | Complete | TBD |
+| PAY-02 | Phase 7 | Complete | TBD |
+| PAY-03 | Phase 7 | Complete | TBD |
 | SESS-01 | Phase 8 | Pending | TBD |
 | SESS-02 | Phase 8 | Pending | TBD |
 | SESS-03 | Phase 8 | Pending | TBD |
@@ -100,6 +100,7 @@
 | NOTF-04 | Phase 9 | Pending | TBD |
 
 **Coverage:**
+
 - v1.2 requirements: 17 total
 - Mapped to phases: 17
 - Unmapped: 0 ✓

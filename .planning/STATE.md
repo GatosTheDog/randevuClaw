@@ -2,17 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Billing & Membership System
-current_phase_name: defining requirements
+current_phase: 07
+current_phase_name: billing-configuration-payment-recording
 status: executing
-stopped_at: Phase 7 context gathered
-last_updated: "2026-07-17T15:04:34.729Z"
-last_activity: 2026-07-17
-last_activity_desc: Milestone v1.2 started
+stopped_at: Completed 07-01-PLAN.md (billing test stubs + coverage matrix)
+last_updated: "2026-07-20T06:39:35.408Z"
+last_activity: 2026-07-20
+last_activity_desc: Phase 07 execution started
 progress:
   total_phases: 6
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 5
+  completed_plans: 1
   percent: 0
 ---
 
@@ -23,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-17 after v1.1 milestone close)
 
 **Core value:** A client can book or cancel an appointment with a Greek business entirely through a chat conversation, in Greek, with zero friction — and the owner's calendar updates automatically.
-**Current focus:** v1.1 closed — v1.2 Billing & Membership System is next (Phase 7)
+**Current focus:** Phase 07 — billing-configuration-payment-recording
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
+Phase: 07 (billing-configuration-payment-recording) — EXECUTING
+Plan: 2 of 5
 Status: Ready to execute
-Last activity: 2026-07-17 — Milestone v1.2 started
+Last activity: 2026-07-20 — Phase 07 execution started
 
 ## Performance Metrics
 
@@ -73,6 +74,11 @@ Last activity: 2026-07-17 — Milestone v1.2 started
 | Phase 05 P04 | 5 | 2 tasks | 2 files |
 | Phase 05 P06 | 15 | 2 tasks | 2 files |
 | Phase 05 P07 | 25min | 3 tasks | 7 files |
+**Per-Plan Metrics:**
+
+| Plan | Duration | Tasks | Files |
+|------|----------|-------|-------|
+| Phase 07 P01 | 4 | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -138,6 +144,8 @@ Recent decisions affecting current work:
 - [Roadmap v1.2]: Immutable ledger pattern (membership_ledger append-only) chosen over mutable counter update — idempotency_key UNIQUE constraint prevents duplicate deductions
 - [Roadmap v1.2]: date-fns 4.4.0 is the only new dependency for rolling window calculations; no other new packages
 - [Roadmap v1.2]: NOTF-03 (dedup) implemented via membership_expiry_notifications table with UNIQUE constraint on (membership_id, notification_type, date) — same proven pattern as v1.0 reminder dedup
+- [Phase ?]: it.todo stubs with no imports from unbuilt modules — keeps stubs compilable by ts-jest before any implementation exists
+- [Phase ?]: COVERAGE.md editMessageReplyMarkup OPT-OUT — replacing keyboard message on each step avoids stale keyboard state edge cases
 
 ### Pending Todos
 
@@ -184,9 +192,9 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-07-09:
 
 ## Session Continuity
 
-Last session: 2026-07-17T13:51:46.137Z
-Stopped at: Phase 7 context gathered
-Resume file: .planning/phases/07-billing-configuration-payment-recording/07-CONTEXT.md
+Last session: 2026-07-20T06:39:35.401Z
+Stopped at: Completed 07-01-PLAN.md (billing test stubs + coverage matrix)
+Resume file: None
 
 ## Operator Next Steps
 
