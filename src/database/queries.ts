@@ -83,7 +83,14 @@ export async function withBusinessContext<T>(
   callback: () => Promise<T>
 ): Promise<T> {
   return appDb.transaction(async (tx) => {
-    await tx.execute(sql.raw(`SET LOCAL app.current_business_id = '${Number(businessId)}'`));
+    // WR-03: use set_config() via parameterized sql template instead of sql.raw() with string
+    // interpolation. sql.raw() on the RLS bootstrap path is fragile — if businessId is NaN
+    // (e.g. Number() on a non-numeric value), the SET statement silently sets 'NaN' and all
+    // queries in the transaction return empty results. set_config() with a parameterized binding
+    // avoids this and is immune to injection on the security-critical RLS configuration path.
+    await tx.execute(
+      sql`SELECT set_config('app.current_business_id', ${String(Number(businessId))}, true)`
+    );
     return currentTx.run(tx as unknown as typeof db, callback);
   });
 }
