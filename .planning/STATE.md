@@ -5,8 +5,8 @@ milestone_name: Billing & Membership System
 current_phase: 07
 current_phase_name: billing-configuration-payment-recording
 status: executing
-stopped_at: "CHECKPOINT: 07-02 Task 3 — drizzle-kit push awaiting human"
-last_updated: "2026-07-20T06:44:26.835Z"
+stopped_at: Completed 07-02-PLAN.md (billing schema + Neon DB push verified)
+last_updated: "2026-07-20T09:13:55.637Z"
 last_activity: 2026-07-20
 last_activity_desc: Phase 07 execution started
 progress:
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-17 after v1.1 milestone close)
 ## Current Position
 
 Phase: 07 (billing-configuration-payment-recording) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Ready to execute
 Last activity: 2026-07-20 — Phase 07 execution started
 
@@ -147,6 +147,9 @@ Recent decisions affecting current work:
 - [Roadmap v1.2]: NOTF-03 (dedup) implemented via membership_expiry_notifications table with UNIQUE constraint on (membership_id, notification_type, date) — same proven pattern as v1.0 reminder dedup
 - [Phase ?]: it.todo stubs with no imports from unbuilt modules — keeps stubs compilable by ts-jest before any implementation exists
 - [Phase ?]: COVERAGE.md editMessageReplyMarkup OPT-OUT — replacing keyboard message on each step avoids stale keyboard state edge cases
+- [Phase ?]: [Phase 07-02]: billingPackages partial index WHERE is_active = true — allows reusing a package name after deactivation
+- [Phase ?]: [Phase 07-02]: membershipLedger idempotency_key UNIQUE inline + explicit uniqueIndex — DB constraint plus query performance
+- [Phase ?]: [Phase 07-02]: memberships partial index WHERE is_active = true enforces D-10 one-active-membership at DB level
 
 ### Pending Todos
 
@@ -193,8 +196,8 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-07-09:
 
 ## Session Continuity
 
-Last session: 2026-07-20T06:44:21.765Z
-Stopped at: CHECKPOINT: 07-02 Task 3 — drizzle-kit push awaiting human
+Last session: 2026-07-20T09:13:48.706Z
+Stopped at: Completed 07-02-PLAN.md (billing schema + Neon DB push verified)
 Resume file: None
 
 ## Operator Next Steps
