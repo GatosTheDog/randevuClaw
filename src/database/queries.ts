@@ -128,6 +128,23 @@ export async function findLatestBusinessForClient(
   return rows[0]?.business ?? null;
 }
 
+/**
+ * Looks up a client–business relationship row by its primary key (id).
+ * Used by payment-flow.ts handlers to resolve clientPhone from a
+ * clientBusinessRelationshipId stored in callback_data.
+ * Uses getConn() so the query respects any active withBusinessContext (T-07-03).
+ */
+export async function findClientBusinessRelationshipById(
+  id: number
+): Promise<ClientBusinessRelationship | null> {
+  const rows = await getConn()
+    .select()
+    .from(clientBusinessRelationships)
+    .where(eq(clientBusinessRelationships.id, id))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
 export async function findClientBusinessRelationship(
   businessId: number,
   senderPhone: string

@@ -18,7 +18,7 @@ jest.resetModules();
 const { db } = require('../src/database/db');
 const { eq } = require('drizzle-orm');
 const { billingPackages, memberships } = require('../src/database/schema');
-const { withBusinessContext } = require('../src/database/queries');
+const { withBusinessContext: withBizCtx } = require('../src/database/queries');
 const { handleDeactivatePackage, handleListPackages } = require('../src/billing/tools');
 const { insertTestBusiness } = require('./helpers/test-business');
 const { insertTestPackage, insertTestMembership } = require('./helpers/billing-fixtures');
@@ -100,7 +100,7 @@ describe('deactivate package', () => {
     await handleDeactivatePackage(pkg.id);
 
     // handleListPackages (which powers the package selection) should not include it
-    const result = await withBusinessContext(businessId, () => handleListPackages(businessId));
+    const result = await withBizCtx(businessId, () => handleListPackages(businessId));
     expect(result).not.toContain(uniqueName);
   });
 });

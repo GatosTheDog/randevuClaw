@@ -15,7 +15,7 @@ process.env.DATABASE_URL = TEST_DATABASE_URL;
 jest.resetModules();
 
 /* eslint-disable @typescript-eslint/no-var-requires */
-const { withBusinessContext } = require('../src/database/queries');
+const { withBusinessContext: withBizCtx } = require('../src/database/queries');
 const { handleListPackages } = require('../src/billing/tools');
 const { insertTestBusiness } = require('./helpers/test-business');
 const { insertTestPackage } = require('./helpers/billing-fixtures');
@@ -42,7 +42,7 @@ describe('list active packages', () => {
       isActive: true,
     });
 
-    const result = await withBusinessContext(businessId, () => handleListPackages(businessId));
+    const result = await withBizCtx(businessId, () => handleListPackages(businessId));
 
     expect(result).toContain('📦 Ενεργά πακέτα:');
     expect(result).toContain('€80.00');
@@ -60,7 +60,7 @@ describe('list active packages', () => {
       isActive: false,
     });
 
-    const result = await withBusinessContext(businessId, () => handleListPackages(businessId));
+    const result = await withBizCtx(businessId, () => handleListPackages(businessId));
 
     expect(result).not.toContain(uniqueName);
   });
@@ -69,7 +69,7 @@ describe('list active packages', () => {
     // Use a fresh business with no packages for the empty-state test
     const emptyBusiness = await insertTestBusiness();
 
-    const result = await withBusinessContext(emptyBusiness.id, () =>
+    const result = await withBizCtx(emptyBusiness.id, () =>
       handleListPackages(emptyBusiness.id)
     );
 

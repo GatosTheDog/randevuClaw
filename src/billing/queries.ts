@@ -124,6 +124,21 @@ export async function deactivatePackage(packageId: number): Promise<void> {
     .where(eq(billingPackages.id, packageId));
 }
 
+/**
+ * Returns a single billing package by ID, or null if not found.
+ * Used by payment-flow.ts handlers to fetch package details for confirmation
+ * messages and success replies without re-running the full list query.
+ * Uses getConn() for RLS enforcement (T-07-03).
+ */
+export async function getPackageById(packageId: number): Promise<BillingPackage | null> {
+  const rows = await getConn()
+    .select()
+    .from(billingPackages)
+    .where(eq(billingPackages.id, packageId))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
 // ---------------------------------------------------------------------------
 // Recent clients lookup
 // ---------------------------------------------------------------------------
