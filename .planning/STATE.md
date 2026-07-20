@@ -4,17 +4,17 @@ milestone: v1.2
 milestone_name: Billing & Membership System
 current_phase: 08
 current_phase_name: enforcement-session-deduction
-status: executing
-stopped_at: Completed 08-04-PLAN.md
-last_updated: "2026-07-20T14:59:05.478Z"
+status: verifying
+stopped_at: Completed 08-05-PLAN.md
+last_updated: "2026-07-20T15:04:05.637Z"
 last_activity: 2026-07-20
 last_activity_desc: Phase 08 execution started
 progress:
   total_phases: 6
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 10
-  completed_plans: 9
-  percent: 17
+  completed_plans: 10
+  percent: 33
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-07-17 after v1.1 milestone close)
 
 Phase: 08 (enforcement-session-deduction) — EXECUTING
 Plan: 5 of 5
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-20 — Phase 08 execution started
 
 ## Performance Metrics
@@ -86,6 +86,7 @@ Last activity: 2026-07-20 — Phase 08 execution started
 | Phase 08 P02 | 10 | 2 tasks | 16 files |
 | Phase 08 P03 | 7 | 3 tasks | 2 files |
 | Phase 08 P04 | 5 | 3 tasks | 5 files |
+| Phase 08 P05 | 8 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -171,6 +172,8 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 08-04]: getClientName added to billing/queries.ts — no equivalent existed in database/queries.ts; clientBusinessRelationships already imported by billing/queries
 - [Phase ?]: [Phase 08-04]: Flag alert sendTelegramMessage is NOT in try/catch in bookAppointmentTool — critical alert per D-11; failure must surface immediately
 - [Phase ?]: [Phase 08-04]: jest.mock factory used for billing/queries in tests — guarantees invocationCallOrder is available for ENFC-03 ordering assertion
+- [Phase ?]: [Phase 08-05]: handleSetEnforcementPolicy returns plain string — no confirmation keyboard needed, policy update is idempotent
+- [Phase ?]: [Phase 08-05]: set_enforcement_policy case wrapped in withBusinessContext for RLS tenant isolation (T-08-12)
 
 ### Pending Todos
 
@@ -217,8 +220,8 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-07-09:
 
 ## Session Continuity
 
-Last session: 2026-07-20T14:59:05.471Z
-Stopped at: Completed 08-04-PLAN.md
+Last session: 2026-07-20T15:04:05.630Z
+Stopped at: Completed 08-05-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
