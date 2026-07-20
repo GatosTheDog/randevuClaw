@@ -27,6 +27,7 @@ import {
   showPackageSelection,
   showMembershipConfirmation,
 } from '../telegram/handlers/payment-flow';
+import { findMembershipByBooking, restoreCredit } from '../billing/queries';
 
 interface TelegramFrom {
   id: number;
@@ -159,6 +160,12 @@ async function handleClientCancelCallback(
   if (!CANCELLABLE.includes(booking.bookingStatus)) return;
 
   await updateBookingStatus(booking.id, 'cancelled');
+
+  // Phase 8: credit restore (SESS-02/D-03) — after updateBookingStatus, before notifications
+  const membershipId = await findMembershipByBooking(booking.id);
+  if (membershipId !== null) {
+    await restoreCredit(membershipId, booking.id, `booking:${booking.id}:credit`);
+  }
 
   const business = await findBusinessById(booking.businessId);
   const service = await findServiceById(booking.businessId, booking.serviceId);
@@ -333,6 +340,11 @@ async function handleCallbackQuery(
     );
   } else {
     // No cascade on reject: the original booking (if any) is left untouched.
+    // Phase 8: credit restore (SESS-02/D-03) — after updateBookingStatusIfPending, before client notification
+    const membershipId = await findMembershipByBooking(updated.id);
+    if (membershipId !== null) {
+      await restoreCredit(membershipId, updated.id, `booking:${updated.id}:credit`);
+    }
     await sendTelegramMessage(updated.clientPhone, CLIENT_REJECT_NOTICE_GREEK);
   }
 

@@ -15,7 +15,7 @@ import { checkAvailability } from '../business/availability';
 import { sendTelegramMessage, sendTelegramMessageWithKeyboard } from '../telegram/client';
 import { deleteBookingFromCalendar } from '../calendar/sync';
 import { logger } from '../utils/logger';
-import { getActiveMembershipForDeduction, deductSession, getClientName } from '../billing/queries';
+import { getActiveMembershipForDeduction, deductSession, getClientName, findMembershipByBooking, restoreCredit } from '../billing/queries';
 
 export interface ToolContext {
   business: { id: number; name: string; ownerTelegramId: string | null; enforcementPolicy?: string };
@@ -244,6 +244,12 @@ async function cancelAppointmentTool(
   }
 
   await updateBookingStatus(booking.id, 'cancelled');
+
+  // Phase 8: credit restore (SESS-02/D-03) — after updateBookingStatus, before notifications
+  const membershipId = await findMembershipByBooking(booking.id);
+  if (membershipId !== null) {
+    await restoreCredit(membershipId, booking.id, 'booking:' + booking.id + ':credit');
+  }
 
   // Best-effort Calendar delete (D-15). ToolContext.business is the narrow
   // { id, name, ownerTelegramId } shape, not the full Business row, so the

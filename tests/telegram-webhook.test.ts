@@ -5,6 +5,7 @@ import * as telegramClient from '../src/telegram/client';
 import * as router from '../src/conversation/router';
 import * as calendarSync from '../src/calendar/sync';
 import * as registryModule from '../src/telegram/registry';
+import * as billingQueries from '../src/billing/queries';
 import { parseCallbackData } from '../src/webhooks/telegram';
 
 jest.mock('../src/database/queries');
@@ -14,6 +15,8 @@ jest.mock('../src/calendar/sync');
 // Phase 4: mock registry to prevent real Telegraf bot from making network calls
 // (bot.handleUpdate calls getMe on the Telegram API which fails in test env)
 jest.mock('../src/telegram/registry');
+// Phase 8: mock billing queries so findMembershipByBooking/restoreCredit do not reach real DB
+jest.mock('../src/billing/queries');
 
 // Phase 4: per-bot secret — hardcoded test constant (ONB-04: TEST_BOT_* removed from jest.setup.ts)
 const SECRET = 'test-bot-1-webhook-secret';
@@ -108,6 +111,13 @@ const mockedGetOrCreateBotInstance = registryModule.getOrCreateBotInstance as je
 >;
 // Mock Telegraf bot that does nothing in handleUpdate (no real API calls)
 const mockBot = { handleUpdate: jest.fn().mockResolvedValue(undefined) };
+// Phase 8: billing query mocks — prevent real DB calls in cancel/reject credit restore paths
+const mockedFindMembershipByBooking = billingQueries.findMembershipByBooking as jest.MockedFunction<
+  typeof billingQueries.findMembershipByBooking
+>;
+const mockedRestoreCredit = billingQueries.restoreCredit as jest.MockedFunction<
+  typeof billingQueries.restoreCredit
+>;
 
 function makeMessageUpdate(updateId: number, text: string, fromId = 111222333) {
   return {
@@ -172,6 +182,9 @@ describe('POST /webhooks/telegram/:webhookId', () => {
     );
     // withBusinessContext must call through so RLS-wrapped inner logic executes
     mockedWithBusinessContext.mockImplementation((_businessId, callback) => callback());
+    // Phase 8: safe defaults — no membership deduction row exists for existing test bookings
+    mockedFindMembershipByBooking.mockResolvedValue(null);
+    mockedRestoreCredit.mockResolvedValue(undefined);
   });
 
   it('Test 1: recognized business code -> 200 + routeConversationMessage called with the channel adapter, not a direct reply', async () => {
