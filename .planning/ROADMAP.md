@@ -158,7 +158,7 @@ Plans:
   4. Owner sets the business enforcement policy via chat ("block if no membership" or "allow and flag"); the chosen policy takes effect immediately for all subsequent booking attempts.
   5. With "block" policy active, a client without a valid membership receives a Greek refusal message; with "flag" policy, the booking proceeds and the owner receives a Greek alert identifying the unpaid client.
 
-**Plans**: 3/5 plans executed
+**Plans**: 4/5 plans executed
 Plans:
 **Wave 1**
 
@@ -174,7 +174,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion — plans 04 and 05 run in parallel)*
 
-- [ ] 08-04-PLAN.md — Booking lifecycle integration (bookAppointmentTool + cancelAppointmentTool + telegram.ts cancel paths + unit tests)
+- [x] 08-04-PLAN.md — Booking lifecycle integration (bookAppointmentTool + cancelAppointmentTool + telegram.ts cancel paths + unit tests)
 - [ ] 08-05-PLAN.md — Enforcement NLU tool (handleSetEnforcementPolicy + set_enforcement_policy in ai-owner-agent.ts + unit tests)
 
 ### Phase 9: Expiry Notifications & Client Balance
@@ -201,5 +201,5 @@ Plans:
 | 5. Owner Self-Serve Onboarding | v1.1 | 7/7 | Complete | 2026-07-17 |
 | 6. GDPR Compliance & Rate-Limit Resilience | v1.3 | 0/TBD | Deferred | - |
 | 7. Billing Configuration & Payment Recording | v1.2 | 5/5 | In Progress|  |
-| 8. Enforcement & Session Deduction | v1.2 | 3/5 | In Progress|  |
+| 8. Enforcement & Session Deduction | v1.2 | 4/5 | In Progress|  |
 | 9. Expiry Notifications & Client Balance | v1.2 | 0/TBD | Not started | - |
