@@ -1,931 +1,688 @@
 # Phase 8: Enforcement & Session Deduction - Research
 
-**Researched:** 2026-07-21
-**Domain:** Booking enforcement, session deduction, membership validation, transaction atomicity
+**Researched:** 2026-07-20
+**Domain:** Drizzle ORM transactional deduction, PostgreSQL SELECT FOR UPDATE, owner NLU tool extension, schema migration
 **Confidence:** HIGH
 
-## Summary
-
-Phase 8 integrates membership validation into the booking flow and atomically deducts sessions from memberships when clients confirm bookings. The core challenge is preventing concurrent session deduction race conditions (two simultaneous bookings both claiming the same session) via database-level locking within a transaction. Session deduction is append-only (via the `membershipLedger` table established in Phase 7) and must never be reversed — cancellations issue credit entries, not adjustments. All enforcement policies are configurable per business and take effect immediately via the existing owner NLU agent.
-
-**Primary recommendation:** Phase 8 has three distinct workstreams: (1) **enforcement policy storage & UX** (add `enforcement_policy` column to `businesses` table), (2) **atomic session deduction on booking confirm** (wrap `insertBooking` + ledger entry in `db.transaction()` with `SELECT FOR UPDATE`), and (3) **refund logic on cancellation** (check membership expiry at cancel-time, restore credit only if within validity window). Coordinate these tightly — enforcement policy gates whether a booking is allowed; deduction happens inside booking confirm; refund logic is independent at cancel-time.
-
+<user_constraints>
 ## User Constraints (from CONTEXT.md)
 
-*None recorded — Phase 8 context and deferred decisions logged in .planning/STATE.md.*
+### Locked Decisions
 
+- **D-01:** Session deduction at booking INSERT — same `appDb.transaction()` as `insertBooking()` in `bookAppointmentTool` (function-executor.ts).
+- **D-02:** `membership_ledger` entry `event_type = 'session_deducted'` written inside same transaction. `idempotency_key = 'booking:<bookingId>:deduction'`.
+- **D-03:** All three cancel paths restore credit: (a) client taps "Ακύρωση" button, (b) owner taps "Απόρριψη", (c) client says "cancel" via NLU. Owner rejection treated identically to cancellation.
+- **D-04:** Credit-restore checks `membership.expiresAt < now (Europe/Athens)`. If expired: skip restore. If valid: write `credit_restored` ledger entry atomically with booking status update.
+- **D-05:** `idempotency_key` for credit restore = `booking:<bookingId>:credit`.
+- **D-06:** When `membership.sessionCount IS NULL` (unlimited): skip deduction ledger entry, only check `expiresAt` for validity. No credit restore on cancel either.
+- **D-07:** Add `enforcement_policy text NOT NULL DEFAULT 'allow'` to `businesses` via schema migration. Allowed values: `'allow'` | `'block'` | `'flag'`.
+- **D-08:** Default `'allow'` — backward-compatible; existing businesses unaffected until owner sets policy.
+- **D-09:** Owner sets policy via NLU: `set_enforcement_policy` tool in `ai-owner-agent.ts`. Follows Phase 7 tool pattern.
+- **D-10:** Enforcement check in `bookAppointmentTool` BEFORE `insertBooking`.
+- **D-11:** "Flag" owner alert fires synchronously, BEFORE the Αποδοχή/Απόρριψη keyboard message.
+- **D-12:** All ledger writes use `onConflictDoNothing()` on `idempotency_key` UNIQUE constraint (Phase 7 schema already has it). No new constraint needed.
+
+### Claude's Discretion
+
+- Whether to use a CHECK constraint on `enforcement_policy` or rely on app-layer validation only.
+- Exact wording of Greek messages beyond the specified templates.
+
+### Deferred Ideas (OUT OF SCOPE)
+
+- Per-service enforcement policies
+- Owner UI for enforcement audit log
+- "Warn client" mode (third enforcement tier)
+- Auto follow-up "here's how to buy a membership" flow after block refusal
+</user_constraints>
+
+<phase_requirements>
 ## Phase Requirements
 
 | ID | Description | Research Support |
 |----|-------------|------------------|
-| SESS-01 | On confirmed booking, bot atomically deducts 1 session from client's active membership in same transaction as booking insert | Membership query + ledger append inside db.transaction(); SELECT FOR UPDATE on memberships row prevents concurrent deductions |
-| SESS-02 | On cancellation within membership validity, 1 session credit is restored atomically; if membership expired at cancel-time, no credit restored | Membership expiresAt checked at cancel-time; credit entry appended only if now < expiresAt |
-| SESS-03 | For unlimited-session memberships (sessionCount=null), no session count decremented — only expiry date checked for validity | NULL-aware deduction logic: deduct only if sessionCount IS NOT NULL |
-| SESS-04 | For unlimited-session memberships, bookings and cancellations succeed with no session count change — only expiry date checked | Same as SESS-03; expiresAt always enforced; session_remaining update skipped for NULL sessions |
-| ENFC-01 | Owner sets business enforcement policy via chat ("block if no membership" or "allow and flag"); takes effect immediately for all subsequent bookings | New `enforcement_policy` column on `businesses` table; NLU tool `set_enforcement_policy` adds string to existing `ai-owner-agent.ts` tool system |
-| ENFC-02 | With "block" policy active, client without valid membership receives Greek refusal message | Membership check in booking agent before insertBooking; if no valid membership found, return refusal message, skip insertBooking |
-| ENFC-03 | With "flag" policy, booking proceeds; owner receives Greek alert identifying the unpaid client | Same membership check; if no valid membership and policy="flag", insertBooking proceeds, owner receives alert after booking confirm |
+| SESS-01 | On confirmed booking, atomically deduct 1 session from client's active membership in the same transaction as the booking insert | D-01/D-02: `getConn()` inside `withBusinessContext` provides the shared `appDb.transaction()`. SELECT FOR UPDATE via `.for('update')` in drizzle-orm 0.45.2 prevents race condition. |
+| SESS-02 | On cancellation (booking was within membership validity), restore 1 session credit atomically | D-03/D-04: All three cancel paths add credit restore. Atomicity via existing `appDb.transaction()` from `withBusinessContext`. |
+| SESS-03 | On cancellation (membership expired), no credit restored | D-04: Check `membership.expiresAt < now()` in Europe/Athens; skip restore if expired. Find membership via `membership_ledger WHERE booking_id = ? AND operation_type = 'session_deducted'`. |
+| SESS-04 | Unlimited-session memberships: no session count change, only expiry check | D-06: `membership.sessionCount IS NULL` signals unlimited. Skip deduction and credit entirely. |
+| ENFC-01 | Owner sets enforcement policy per business via chat | D-09: `set_enforcement_policy` Gemini NLU tool added to `OWNER_TOOLS` in `ai-owner-agent.ts`. |
+| ENFC-02 | "Block" policy: refuse booking if no active membership, notify client in Greek | D-10: Pre-check in `bookAppointmentTool` before `insertBooking`. Returns Greek refusal without inserting. |
+| ENFC-03 | "Flag" policy: allow booking, send owner Greek alert about unpaid client | D-10/D-11: Insert booking proceeds; owner alert fires synchronously before Αποδοχή/Απόρριψη keyboard. |
+</phase_requirements>
+
+---
+
+## Summary
+
+Phase 8 extends the booking lifecycle with two orthogonal concerns: (1) a session ledger that debits on booking creation and credits on cancellation/rejection, and (2) a per-business enforcement policy that gates or flags bookings lacking a valid membership.
+
+The critical architectural finding is that the entire Telegram webhook handler is already wrapped in `withBusinessContext(business.id, ...)` (confirmed at `telegram.ts` line 410), which opens a single `appDb.transaction()` covering all DB operations for the request. This means `bookAppointmentTool`, `cancelAppointmentTool`, `handleClientCancelCallback`, and `handleCallbackQuery` all execute inside the same transaction — no additional `db.transaction()` wrapping is needed for atomicity. Any `getConn()` call inside these functions participates in that transaction.
+
+For the concurrent deduction race condition, drizzle-orm 0.45.2 exposes `.for('update')` on select queries (confirmed in `drizzle-orm/pg-core/query-builders/select.d.ts`). A `getConn().select().from(memberships).where(...).for('update')` call inside the `bookAppointmentTool` transaction serializes concurrent booking attempts on the same membership row.
+
+The ledger's `bookingId` FK (already nullable in the Phase 7 schema) is the join key for finding the relevant membership at cancel time — no `membership_id` column needs to be added to the `bookings` table.
+
+**Primary recommendation:** Use `getConn()` (not a new `db.transaction()`) for all Phase 8 DB writes. The atomicity guarantee comes from the existing `withBusinessContext` wrapping in telegram.ts. Add SELECT FOR UPDATE to serialize concurrent session deductions.
+
+---
 
 ## Architectural Responsibility Map
 
 | Capability | Primary Tier | Secondary Tier | Rationale |
 |------------|-------------|----------------|-----------|
-| Membership validity check | API / Backend | Database | Business logic enforces policy; DB returns membership state |
-| Session deduction | Database | API / Backend | Transaction atomicity requires DB-level locking (SELECT FOR UPDATE); backend orchestrates the transaction context |
-| Enforcement policy configuration | API / Backend | Client (Telegram NLU) | Owner sets policy via Telegram; NLU tool routes request; backend writes to database |
-| Booking confirmation flow | API / Backend | Database | Booking agent orchestrates the atomic insert + deduction; DB enforces constraints |
-| Cancellation refund logic | API / Backend | Database | Backend checks expiry and decides credit-restore; ledger append is DB write |
+| Session deduction on booking | API / Backend (function-executor.ts bookAppointmentTool) | Database (appDb transaction) | Booking creation and ledger write must be co-located to share a transaction |
+| Credit restore on cancel | API / Backend (telegram.ts + function-executor.ts) | Database (appDb transaction) | Three cancel paths all live in the backend; DB write via shared appDb transaction |
+| Enforcement pre-check | API / Backend (function-executor.ts bookAppointmentTool) | — | Must run before insertBooking; stays in same booking code path |
+| Owner sets enforcement policy | AI / NLU (ai-owner-agent.ts) | Database (businesses table) | Follows established Phase 7 NLU tool pattern |
+| Enforcement policy storage | Database / Storage (businesses.enforcement_policy) | — | Simple column on existing businesses table |
+| Flag alert to owner | API / Backend (telegram.ts sendTelegramMessage) | — | Synchronous side effect in existing alertOwnerNewBooking flow |
+
+---
 
 ## Standard Stack
 
-### Core
+### Core (all already installed — no new packages)
 
 | Library | Version | Purpose | Why Standard |
 |---------|---------|---------|--------------|
-| **drizzle-orm** | 0.30+ | Transaction, SELECT FOR UPDATE, idempotency guards | Already established in Phase 3–7 for RLS and atomic operations. `db.transaction()` is the standard pattern in this codebase. |
-| **@google/genai** | 2.10.0+ | NLU tool system for `set_enforcement_policy` | Existing pattern in Phase 7 `ai-owner-agent.ts` for owner billing commands. Extend with one new tool. |
-| **date-fns** | 4.4.0 | Rolling window expiry math (Europe/Athens timezone) | Locked dependency in ROADMAP decision; used for all membership expiry date calculations. |
+| drizzle-orm | 0.45.2 [VERIFIED: local node_modules] | ORM + query builder; `.for('update')` SELECT locking | Already installed; `.for('update')` confirmed available in this version |
+| @google/genai | 2.10.0+ [ASSUMED] | Gemini NLU for `set_enforcement_policy` tool | Already used in ai-owner-agent.ts |
+| zod | 3.22+ [ASSUMED] | Input validation for enforcement_policy value | Already used in billing/tools.ts |
+| postgres (neon) | existing | DB for schema migration | Already in use |
 
-### Supporting
+**No new packages required for Phase 8.** [VERIFIED: codebase review — all capabilities implemented with existing dependencies]
 
-| Library | Version | Purpose | When to Use |
-|---------|---------|---------|-------------|
-| **postgres** (via Drizzle) | — | SELECT FOR UPDATE row-level locking | Phase 8 requirement SESS-01: prevent concurrent session deduction races inside db.transaction(). |
-| **zod** | 3.22+ | Runtime validation of `set_enforcement_policy` Gemini tool args | Existing pattern; validate enforcement_policy is "block" or "flag" before writing to database. |
+### Package Legitimacy Audit
 
-### Alternatives Considered
-
-| Instead of | Could Use | Tradeoff |
-|------------|-----------|----------|
-| **SELECT FOR UPDATE + db.transaction()** | Retry loop with conflict detection | SELECT FOR UPDATE is simpler, race-proof, and already established in Phase 3 (calendar sync poller). Retry loops are error-prone and add latency. |
-| **Append-only ledger (membershipLedger)** | Mutable counter on memberships.sessionsRemaining | Ledger is audit-safe and idempotent (UNIQUE idempotency_key prevents webhook replays); mutable counter loses history and requires UPDATE locks. |
-| **Gemini tool for set_enforcement_policy** | Inline command handler (no Gemini) | Consistency: all owner post-onboarding commands route through `ai-owner-agent.ts`. Single entry point, less code duplication. |
-
-**Installation:**
-```bash
-npm list drizzle-orm @google/genai date-fns zod
-# All already installed from Phase 7; no new packages needed.
-```
-
-**Version verification:** All dependencies locked in package.json from Phase 7 and earlier phases. No new packages required.
-
-## Package Legitimacy Audit
-
-**No new packages** required for Phase 8. All dependencies (drizzle-orm, @google/genai, date-fns, zod) are already installed and verified in Phase 7.
+No new packages are introduced in Phase 8. All required capabilities are available through the existing dependency set (drizzle-orm, @google/genai, zod).
 
 | Package | Registry | Age | Downloads | Source Repo | Verdict | Disposition |
 |---------|----------|-----|-----------|-------------|---------|-------------|
-| drizzle-orm | npm | 3+ yrs | 2M+/wk | github.com/drizzle-team/drizzle-orm | OK | Approved (Phase 3+) |
-| @google/genai | npm | 1.5 yrs | 100K+/wk | github.com/googleapis/google-genai-js-client | OK | Approved (Phase 7) |
-| date-fns | npm | 8+ yrs | 50M+/wk | github.com/date-fns/date-fns | OK | Approved (Phase 7) |
-| zod | npm | 4+ yrs | 40M+/wk | github.com/colinhacks/zod | OK | Approved (Phase 1+) |
+| (none) | — | — | — | — | — | No new packages |
 
-**Packages removed due to [SLOP] verdict:** None
-**Packages flagged as suspicious [SUS]:** None
+**Packages removed due to [SLOP] verdict:** none
+**Packages flagged as suspicious [SUS]:** none
+
+---
 
 ## Architecture Patterns
 
 ### System Architecture Diagram
 
 ```
-Client Message (booking request)
-    ↓
-Telegram Webhook → Router → withBusinessContext()
-    ↓
-AI Agent (Gemini) → book_appointment tool call
-    ↓
-[ENFORCEMENT CHECK] Get active membership for client
-    ├─ If no membership + policy="block"
-    │  └─ Return refusal message, DO NOT insert booking
-    ├─ If no membership + policy="flag"
-    │  └─ Flag for owner alert, PROCEED to insert
-    └─ If membership exists
-       └─ Check expiry, PROCEED to insert if valid
-    ↓
-db.transaction() {
-  1. SELECT memberships WHERE businessId + clientPhone FOR UPDATE (lock row)
-  2. Validate active + not expired
-  3. INSERT booking (booking_status = 'pending_owner_approval')
-  4. If session_count IS NOT NULL: INSERT membershipLedger (operationType='session_deducted', sessionsDeducted=1)
-  5. UPDATE memberships SET sessionsRemaining = sessionsRemaining - 1
-}
-    ↓
-Owner receives alert → Approves booking → booking_status → 'confirmed'
-    ↓
-Calendar sync → Google Calendar event created
-```
+Client Telegram message (booking request)
+    │
+    ▼
+telegram.ts: handleTelegramWebhookPost
+    │   withBusinessContext(businessId) ─────────────────────────────────┐
+    │   └── opens appDb.transaction() (all getConn() calls below share it)│
+    ▼                                                                     │
+routeConversationMessage → aiBookingAgent → executeTool                   │
+    │                                                                     │
+    ▼                                                                     │
+bookAppointmentTool (function-executor.ts)                                │
+    ├── [ENFC-01/02/03] fetchBusinessEnforcementPolicy() ← getConn()     │
+    ├── [SESS-01]       getActiveMembershipForDeduction() ← getConn().for('update')
+    │                   (SELECT FOR UPDATE — serializes concurrent deductions)
+    ├── [ENFC-02]       if policy='block' + no valid membership → Greek refusal (no insert)
+    ├── [ENFC-03]       if policy='flag' + no valid membership → set flagOwner=true
+    ├──               insertBooking() ← getConn() (same appDb.transaction())
+    ├── [ENFC-03]       if flagOwner: sendTelegramMessage(owner, flag alert)
+    ├── [SESS-01]       deductSession() ← getConn() (ledger insert + counter update)
+    └──               alertOwnerNewBooking() (Αποδοχή/Απόρριψη keyboard)
+         all within same appDb.transaction() ────────────────────────────┘
 
-**Data flow key points:**
-- Membership validation is a READ-ONLY pre-check (no lock needed)
-- Session deduction happens INSIDE the booking transaction with SELECT FOR UPDATE to prevent races
-- Ledger is append-only; no UPDATE on ledger itself — ever
-- Cancellation refund is a separate, independent transaction (not shown here)
+Cancel path A (client taps "Ακύρωση" button):
+    telegram.ts → handleCallbackQuery → handleClientCancelCallback
+        └── withBusinessContext wraps all → getConn() calls atomic
+            ├── updateBookingStatus(cancelled)
+            └── restoreCredit() if membership not expired
+
+Cancel path B (owner taps "Απόρριψη"):
+    telegram.ts → handleCallbackQuery reject branch
+        └── withBusinessContext wraps all → getConn() calls atomic
+            ├── updateBookingStatusIfPending(rejected)
+            └── restoreCredit() if membership not expired
+
+Cancel path C (client NLU "cancel"):
+    function-executor.ts → cancelAppointmentTool
+        └── withBusinessContext wraps all → getConn() calls atomic
+            ├── updateBookingStatus(cancelled)
+            └── restoreCredit() if membership not expired
+
+Owner sets policy (NLU):
+    ai-owner-agent.ts → set_enforcement_policy tool
+        └── UPDATE businesses SET enforcement_policy = ?
+            → Greek confirmation reply
+```
 
 ### Recommended Project Structure
 
-*Phase 8 adds/modifies:*
-
 ```
 src/
-├── database/
-│   ├── queries.ts           [MODIFY] Add getActiveMembership(), draftSessionDeduction()
-│   ├── schema.ts            [MODIFY] Add enforcement_policy column to businesses table
-│   └── 0005-migrations.sql  [NEW] Schema migration for enforcement_policy
 ├── billing/
-│   ├── queries.ts           [MODIFY] Export getActiveMembership for booking agent reuse
-│   └── enforcement.ts       [NEW] Membership validation logic (shared between check_availability and booking)
+│   ├── queries.ts        # EXTEND: add deductSession(), restoreCredit(),
+│   │                     #   getActiveMembershipForDeduction(),
+│   │                     #   findMembershipByBooking(),
+│   │                     #   getBusinessEnforcementPolicy()
+│   └── tools.ts          # EXTEND: add handleSetEnforcementPolicy()
 ├── conversation/
-│   ├── function-executor.ts [MODIFY] Wrap bookAppointmentTool with atomic session deduction
-│   ├── function-execution-enforcement.ts [NEW] Enforcement policy check + message building
+│   └── function-executor.ts  # EXTEND: bookAppointmentTool + cancelAppointmentTool
+├── database/
+│   ├── schema.ts         # EXTEND: add enforcementPolicy to businesses
+│   └── queries.ts        # EXTEND: add enforcementPolicy to Business interface
 ├── onboarding/
-│   ├── ai-owner-agent.ts    [MODIFY] Add set_enforcement_policy tool definition
-│   └── enforcement-tool.ts  [NEW] Handle enforcement policy NLU intent
-└── telegram/
-    └── handlers/
-        ├── enforcement.ts   [NEW] Greek messages for "block" and "flag" policies
-        └── alerts.ts        [NEW] Owner alert on "flag" policy (unpaid client booked)
+│   └── ai-owner-agent.ts # EXTEND: add set_enforcement_policy to OWNER_TOOLS + executeOwnerTool
+├── webhooks/
+│   └── telegram.ts       # EXTEND: handleClientCancelCallback + handleCallbackQuery reject branch
+migrations/
+└── 0007_enforcement_policy.sql  # NEW: ALTER TABLE businesses ADD COLUMN enforcement_policy
+tests/
+├── function-executor.test.ts    # EXTEND with enforcement + deduction unit tests
+├── billing-session-deduction.test.ts  # NEW: integration tests for atomic deduction
+└── billing-enforcement-policy.test.ts # NEW: unit tests for set_enforcement_policy NLU tool
 ```
 
-### Pattern 1: Atomic Session Deduction (SELECT FOR UPDATE)
+### Pattern 1: SELECT FOR UPDATE via Drizzle `.for('update')`
 
-**What:** Wrap booking insert and session deduction in a single database transaction with row-level locking to prevent concurrent deduction races.
-
-**When to use:** Any mutation that reads a counter, makes a decision based on the count, and then updates the counter. Session deduction is the textbook case — two simultaneous bookings must not both decrement from the same membership.
-
-**Example:**
+**What:** Lock a membership row for the duration of the current transaction to serialize concurrent session deductions.
+**When to use:** Inside `bookAppointmentTool` before checking `sessionsRemaining` and before inserting the booking. Only needed for memberships with a finite session count (not unlimited).
 
 ```typescript
-// Source: Phase 3 calendar-sync.ts (established pattern in this codebase)
-// Adapted for session deduction
+// Source: drizzle-orm/pg-core/query-builders/select.d.ts (confirmed available in 0.45.2)
+// getConn() returns the appDb transaction from withBusinessContext
+const [membership] = await getConn()
+  .select()
+  .from(memberships)
+  .where(
+    and(
+      eq(memberships.businessId, businessId),
+      eq(memberships.clientPhone, clientPhone),
+      eq(memberships.isActive, true),
+      gt(memberships.expiresAt, new Date())
+    )
+  )
+  .for('update')  // [VERIFIED: drizzle-orm 0.45.2 pg-core select.d.ts line 586]
+  .limit(1);
 
-export async function insertBookingWithSessionDeduction(
-  businessId: number,
-  clientPhone: string,
-  bookingData: { serviceId: number; calendarDate: string; calendarTime: string; requestId: string; expiresAt: Date },
-  membershipId: number
-): Promise<{ booking: Booking; ledgerEntry: MembershipLedgerEntry } | { error: string }> {
-  try {
-    const result = await db.transaction(async (tx) => {
-      // 1. Acquire write lock on the memberships row (SELECT FOR UPDATE equivalent in Drizzle)
-      const membership = await tx
-        .select()
-        .from(memberships)
-        .where(eq(memberships.id, membershipId))
-        .for('update'); // Drizzle's SELECT FOR UPDATE syntax (or use raw SQL)
-
-      if (!membership || membership.length === 0) {
-        throw new Error('membership_not_found');
-      }
-
-      const m = membership[0];
-
-      // 2. Validate membership is active and not expired
-      if (!m.isActive || new Date() > m.expiresAt) {
-        throw new Error('membership_expired_or_inactive');
-      }
-
-      // 3. Insert booking
-      const bookingRows = await tx
-        .insert(bookings)
-        .values({
-          businessId,
-          clientPhone,
-          ...bookingData,
-        })
-        .returning();
-
-      const booking = bookingRows[0];
-      if (!booking) {
-        throw new Error('booking_insert_failed');
-      }
-
-      // 4. If unlimited sessions (sessionCount === null), skip ledger and don't decrement
-      if (m.sessionCount === null) {
-        return { booking, ledgerEntry: null };
-      }
-
-      // 5. Append ledger entry (immutable, idempotency-keyed)
-      const idempotencyKey = `booking:${booking.id}:deduct`;
-      const ledgerRows = await tx
-        .insert(membershipLedger)
-        .values({
-          membershipId: m.id,
-          operationType: 'session_deducted',
-          sessionsDeducted: 1,
-          bookingId: booking.id,
-          idempotencyKey,
-        })
-        .onConflictDoNothing() // Webhook replay safety
-        .returning();
-
-      const ledgerEntry = ledgerRows[0] ?? null;
-
-      // 6. Decrement sessions_remaining
-      await tx
-        .update(memberships)
-        .set({ sessionsRemaining: m.sessionCount - 1 })
-        .where(eq(memberships.id, m.id));
-
-      return { booking, ledgerEntry };
-    });
-
-    return result;
-  } catch (error) {
-    logger.error({ err: error, membershipId }, 'session_deduction_failed');
-    return { error: (error as Error).message };
-  }
+if (!membership) return null; // no valid membership
+if (membership.sessionsRemaining !== null && membership.sessionsRemaining <= 0) {
+  return { error: 'no_sessions_remaining' };
 }
 ```
 
-**Key details:**
-- `SELECT FOR UPDATE` (or Drizzle's `.for('update')` equivalent) locks the row at transaction start
-- No other transaction can acquire the lock until this one commits
-- Prevents read-skew: a concurrent deduction cannot re-read the old session count
-- Rollback on any error inside the transaction — booking and ledger entry are both rolled back atomically
+### Pattern 2: Atomic Session Deduction (counter + ledger in one transaction)
 
-### Pattern 2: Enforcement Policy Check (Read-Only Pre-Flight)
-
-**What:** Before attempting to insert a booking, query the client's active membership and the business's enforcement policy. Decide to proceed, refuse, or flag based on the combination.
-
-**When to use:** Client-facing operations where access control depends on external state (memberships, policies, quotas).
-
-**Example:**
+**What:** Decrement `memberships.sessionsRemaining` AND insert a `membership_ledger` row in the same `appDb.transaction()`.
+**When to use:** After `insertBooking` succeeds and booking row has an ID. Skip entirely for unlimited memberships (`sessionsRemaining IS NULL`).
 
 ```typescript
-// Source: Phase 8 (new, follows Phase 7 billing-queries pattern)
+// Source: billing/queries.ts createMembership pattern (Phase 7) — same tx via getConn()
+async function deductSession(
+  membershipId: number,
+  bookingId: number,
+  idempotencyKey: string,  // 'booking:<bookingId>:deduction'
+): Promise<void> {
+  // 1. Try ledger insert first (idempotency guard)
+  const inserted = await getConn()
+    .insert(membershipLedger)
+    .values({
+      membershipId,
+      operationType: 'session_deducted',
+      sessionsDeducted: 1,
+      bookingId,
+      idempotencyKey,
+    })
+    .onConflictDoNothing()
+    .returning({ id: membershipLedger.id });
 
-export async function getActiveMembershipForClient(
-  businessId: number,
-  clientPhone: string
-): Promise<Membership | null> {
-  const rows = await getConn()
-    .select()
+  if (inserted.length === 0) return; // already deducted (idempotent replay)
+
+  // 2. Only if new ledger row: decrement the counter
+  await getConn()
+    .update(memberships)
+    .set({ sessionsRemaining: sql`${memberships.sessionsRemaining} - 1` })
+    .where(eq(memberships.id, membershipId));
+}
+```
+
+### Pattern 3: Credit Restore (expiry check + ledger + counter)
+
+**What:** On cancel/reject, restore 1 session only if the membership was not expired at the time of cancellation.
+**When to use:** After `updateBookingStatus` or `updateBookingStatusIfPending` in all three cancel paths.
+
+```typescript
+// Source: deductSession pattern above (same idempotency + counter approach, reversed)
+async function restoreCredit(
+  membershipId: number,
+  bookingId: number,
+  idempotencyKey: string,  // 'booking:<bookingId>:credit'
+): Promise<void> {
+  // Expiry check (SESS-03): check membership.expiresAt in Europe/Athens
+  const [membership] = await getConn()
+    .select({ expiresAt: memberships.expiresAt, sessionsRemaining: memberships.sessionsRemaining })
     .from(memberships)
+    .where(eq(memberships.id, membershipId))
+    .limit(1);
+
+  if (!membership) return;
+  // SESS-04: unlimited memberships have sessionsRemaining IS NULL — no counter to restore
+  if (membership.sessionsRemaining === null) return;
+  // SESS-03: membership expired at time of cancellation — no credit
+  const nowAthens = new Date(
+    new Date().toLocaleString('en-US', { timeZone: 'Europe/Athens' })
+  );
+  if (membership.expiresAt < nowAthens) return;
+
+  // Idempotency guard on ledger insert
+  const inserted = await getConn()
+    .insert(membershipLedger)
+    .values({
+      membershipId,
+      operationType: 'credit_restored',
+      sessionsDeducted: -1,  // negative = credit
+      bookingId,
+      idempotencyKey,
+    })
+    .onConflictDoNothing()
+    .returning({ id: membershipLedger.id });
+
+  if (inserted.length === 0) return; // already restored
+
+  // Increment counter
+  await getConn()
+    .update(memberships)
+    .set({ sessionsRemaining: sql`${memberships.sessionsRemaining} + 1` })
+    .where(eq(memberships.id, membershipId));
+}
+```
+
+### Pattern 4: Finding the Membership at Cancel Time
+
+**What:** Look up `membershipId` from the ledger using `bookingId`, to avoid adding `membership_id` FK to the `bookings` table.
+**When to use:** At the start of credit restore in all cancel paths.
+
+```typescript
+// The membership_ledger.bookingId column was designed exactly for this (Phase 7 schema comment:
+// "Phase 8+: nullable — set when the ledger entry is tied to a specific booking")
+async function findMembershipByBooking(bookingId: number): Promise<number | null> {
+  const [row] = await getConn()
+    .select({ membershipId: membershipLedger.membershipId })
+    .from(membershipLedger)
     .where(
       and(
-        eq(memberships.businessId, businessId),
-        eq(memberships.clientPhone, clientPhone),
-        eq(memberships.isActive, true),
-        gte(memberships.expiresAt, new Date()) // Not expired
+        eq(membershipLedger.bookingId, bookingId),
+        eq(membershipLedger.operationType, 'session_deducted')
       )
     )
     .limit(1);
-  return rows[0] ?? null;
+  return row?.membershipId ?? null;
 }
-
-export async function getEnforcementPolicy(businessId: number): Promise<'block' | 'flag'> {
-  const row = await getConn()
-    .select({ policy: businesses.enforcementPolicy })
-    .from(businesses)
-    .where(eq(businesses.id, businessId))
-    .limit(1);
-  
-  return row[0]?.policy ?? 'flag'; // Default: flag (allow and alert owner)
-}
+// Returns null for unlimited memberships (no deduction row was written).
+// Returns null for bookings pre-Phase-8 (no ledger row exists).
+// In both null cases: skip credit restore.
 ```
 
-**In booking agent:**
+### Pattern 5: `set_enforcement_policy` Owner NLU Tool
+
+**What:** Gemini NLU tool added to `OWNER_TOOLS` in `ai-owner-agent.ts` following the Phase 7 shape.
+**When to use:** When owner sends a message like "ορίσε πολιτική block" or "θέλω να μπλοκάρω απλήρωτους πελάτες".
 
 ```typescript
-async function bookAppointmentTool(args: unknown, context: ToolContext): Promise<Record<string, unknown>> {
-  // ... validation, service lookup, availability check ...
-
-  // ENFORCEMENT CHECK
-  const membership = await getActiveMembershipForClient(context.business.id, context.clientPhone);
-  const policy = await getEnforcementPolicy(context.business.id);
-
-  if (!membership) {
-    if (policy === 'block') {
-      // Refuse and send Greek message
-      const refusalMsg = 'Δυστυχώς, δεν διαθέτετε ενεργή ιδιωτική συμφωνία για αυτό το στούντιο. Παρακαλώ επικοινωνήστε με τον ιδιοκτήτη.';
-      await sendTelegramMessage(context.business.ownerTelegramId, refusalMsg);
-      return { error: 'no_active_membership', message: refusalMsg };
-    }
-    // policy === 'flag': fall through and insert booking, owner will be alerted
-  }
-
-  // INSERT BOOKING WITH OPTIONAL SESSION DEDUCTION
-  const result = await insertBookingWithSessionDeduction(
-    context.business.id,
-    context.clientPhone,
-    bookingData,
-    membership?.id
-  );
-
-  if (result.error) {
-    return { error: result.error };
-  }
-
-  // If policy === 'flag' and no membership, send owner alert
-  if (!membership && policy === 'flag') {
-    const alertMsg = `⚠️ Κράτηση χωρίς ενεργή ιδιωτική συμφωνία: ${context.clientName ?? context.clientPhone}`;
-    await sendTelegramMessage(context.business.ownerTelegramId, alertMsg);
-  }
-
-  return { booking_id: result.booking.id, status: 'pending_owner_approval' };
-}
+// Source: ai-owner-agent.ts OWNER_TOOLS array — exact same shape as create_package, record_payment
+{
+  type: 'function' as const,
+  name: 'set_enforcement_policy',
+  description:
+    'Ορίζει την πολιτική κρατήσεων για πελάτες χωρίς ενεργή συνδρομή: ' +
+    '"block" = μπλοκάρει (αρνείται κράτηση), "flag" = επιτρέπει αλλά ειδοποιεί τον ιδιοκτήτη, ' +
+    '"allow" = επιτρέπει πάντα (προεπιλογή).',
+  parameters: {
+    type: 'object',
+    properties: {
+      policy: {
+        type: 'string',
+        enum: ['allow', 'block', 'flag'],
+        description: 'Πολιτική εφαρμογής: allow | block | flag',
+      },
+    },
+    required: ['policy'],
+  },
+},
 ```
 
-### Pattern 3: Cancellation Refund Logic (Expiry-Aware Credit)
+### Pattern 6: Schema Migration (0007_enforcement_policy.sql)
 
-**What:** On booking cancellation, check if the membership was active at the time the booking was created. If yes, restore 1 credit; if the membership has since expired, no credit is restored (sessions forfeited).
+**What:** Add `enforcement_policy` column with CHECK constraint to `businesses`.
+**When to use:** Migration must run BEFORE any Phase 8 code is deployed.
 
-**When to use:** Cancellation flows where access to credits is time-bound or quota-limited.
+```sql
+-- Source: migrations/0006_billing_schema.sql — same idempotent ADD COLUMN IF NOT EXISTS pattern
+ALTER TABLE businesses
+  ADD COLUMN IF NOT EXISTS enforcement_policy TEXT NOT NULL DEFAULT 'allow'
+    CONSTRAINT enforcement_policy_valid CHECK (enforcement_policy IN ('allow', 'block', 'flag'));
 
-**Example:**
-
-```typescript
-// Source: Phase 8 (new)
-
-export async function cancelBookingWithRefund(
-  bookingId: number,
-  businessId: number
-): Promise<{ cancelled: boolean; creditRestored: boolean; reason?: string }> {
-  // Lookup the booking to find membership_id
-  const booking = await findBookingById(businessId, bookingId);
-  if (!booking) {
-    return { cancelled: false, creditRestored: false, reason: 'booking_not_found' };
-  }
-
-  // Lookup which membership this booking was tied to
-  // (Stored in membershipLedger.membershipId if deducted, or look up current active for client)
-  const ledgerEntry = await getConn()
-    .select()
-    .from(membershipLedger)
-    .where(eq(membershipLedger.bookingId, booking.id))
-    .limit(1);
-
-  let membershipId: number | null = null;
-  if (ledgerEntry && ledgerEntry.length > 0) {
-    membershipId = ledgerEntry[0].membershipId;
-  } else {
-    // No ledger entry = booking created before Phase 8, or unlimited membership
-    // Try to find active membership for this client
-    const membership = await getActiveMembershipForClient(businessId, booking.clientPhone);
-    membershipId = membership?.id ?? null;
-  }
-
-  if (!membershipId) {
-    // No membership found — nothing to refund
-    return { cancelled: true, creditRestored: false, reason: 'no_membership_to_refund' };
-  }
-
-  return await db.transaction(async (tx) => {
-    // 1. Cancel the booking
-    const updatedBooking = await tx
-      .update(bookings)
-      .set({ bookingStatus: 'cancelled' })
-      .where(and(eq(bookings.id, bookingId), eq(bookings.businessId, businessId)))
-      .returning();
-
-    if (!updatedBooking || updatedBooking.length === 0) {
-      throw new Error('booking_cancel_failed');
-    }
-
-    // 2. Fetch membership to check expiry
-    const membership = await tx
-      .select()
-      .from(memberships)
-      .where(eq(memberships.id, membershipId))
-      .limit(1);
-
-    if (!membership || membership.length === 0) {
-      return { cancelled: true, creditRestored: false, reason: 'membership_not_found' };
-    }
-
-    const m = membership[0];
-
-    // 3. Check if membership is still valid at cancel time
-    const now = new Date();
-    if (now > m.expiresAt) {
-      // Membership expired — no credit restored (sessions forfeited)
-      return { cancelled: true, creditRestored: false, reason: 'membership_expired' };
-    }
-
-    // 4. Membership still valid — restore credit
-    if (m.sessionCount === null) {
-      // Unlimited membership — no session count to restore
-      return { cancelled: true, creditRestored: false, reason: 'unlimited_membership' };
-    }
-
-    // 5. Append credit-restore entry to ledger
-    const idempotencyKey = `booking:${bookingId}:restore`;
-    await tx
-      .insert(membershipLedger)
-      .values({
-        membershipId: m.id,
-        operationType: 'credit_restored',
-        sessionsDeducted: -1, // Negative = credit
-        bookingId: bookingId,
-        idempotencyKey,
-      })
-      .onConflictDoNothing(); // Webhook replay safety
-
-    // 6. Increment sessions_remaining
-    await tx
-      .update(memberships)
-      .set({ sessionsRemaining: m.sessionCount + 1 })
-      .where(eq(memberships.id, m.id));
-
-    return { cancelled: true, creditRestored: true };
-  });
-}
+-- Also grant UPDATE to randevuclaw_app so the set_enforcement_policy handler can write it
+GRANT UPDATE (enforcement_policy) ON businesses TO randevuclaw_app;
 ```
 
 ### Anti-Patterns to Avoid
 
-- **Mutable counter without locks:** Updating `memberships.sessionsRemaining` without `SELECT FOR UPDATE` in a transaction. Two concurrent bookings will both read the same old count, both decrement to the same wrong value. **Use SELECT FOR UPDATE inside db.transaction().**
-- **Checking expiry outside the transaction:** Reading membership expiry, then inserting booking in a separate query. The membership might expire between the two queries. **Include expiry check inside the booking transaction.**
-- **Ledger UPDATE instead of INSERT:** Modifying a ledger entry if it already exists (due to webhook replay). Ledgers are audit trails — always append. **Use INSERT with UNIQUE idempotency_key constraint.**
-- **Skipping credit restoration for unlimited memberships:** Trying to decrement NULL or increment NULL. **Check `sessionCount IS NOT NULL` before any ledger/counter update; skip both if NULL.**
-- **Sending owner alert outside transaction:** If the alert send fails after booking is confirmed, the booking state and alert state are inconsistent. **Use async task queue or best-effort send after transaction commits; don't fail the booking if the alert fails.**
+- **Wrapping in a new `db.transaction()` inside the booking flow**: Everything inside the `withBusinessContext` callback is already inside `appDb.transaction()`. A nested `db.transaction()` opens a SEPARATE connection, breaking atomicity with `insertBooking`. Use `getConn()` directly.
+- **Skipping SELECT FOR UPDATE**: Without `for('update')`, two concurrent bookings can both read `sessionsRemaining = 1`, both proceed to insert, and both decrement — overselling sessions. Always lock before deducting.
+- **Making the flag alert best-effort (try/catch/ignore)**: CONTEXT.md D-11 explicitly says owner flag alert must be awaited before responding to client. Do NOT use the existing best-effort pattern from alertOwnerNewBooking.
+- **Adding `membership_id` to `bookings` table**: The ledger's existing `bookingId` FK is sufficient for credit restore. Adding a new FK to `bookings` creates a circular dependency edge and was not in the locked schema decisions.
+- **Checking `membership.sessionsRemaining` without SELECT FOR UPDATE**: Race condition. The check and the decrement must happen inside the same locked transaction.
+- **Writing ledger with `onConflictDoUpdate` instead of `onConflictDoNothing`**: Ledger is append-only. Never update an existing ledger row. If the idempotency key conflicts, the correct action is to skip (do nothing), not update.
+
+---
 
 ## Don't Hand-Roll
 
 | Problem | Don't Build | Use Instead | Why |
 |---------|-------------|-------------|-----|
-| **Concurrent deduction race prevention** | Custom retry loop with conflict re-checks | `SELECT FOR UPDATE` inside `db.transaction()` with Drizzle | Row-level locks are race-proof, atomic, standard SQL. Retry loops leak timing windows. |
-| **Membership expiry validation** | Custom date math or timezone conversion | `date-fns` with `gte(memberships.expiresAt, new Date())` in WHERE clause | date-fns handles DST edge cases, timezone math is error-prone (off-by-one days are common). Already locked in Phase 7. |
-| **Idempotency for ledger entries** | Application-level dedup loop | UNIQUE constraint on `idempotency_key` in schema | DB constraint is race-proof; app-level checks lose atomicity. Webhook replay safety is non-negotiable. |
-| **Greek enforcement messages** | Simple if/then string templates | Extracted Greek message builder (e.g., `src/telegram/handlers/enforcement.ts`) | Reuse across booking agent, cancellation handler, debug flows. Single source of truth. |
-| **Membership query with policy fallback** | Hard-code `policy = 'flag'` throughout | Centralized `getEnforcementPolicy()` function | Policy might change; one function change updates all call sites. Tested in one place. |
+| Concurrent deduction race | Custom optimistic locking / version counter | `getConn().select().for('update')` (drizzle-orm 0.45.2) | Built-in pessimistic locking via PostgreSQL advisory lock at the row level; much simpler |
+| Idempotent deduction | Custom "already deducted?" check query | `onConflictDoNothing().returning()` on idempotency_key UNIQUE | Phase 7 pattern already established; two-step check-then-insert has a race window |
+| Timezone-safe expiry check | Manual UTC offset arithmetic | `isoDateInAthens()` and `addCalendarDays()` from `src/utils/timezone.ts` | DST-safe patterns already in the codebase; any new arithmetic risks off-by-one at DST transitions |
+| NLU validation of policy value | Custom string parse | Zod `.enum(['allow', 'block', 'flag'])` | Pattern from `CreatePackageSchema` in billing/tools.ts |
+| Greek date formatting for owner messages | `new Date().toISOString().slice()` | `toLocaleDateString('el-GR', { timeZone: 'Europe/Athens' })` | Pattern already in `handleViewClientMembership` in billing/tools.ts |
 
-**Key insight:** Database-level constraints (SELECT FOR UPDATE, UNIQUE idempotency_key) are not just performance optimizations — they are correctness requirements for financial operations. Session deduction is a ledger transaction; hand-rolling it in application code opens the door to lost updates and duplicate charges.
+**Key insight:** The transaction atomicity is FREE — it comes from the existing `withBusinessContext` wrapper in telegram.ts. Phase 8 only needs to write `getConn()` calls; the transaction boundary is already managed.
 
-## Runtime State Inventory
-
-**Trigger:** Phase 8 is a feature addition (enforcement + session deduction), not a rename/refactor/migration. No runtime state inventory needed.
-
-**State explicitly verified:** None — this phase adds new tables/columns (enforcement_policy) and new ledger entries (session_deducted, credit_restored), but does not migrate or rename existing data structures.
+---
 
 ## Common Pitfalls
 
-### Pitfall 1: Race Between Membership Check and Booking Insert
+### Pitfall 1: Using `db` or `appDb` directly instead of `getConn()`
+**What goes wrong:** DB writes bypass the active `appDb.transaction()` from `withBusinessContext`, breaking atomicity with the booking insert. Session can be deducted even if the booking insert was rolled back (or vice versa).
+**Why it happens:** `createMembership` in billing/queries.ts uses `db.transaction()` directly — this was correct in Phase 7 because payment recording is NOT inside a `withBusinessContext` flow. Phase 8 deduction IS inside the flow.
+**How to avoid:** In `bookAppointmentTool` and all cancel handlers: always use `getConn()`. Never call `db.insert()` or `appDb.insert()` directly in Phase 8 code.
+**Warning signs:** TypeScript will compile fine either way; only an integration test that verifies rollback behavior will catch this.
 
-**What goes wrong:** Enforcement check reads an active membership, but by the time the booking is inserted, the membership expires or is deactivated. The booking gets created anyway, and later the owner tries to fulfill a booking for a client who's no longer paid.
+### Pitfall 2: Confusing `db.transaction()` (admin) with `appDb.transaction()` (RLS)
+**What goes wrong:** Using `db.transaction()` bypasses PostgreSQL row-level security — a client of business A could potentially read or modify data for business B.
+**Why it happens:** `db` is the admin connection; `appDb` has RLS. The existing `createMembership` uses `db.transaction()` because it's called from `handleConfirmMembership` in payment-flow.ts, which explicitly wraps in `withBusinessContext(businessId, ...)` at the call site.
+**How to avoid:** Phase 8 code never needs its own `db.transaction()`. Use `getConn()` and let `withBusinessContext` own the transaction boundary.
 
-**Why it happens:** Membership validity check is a separate query from booking insert — a window exists between the two operations.
+### Pitfall 3: Unlimited membership deduction
+**What goes wrong:** Inserting a `session_deducted` ledger row for an unlimited membership (where `sessionsRemaining IS NULL`), then accidentally trying to decrement `NULL - 1` which returns NULL, silently corrupting the membership state.
+**Why it happens:** Forgetting to check `membership.sessionsRemaining !== null` before the deduction path.
+**How to avoid:** D-06 is explicit: when `sessionsRemaining IS NULL`, skip the entire deduction path (no ledger row, no counter update). The only check is `expiresAt > now`.
 
-**How to avoid:** Perform membership validation (expiry, active status) INSIDE the booking transaction, holding a SELECT FOR UPDATE lock on the memberships row. The lock persists until booking confirm is complete.
+### Pitfall 4: Credit restore for pre-Phase-8 bookings
+**What goes wrong:** `findMembershipByBooking(bookingId)` returns `null` for bookings created before Phase 8 (no ledger row). The credit restore code tries to restore null → exception or silent corruption.
+**Why it happens:** Assuming all bookings have a membership deduction ledger row.
+**How to avoid:** `findMembershipByBooking` returning `null` must be handled as "no deduction was made → skip restore". This also covers unlimited memberships correctly.
 
-**Warning signs:** Bookings exist for expired memberships in production. Query: `SELECT b.* FROM bookings b JOIN memberships m ON ... WHERE m.expiresAt < NOW()` and cross-check with `m.isActive = false`.
+### Pitfall 5: `enforcement_policy` column NOT NULL before migration runs
+**What goes wrong:** Deploying Phase 8 code (which reads `business.enforcementPolicy`) before the `0007_enforcement_policy.sql` migration runs will cause TypeScript type errors at runtime (the field is undefined on the row) or DB errors.
+**Why it happens:** Migration not run in step order.
+**How to avoid:** Migration must be applied to both the Neon live DB AND `randevuclaw_test` before running tests or deploying. Add a Wave 0 task that explicitly applies the migration.
 
-### Pitfall 2: Ledger Entry with Wrong Session Count
+### Pitfall 6: `Business` interface in queries.ts not updated
+**What goes wrong:** `findBusinessById`, `findBusinessByWebhookId`, and other functions return the `Business` interface which doesn't include `enforcementPolicy`. TypeScript will narrow the result to `undefined` for the new column even after the migration.
+**Why it happens:** The `Business` interface and the Drizzle schema definition in `schema.ts` are both sources of truth; adding to one without the other breaks type inference.
+**How to avoid:** Update BOTH `src/database/schema.ts` (Drizzle column definition) AND the `Business` interface in `src/database/queries.ts` (TypeScript shape).
 
-**What goes wrong:** A session is deducted (sessionsDeducted = 1) on booking confirm, but when the booking is cancelled, the credit entry says sessionsDeducted = -2 instead of -1. The member's balance ends up wrong.
+### Pitfall 7: Flag alert sent AFTER the Αποδοχή/Απόρριψη keyboard
+**What goes wrong:** Owner sees the approval keyboard first, then the unpaid-client warning below it — they may already have tapped "Αποδοχή" before reading the warning, which defeats the purpose of the flag.
+**Why it happens:** The flag alert is inserted after `alertOwnerNewBooking` in the booking flow.
+**How to avoid:** D-11 is explicit: flag alert must fire BEFORE the Αποδοχή/Απόρριψη keyboard message. In `bookAppointmentTool`, call `sendTelegramMessage(owner, flagAlert)` before `alertOwnerNewBooking(booking, service, business)`.
 
-**Why it happens:** Hard-coding session counts instead of looking them up. Or forgetting to update both ledger and memberships.sessionsRemaining together.
-
-**How to avoid:** Always query the membership to get the current session count. Use that value consistently in both ledger INSERT and memberships UPDATE. Test the refund path with multiple concurrent bookings and cancellations to catch off-by-one errors.
-
-**Warning signs:** Membership balance doesn't match the sum of ledger entries. Query: `SELECT SUM(sessions_deducted) FROM membership_ledger WHERE membership_id = X` and compare to `memberships.sessionsRemaining` at that time.
-
-### Pitfall 3: Unlimited Membership Session Handling
-
-**What goes wrong:** Code tries to decrement sessions_remaining for an unlimited membership (sessionCount = null). In SQL, NULL - 1 = NULL, so the balance mysteriously stays NULL instead of failing. The booking appears to work but the ledger is incorrect.
-
-**Why it happens:** Forgetting to check `sessionCount IS NOT NULL` before any arithmetic.
-
-**How to avoid:** Always branch on NULL before doing math: `if (membership.sessionCount !== null) { /* decrement */ }`. Make this check at the query level too: `WHERE session_count IS NOT NULL` in any UPDATE or INSERT conditional on session count.
-
-**Warning signs:** Ledger shows session_deducted = 1 for unlimited-session bookings. Query: `SELECT l.* FROM membership_ledger l JOIN memberships m ON l.membership_id = m.id WHERE m.session_count IS NULL AND l.sessions_deducted != 0`.
-
-### Pitfall 4: Enforcement Policy Not Persisted After Owner Sets It
-
-**What goes wrong:** Owner sends a chat command to set policy to "block", bot confirms the change, but the next booking still allows unpaid clients (policy still reads as "flag" from DB).
-
-**Why it happens:** Policy is updated in a local variable or cache but not committed to the database. Or the Gemini tool updates the value but the database transaction rolls back.
-
-**How to avoid:** Wrap `set_enforcement_policy` inside a Drizzle transaction. Test by setting policy, waiting a moment, then querying a new client's booking in a separate transaction to verify the policy is visible.
-
-**Warning signs:** Logs show "set_enforcement_policy called" but `getEnforcementPolicy()` returns the old value in subsequent calls.
-
-### Pitfall 5: Cancellation Refund After Membership Renewal
-
-**What goes wrong:** Client cancels an old booking 8 months later. The old membership expired, but the client has since bought a new membership. The refund logic checks expiry incorrectly and restores credit to the wrong membership (or the new one).
-
-**Why it happens:** Not storing membershipId in the booking or ledger at insert time. On refund, code looks up "the active membership for this client" and gets the new one instead of the one that was active when the booking was created.
-
-**How to avoid:** ALWAYS store `membership_id` in `membershipLedger.membershipId` (or add it to `bookings` table if not already there). On cancellation, use that stored ID, not a fresh lookup. If the membership has since expired, the stored ID will help you see the expiry date.
-
-**Warning signs:** Refund entries appear in the ledger for the wrong membership. Query: `SELECT l.membership_id, m.expires_at FROM membership_ledger l JOIN memberships m ON l.membership_id = m.id WHERE l.booking_id = X`.
+---
 
 ## Code Examples
 
-Verified patterns from official sources and this codebase:
-
-### Atomic Session Deduction with SELECT FOR UPDATE
+### Session deduction integration into `bookAppointmentTool`
 
 ```typescript
-// Source: Phase 3 calendar-sync.ts (db.transaction pattern); Phase 7 billing-queries.ts (ledger pattern); Phase 8 (new)
-
-export async function insertBookingAndDeductSession(
-  businessId: number,
-  clientPhone: string,
-  serviceId: number,
-  calendarDate: string,
-  calendarTime: string,
-  requestId: string,
-  membershipId: number
-): Promise<{ bookingId: number; ledgerEntryId: number | null } | { error: string }> {
-  try {
-    return await db.transaction(async (tx) => {
-      // 1. Acquire exclusive lock on membership row
-      const membershipRows = await tx
-        .select()
-        .from(memberships)
-        .where(eq(memberships.id, membershipId))
-        .for('update');
-
-      if (membershipRows.length === 0) {
-        throw new Error('MEMBERSHIP_NOT_FOUND');
-      }
-
-      const membership = membershipRows[0];
-
-      // 2. Validate: active and not expired
-      if (!membership.isActive || new Date() > membership.expiresAt) {
-        throw new Error('MEMBERSHIP_EXPIRED');
-      }
-
-      // 3. Insert booking
-      const bookingRows = await tx
-        .insert(bookings)
-        .values({
-          businessId,
-          clientPhone,
-          serviceId,
-          calendarDate,
-          calendarTime,
-          requestId,
-          expiresAt: addHours(new Date(), 2),
-        })
-        .returning();
-
-      if (bookingRows.length === 0) {
-        throw new Error('BOOKING_INSERT_FAILED');
-      }
-
-      const booking = bookingRows[0];
-
-      // 4. If unlimited sessions, skip ledger — return success
-      if (membership.sessionCount === null) {
-        return { bookingId: booking.id, ledgerEntryId: null };
-      }
-
-      // 5. Append ledger entry
-      const idempotencyKey = `deduct:${booking.id}:${membership.id}`;
-      const ledgerRows = await tx
-        .insert(membershipLedger)
-        .values({
-          membershipId: membership.id,
-          operationType: 'session_deducted',
-          sessionsDeducted: 1,
-          bookingId: booking.id,
-          idempotencyKey,
-        })
-        .onConflictDoNothing()
-        .returning();
-
-      const ledgerId = ledgerRows[0]?.id ?? null;
-
-      // 6. Update session counter
-      await tx
-        .update(memberships)
-        .set({ sessionsRemaining: membership.sessionCount - 1 })
-        .where(eq(memberships.id, membership.id));
-
-      return { bookingId: booking.id, ledgerEntryId: ledgerId };
-    });
-  } catch (error) {
-    logger.error({ err: error, membershipId }, 'deduction_failed');
-    return { error: (error as Error).message };
-  }
-}
-```
-
-### Enforcement Policy Check in Booking Tool
-
-```typescript
-// Source: Phase 8 (new); adapted from Phase 7 billing-tools pattern and Phase 2 booking flow
-
+// Source: src/conversation/function-executor.ts — bookAppointmentTool extension
 async function bookAppointmentTool(
   args: Record<string, unknown>,
   context: ToolContext
 ): Promise<Record<string, unknown>> {
-  const schema = z.object({ business_id: z.number(), service_id: z.number(), calendar_date: z.string(), calendar_time: z.string() });
-  const parsed = schema.parse(args);
+  const parsed = BookAppointmentArgsSchema.parse(args);
+  const service = await findServiceById(context.business.id, parsed.service_id);
+  if (!service) return { success: false, error: 'service_not_found' };
 
-  try {
-    // === ENFORCEMENT CHECK ===
-    const membership = await getActiveMembershipForClient(context.business.id, context.clientPhone);
-    const policy = await getEnforcementPolicy(context.business.id);
+  // --- Phase 8: enforcement check + session deduction ---
 
-    if (!membership) {
-      if (policy === 'block') {
-        // Refuse
-        const msg = 'Δυστυχώς, δεν έχετε ενεργή συνδρομή. Παρακαλώ επικοινωνήστε με το στούντιο.';
-        return { error: 'no_membership', message: msg };
-      }
-      // policy === 'flag': fall through, will alert owner after booking
-    }
+  // Fetch enforcement policy (uses getConn() — inside appDb.transaction())
+  const enforcementPolicy = context.business.enforcementPolicy ?? 'allow';
 
-    // === AVAILABILITY CHECK ===
-    const available = await checkAvailability(
+  // Find valid membership (SELECT FOR UPDATE if policy !== 'allow' or has session count)
+  let membership: ActiveMembershipForDeduction | null = null;
+  if (enforcementPolicy !== 'allow') {
+    membership = await getActiveMembershipForDeduction(
       context.business.id,
-      parsed.service_id,
-      parsed.calendar_date
+      context.clientPhone
     );
-    if (!available) {
-      return { error: 'no_availability' };
+    if (!membership && enforcementPolicy === 'block') {
+      const businessName = context.business.name;
+      return {
+        success: false,
+        error: 'no_membership',
+        message: `Για να κάνετε κράτηση, χρειάζεστε ενεργή συνδρομή. Επικοινωνήστε με ${businessName} για ανανέωση.`,
+      };
+    }
+  } else {
+    // 'allow' policy but we still need to deduct if membership exists
+    membership = await getActiveMembershipWithLock(context.business.id, context.clientPhone);
+  }
+
+  // --- insert booking (unchanged) ---
+  const expiresAt = new Date(Date.now() + PENDING_BOOKING_TTL_MS);
+  const booking = await insertBooking({ ... });
+
+  if (booking) {
+    // Phase 8: flag alert BEFORE Αποδοχή/Απόρριψη keyboard (D-11)
+    if (enforcementPolicy === 'flag' && !membership && context.business.ownerTelegramId) {
+      const clientName = await getClientName(context.business.id, context.clientPhone);
+      const flagText = `⚠️ Νέα κράτηση από πελάτη χωρίς ενεργή συνδρομή: ${clientName ?? context.clientPhone}, ${service.name}, ${booking.calendarDate} ${booking.calendarTime}.`;
+      await sendTelegramMessage(context.business.ownerTelegramId, flagText);
     }
 
-    // === INSERT BOOKING WITH OPTIONAL SESSION DEDUCTION ===
-    const idempotencyKey = `${context.requestId}:${context.idempotencyKey}`;
-    const result = await insertBookingAndDeductSession(
-      context.business.id,
-      context.clientPhone,
-      parsed.service_id,
-      parsed.calendar_date,
-      parsed.calendar_time,
-      idempotencyKey,
-      membership?.id
-    );
-
-    if ('error' in result) {
-      return { error: result.error };
-    }
-
-    // === SEND OWNER ALERT IF "FLAG" POLICY AND NO MEMBERSHIP ===
-    if (!membership && policy === 'flag') {
-      const clientName = context.clientName || context.clientPhone;
-      const alertMsg = `⚠️ Νέα κράτηση χωρίς ενεργή συνδρομή\nΠελάτης: ${clientName}\nΗμερομηνία: ${parsed.calendar_date}\nΏρα: ${parsed.calendar_time}`;
-      await sendTelegramMessage(context.business.ownerTelegramId, alertMsg).catch((e) =>
-        logger.warn({ err: e }, 'owner_alert_send_failed_non_critical')
+    // Phase 8: session deduction (D-01/D-02/D-06)
+    if (membership && membership.sessionsRemaining !== null) {
+      await deductSession(
+        membership.id,
+        booking.id,
+        `booking:${booking.id}:deduction`
       );
     }
 
-    return { booking_id: result.bookingId, status: 'pending_owner_approval' };
-  } catch (error) {
-    logger.error({ err: error }, 'book_appointment_tool_error');
-    return { error: (error as Error).message };
+    try {
+      await alertOwnerNewBooking(booking, service, context.business);
+    } catch (err) {
+      logger.error({ err, bookingId: booking.id }, 'Booking created but owner alert failed');
+    }
+    return { success: true, booking_id: booking.id, status: booking.bookingStatus };
   }
+
+  return await resolveConflictOrTaken(context.clientPhone, context.idempotencyKey);
 }
 ```
 
-### Cancellation with Expiry-Aware Refund
+### Credit restore integration into `handleClientCancelCallback`
 
 ```typescript
-// Source: Phase 8 (new)
+// Source: src/webhooks/telegram.ts — handleClientCancelCallback extension
+// (Inside withBusinessContext — getConn() is the appDb transaction)
+async function handleClientCancelCallback(bookingId: number, senderTelegramId: string): Promise<void> {
+  const booking = await findBookingByIdUnscoped(bookingId);
+  if (!booking) return;
+  if (booking.clientPhone !== senderTelegramId) return;
+  const CANCELLABLE = ['pending_owner_approval', 'confirmed'];
+  if (!CANCELLABLE.includes(booking.bookingStatus)) return;
 
-export async function handleCancelAppointment(
-  businessId: number,
-  bookingId: number
-): Promise<{ success: boolean; refunded: boolean; message?: string }> {
-  try {
-    // Lookup booking
-    const booking = await findBookingById(businessId, bookingId);
-    if (!booking) {
-      return { success: false, refunded: false, message: 'booking_not_found' };
-    }
+  await updateBookingStatus(booking.id, 'cancelled');
 
-    // Lookup ledger entry to find which membership was deducted
-    const ledger = await getConn()
-      .select()
-      .from(membershipLedger)
-      .where(
-        and(
-          eq(membershipLedger.bookingId, bookingId),
-          eq(membershipLedger.operationType, 'session_deducted')
-        )
-      )
-      .limit(1);
-
-    const membershipId = ledger[0]?.membershipId;
-
-    if (!membershipId) {
-      // No ledger entry = no session was deducted (unlimited membership or pre-Phase-8 booking)
-      // Still need to cancel the booking, but no refund
-      const cancelResult = await updateBookingStatus(businessId, bookingId, 'cancelled');
-      return { success: cancelResult, refunded: false, message: 'no_session_to_restore' };
-    }
-
-    // === ATOMIC CANCEL + CONDITIONAL REFUND ===
-    const result = await db.transaction(async (tx) => {
-      // 1. Cancel booking
-      const updated = await tx
-        .update(bookings)
-        .set({ bookingStatus: 'cancelled' })
-        .where(and(eq(bookings.id, bookingId), eq(bookings.businessId, businessId)))
-        .returning();
-
-      if (updated.length === 0) {
-        throw new Error('BOOKING_CANCEL_FAILED');
-      }
-
-      // 2. Fetch membership at cancel time
-      const membershipRows = await tx
-        .select()
-        .from(memberships)
-        .where(eq(memberships.id, membershipId))
-        .limit(1);
-
-      if (membershipRows.length === 0) {
-        throw new Error('MEMBERSHIP_NOT_FOUND');
-      }
-
-      const membership = membershipRows[0];
-
-      // 3. If membership expired, no refund (sessions forfeited)
-      if (new Date() > membership.expiresAt) {
-        return { refunded: false, reason: 'membership_expired' };
-      }
-
-      // 4. If unlimited (sessionCount === null), no refund (nothing to restore)
-      if (membership.sessionCount === null) {
-        return { refunded: false, reason: 'unlimited_membership' };
-      }
-
-      // 5. Append credit entry
-      const ledgerRows = await tx
-        .insert(membershipLedger)
-        .values({
-          membershipId: membership.id,
-          operationType: 'credit_restored',
-          sessionsDeducted: -1,
-          bookingId: bookingId,
-          idempotencyKey: `restore:${bookingId}:${membership.id}`,
-        })
-        .onConflictDoNothing()
-        .returning();
-
-      // 6. Increment session count
-      await tx
-        .update(memberships)
-        .set({ sessionsRemaining: membership.sessionCount + 1 })
-        .where(eq(memberships.id, membership.id));
-
-      return { refunded: true, reason: 'credit_restored' };
-    });
-
-    return { success: true, refunded: result.refunded, message: result.reason };
-  } catch (error) {
-    logger.error({ err: error, bookingId }, 'cancel_appointment_error');
-    return { success: false, refunded: false, message: (error as Error).message };
+  // Phase 8: credit restore (D-03/D-04/D-05) — atomic with status update via getConn()
+  const membershipId = await findMembershipByBooking(booking.id);
+  if (membershipId !== null) {
+    await restoreCredit(membershipId, booking.id, `booking:${booking.id}:credit`);
   }
+
+  // ... existing calendar delete + owner notification (unchanged) ...
 }
 ```
 
-## State of the Art
+---
 
-| Old Approach | Current Approach | When Changed | Impact |
-|--------------|------------------|--------------|--------|
-| **Mutable counter on client record** | Immutable ledger (membership_ledger) append-only with UNIQUE idempotency_key | Phase 7 (ledger introduced), Phase 8 (used for session tracking) | Audit trail enabled; webhook replays now safe; balance reconciliation possible |
-| **Membership check before booking, then insert in separate call** | Membership check INSIDE booking transaction with SELECT FOR UPDATE | Phase 8 | Race condition eliminated; expiry-at-booking-time guaranteed valid |
-| **Store membership ID in bookings, look it up at cancel time** | Store membership ID in membershipLedger at deduction time, use that on cancel | Phase 8 | Refund correctly goes to the membership that was active at booking, not at cancel |
-| **Hard-code enforcement policy per business** | Configurable via Gemini NLU tool, stored in `enforcement_policy` column on businesses | Phase 8 | Owners can change policy on-demand without code redeployment |
+## Runtime State Inventory
 
-**Deprecated/outdated:**
-- **Per-business enforcement hard-coded in booking agent:** Phase 8 introduces per-business configurability. Remove any hard-coded checks for specific business IDs.
+This is a schema-extension + logic-extension phase, not a rename/refactor. No runtime state migration is required.
 
-## Assumptions Log
+| Category | Items Found | Action Required |
+|----------|-------------|------------------|
+| Stored data | No rename of existing keys/columns | None |
+| Live service config | None affected | None |
+| OS-registered state | None | None |
+| Secrets/env vars | No new env vars required | None |
+| Build artifacts | None | None |
 
-| # | Claim | Section | Risk if Wrong |
-|---|-------|---------|---------------|
-| A1 | date-fns 4.4.0 is the only new dependency needed; no additional packages required | Standard Stack | If true, no new audit required; Phase 8 can proceed immediately. If false, new package must pass legitimacy gate and add to budget. |
-| A2 | SELECT FOR UPDATE is available in Drizzle 0.30+ with .for('update') method | Architecture Patterns / Pattern 1 | If false, must use raw SQL `FOR UPDATE` clause or alternative locking strategy (pessimistic locking, optimistic CAS). Drizzle docs confirm this is supported; check exact API. |
-| A3 | Gemini NLU tool system in ai-owner-agent.ts can be extended with a new `set_enforcement_policy` tool without refactoring | Pattern 2, Recommended Project Structure | If false, must refactor Gemini tool router or create separate handler. Phase 7 pattern suggests it's straightforward. |
-| A4 | membershipLedger is already created in Phase 7 schema; Phase 8 only needs to INSERT entries, not create the table | Schema, Phase Requirements | If false (table doesn't exist yet), Phase 8 must create it. But Phase 7 context (07-CONTEXT.md) explicitly lists membershipLedger as a new Phase 7 table. Verify schema.ts. |
+**New data**: The `enforcement_policy` column is added with `DEFAULT 'allow'`, so all existing businesses get the backward-compatible default automatically. No data backfill script needed.
 
-**If this table is empty:** All claims in this research were verified or cited — no user confirmation needed. *Exception: A2-A4 are ASSUMED because they depend on Phase 7 execution state. Planner must verify that Phase 7 is complete before Phase 8 begins.*
-
-## Open Questions
-
-1. **Booking FK to membership at insert time?**
-   - What we know: Bookings table has no FK to memberships. membershipLedger has bookingId but not membership_id (only membershipId via ledger FK). On cancellation, we need to find which membership was deducted.
-   - What's unclear: Should bookings.membershipId be added to schema, or is looking up ledger entry enough?
-   - Recommendation: Add `membershipId INTEGER REFERENCES memberships (id)` to bookings table in Phase 8 migration. This makes the cancel-time lookup O(1) instead of requiring ledger query. Not breaking change on a non-empty table if made nullable.
-
-2. **Enforcement policy "allow and flag" — what counts as a flag?**
-   - What we know: Phase 8 requirement ENFC-03 says owner receives "Greek alert identifying the unpaid client".
-   - What's unclear: Should the flag persist (logged, searchable)? Or just a one-time alert message?
-   - Recommendation: Send one-time alert immediately. Flag-log deferred to Phase 9 (Notifications). For now, treat as transient owner alert.
-
-3. **Can enforcement policy be changed mid-session by owner?**
-   - What we know: ENFC-01 says "takes effect immediately for all subsequent booking attempts".
-   - What's unclear: If owner changes policy while a client is mid-conversation booking, what happens?
-   - Recommendation: Each booking tool call queries enforcement_policy fresh from DB (no caching). Policy change is effective immediately for new tool calls; in-flight conversations respect the old policy (already started before change).
-
-4. **Refund unlimited-membership bookings on cancel?**
-   - What we know: SESS-04 says unlimited memberships have "no session count change".
-   - What's unclear: If a client with unlimited membership cancels, should there be a refund ledger entry at all (even if it's a no-op)?
-   - Recommendation: Skip ledger entry entirely for unlimited. Makes audit cleaner (no spurious -1/+1 entries). Return `refunded: false, reason: 'unlimited_membership'` on cancel.
-
-## Environment Availability
-
-**Skip:** Phase 8 has no external dependencies (tools, services, CLIs, runtimes) beyond the already-verified Node.js 20+, Neon PostgreSQL, and Drizzle ORM in Phase 7. All DB features (transactions, SELECT FOR UPDATE, UNIQUE constraints) are standard PostgreSQL and available in Neon free tier.
+---
 
 ## Validation Architecture
 
 ### Test Framework
-
 | Property | Value |
 |----------|-------|
-| Framework | Jest + Drizzle ORM in-process Postgres (same as Phase 7) |
-| Config file | jest.config.js (existing from Phase 2+) |
-| Quick run command | `npm test -- src/billing/__tests__/enforcement.test.ts -t "SESS-01" --testTimeout=10000` |
-| Full suite command | `npm test -- src/billing/__tests__/enforcement.test.ts` |
+| Framework | Jest (existing) |
+| Config file | `jest.config.ts` (existing) |
+| Quick run command | `npx jest --testPathPattern="session-deduction\|enforcement-policy" --no-coverage` |
+| Full suite command | `npx jest --no-coverage` |
 
 ### Phase Requirements → Test Map
 
 | Req ID | Behavior | Test Type | Automated Command | File Exists? |
 |--------|----------|-----------|-------------------|-------------|
-| SESS-01 | Booking confirm atomically deducts 1 session inside transaction with SELECT FOR UPDATE | unit + integration | `jest src/billing/__tests__/enforcement.test.ts -t "concurrent_booking_same_membership_deducts_one" ` | ❌ Wave 0 |
-| SESS-02 | Cancel within membership validity restores 1 credit; after expiry, no credit | integration | `jest src/billing/__tests__/enforcement.test.ts -t "cancel.*refund"` | ❌ Wave 0 |
-| SESS-03 | Unlimited membership (sessionCount=null) → no deduction on booking | unit | `jest src/billing/__tests__/enforcement.test.ts -t "unlimited_membership_no_deduct"` | ❌ Wave 0 |
-| SESS-04 | Unlimited membership cancel → no refund entry | unit | `jest src/billing/__tests__/enforcement.test.ts -t "unlimited_membership_no_refund"` | ❌ Wave 0 |
-| ENFC-01 | Owner can set policy "block" or "flag" via NLU tool; persists to DB | integration | `jest src/onboarding/__tests__/ai-owner-agent.test.ts -t "set_enforcement_policy"` | ❌ Wave 0 |
-| ENFC-02 | Policy="block" + no membership → booking refused, refusal message sent | integration | `jest src/conversation/__tests__/booking-enforcement.test.ts -t "block_policy_refuses_unpaid"` | ❌ Wave 0 |
-| ENFC-03 | Policy="flag" + no membership → booking proceeds, owner alert sent | integration | `jest src/conversation/__tests__/booking-enforcement.test.ts -t "flag_policy_books_and_alerts"` | ❌ Wave 0 |
+| SESS-01 | Booking insert + ledger deduction + counter decrement are atomic | integration | `npx jest billing-session-deduction -t "deducts session atomically"` | ❌ Wave 0 |
+| SESS-01 | SELECT FOR UPDATE prevents double deduction in concurrent requests | integration | `npx jest billing-session-deduction -t "concurrent deduction race"` | ❌ Wave 0 |
+| SESS-01 | Deduction idempotency key prevents double-deduct on replay | unit | `npx jest function-executor -t "deduction idempotency"` | ❌ Wave 0 extension |
+| SESS-02 | Credit restore on client cancel (membership valid) | unit | `npx jest function-executor -t "credit restored on cancel"` | ❌ Wave 0 extension |
+| SESS-03 | No credit restore when membership expired at cancel time | unit | `npx jest function-executor -t "no credit on expired membership"` | ❌ Wave 0 extension |
+| SESS-04 | Unlimited membership: no deduction, booking proceeds | unit | `npx jest function-executor -t "unlimited membership no deduction"` | ❌ Wave 0 extension |
+| ENFC-01 | `set_enforcement_policy` tool updates businesses.enforcement_policy | unit | `npx jest billing-enforcement-policy -t "set policy"` | ❌ Wave 0 |
+| ENFC-02 | Block policy: booking refused with Greek message | unit | `npx jest function-executor -t "block policy refuses booking"` | ❌ Wave 0 extension |
+| ENFC-03 | Flag policy: booking succeeds + owner receives Greek alert | unit | `npx jest function-executor -t "flag policy sends owner alert"` | ❌ Wave 0 extension |
 
 ### Sampling Rate
-
-- **Per task commit:** `npm test -- src/billing/__tests__/enforcement.test.ts -t "SESS-0[1234]" --testTimeout=10000` (SESS requirements, ~5 min)
-- **Per wave merge:** `npm test -- src/billing/__tests__/ src/conversation/__tests__/booking-enforcement.test.ts` (all enforcement tests, ~15 min)
-- **Phase gate:** Full suite green + manual UAT of "block" and "flag" policies via Telegram before `/gsd-verify-work`
+- **Per task commit:** `npx jest --testPathPattern="function-executor|session-deduction|enforcement-policy" --no-coverage`
+- **Per wave merge:** `npx jest --no-coverage`
+- **Phase gate:** Full suite green before `/gsd-verify-work`
 
 ### Wave 0 Gaps
+- [ ] `tests/billing-session-deduction.test.ts` — covers SESS-01 (atomic deduction, idempotency, SELECT FOR UPDATE); integration test against `randevuclaw_test` DB following `billing-membership-creation.test.ts` pattern
+- [ ] `tests/billing-enforcement-policy.test.ts` — covers ENFC-01 (set_enforcement_policy tool); unit test with jest.mock following `billing-tools.test.ts` pattern
+- [ ] Extend `tests/function-executor.test.ts` — add test cases for SESS-02, SESS-03, SESS-04, ENFC-02, ENFC-03 following existing mock-based unit test pattern
+- [ ] Apply `migrations/0007_enforcement_policy.sql` to `randevuclaw_test` before integration tests run
 
-- [ ] `src/billing/__tests__/enforcement.test.ts` — covers SESS-01/02/03/04 with concurrent booking scenarios
-- [ ] `src/conversation/__tests__/booking-enforcement.test.ts` — covers ENFC-02/03 (block vs flag policies)
-- [ ] `src/onboarding/__tests__/ai-owner-agent.test.ts::set_enforcement_policy` — covers ENFC-01 (policy NLU tool)
-- [ ] Schema migration 0005 + drizzle-kit push (blocking checkpoint before any code runs)
-- [ ] Integration test fixtures: 2 memberships (1 active + 1 expired), 2 enforcement policies per business, test businesses with "block" and "flag" policies set
-
-**In-scope for implementation:** All test stubs, fixtures, and framework config are covered in Wave 0 planning.
+---
 
 ## Security Domain
+
+`security_enforcement` is enabled (absent = enabled per config.json).
 
 ### Applicable ASVS Categories
 
 | ASVS Category | Applies | Standard Control |
 |---------------|---------|-----------------|
-| V2 Authentication | No | Session/membership is billing state, not authentication. Owner identity verified at onboarding (Phase 5). |
-| V3 Session Management | Yes | Membership active/expired status checked at booking time; analogous to session validity. Check `isActive = true AND expiresAt > NOW()` before deduction. |
-| V4 Access Control | Yes | Enforcement policy determines client access to booking. Use Drizzle RLS + withBusinessContext to ensure policy enforcement is scoped to correct business. |
-| V5 Input Validation | Yes | Gemini tool args for `set_enforcement_policy` validated against `z.enum(['block', 'flag'])`. Session deduction amount hard-coded (1) — not user input. |
-| V6 Cryptography | No | No new cryptographic operations in Phase 8. |
+| V2 Authentication | no | n/a — phase extends existing auth flows |
+| V3 Session Management | no | n/a |
+| V4 Access Control | yes | Enforcement policy gating before `insertBooking`; ownership check already in place via `withBusinessContext` |
+| V5 Input Validation | yes | Zod validation on `set_enforcement_policy` tool args: `.enum(['allow', 'block', 'flag'])` |
+| V6 Cryptography | no | n/a — no new secrets |
 
-### Known Threat Patterns for {Booking + Membership Stack}
+### Known Threat Patterns for Phase 8 Stack
 
 | Pattern | STRIDE | Standard Mitigation |
 |---------|--------|---------------------|
-| **Concurrent deduction race (two bookings claim same session)** | Tampering / Repudiation | SELECT FOR UPDATE inside db.transaction() — prevents both reads from seeing the same session count. |
-| **Refund after expiry (client cancels expired booking, gets credit)**| Tampering / Repudiation | Timestamp check at cancel-time inside transaction; credit entry only if `now < membership.expiresAt`. Audited in ledger. |
-| **Session rollover confusion (client moves credit between memberships)** | Information Disclosure / Tampering | One-active-membership-per-business constraint at DB level prevents double-counting. Ledger tracks which membership each entry applies to. |
-| **Policy bypass via direct DB write or webhook replay** | Tampering | UNIQUE idempotency_key on ledger prevents duplicate deductions from replayed webhooks. DB RLS ensures business isolation. Policy queries always fresh from DB, not cached. |
-| **Owner forgets to set policy, unpaid clients book anyway (flag→block migration)** | Information Disclosure | Default policy is "flag" (safest — allows booking, alerts owner). No silent failures. Manual UAT step: verify policy is set before production. |
+| Booking with forged `business_id` to bypass enforcement | Spoofing | Existing dispatcher-level cross-tenant check in `executeTool` (line 75–78 of function-executor.ts) |
+| Replay attack: re-send a booking Telegram update to deduct sessions again | Repudiation | `idempotency_key = 'booking:<bookingId>:deduction'` + `onConflictDoNothing()` prevents duplicate deduction |
+| Concurrent session deduction race (overselling sessions) | Tampering | `SELECT ... FOR UPDATE` via `.for('update')` serializes concurrent bookings on same membership |
+| Cancelling another client's booking to steal their credit | Elevation of Privilege | `booking.clientPhone !== context.clientPhone` check in cancelAppointmentTool (existing, unchanged) |
+| Owner policy set by non-owner (policy spoofing) | Tampering | `set_enforcement_policy` tool only reachable via `aiOwnerAgent`, which is gated on `business.ownerTelegramId === senderTelegramId` in telegram.ts |
+| Null pointer on `business.enforcementPolicy` before migration | Denial of Service | Default `'allow'` in migration + null-coalescing in code: `context.business.enforcementPolicy ?? 'allow'` |
+
+---
+
+## Environment Availability
+
+All required tools and services are available (Phase 8 uses no new external dependencies).
+
+| Dependency | Required By | Available | Version | Fallback |
+|------------|------------|-----------|---------|----------|
+| PostgreSQL (randevuclaw_test) | integration tests | ✓ [ASSUMED — used by billing-membership-creation tests] | local | — |
+| Neon (live DB) | schema migration deployment | ✓ [ASSUMED — Phase 7 already deployed] | managed | — |
+| drizzle-orm `for('update')` | SELECT FOR UPDATE | ✓ [VERIFIED: select.d.ts line 586 in 0.45.2] | 0.45.2 | — |
+
+**Missing dependencies with no fallback:** None.
+
+---
+
+## State of the Art
+
+| Old Approach | Current Approach | When Changed | Impact |
+|--------------|------------------|--------------|--------|
+| Mutable counter-only (no ledger) | Immutable ledger + mutable counter (dual-write) | Phase 7 design decision | Audit trail for all session events; idempotency via ledger UNIQUE constraint |
+| No session enforcement | Optional enforcement_policy per business | Phase 8 | Owners can choose behavior; default is backward-compatible 'allow' |
+
+**Not deprecated:** The `sessionsRemaining` counter on `memberships` is still the read path for PAY-03 (view membership balance). The ledger is append-only audit; the counter is what `getClientActiveMembership` queries.
+
+---
+
+## Assumptions Log
+
+| # | Claim | Section | Risk if Wrong |
+|---|-------|---------|---------------|
+| A1 | `randevuclaw_test` DB has `0006_billing_schema.sql` applied (billing tables exist for integration tests) | Validation Architecture | Integration tests fail on missing tables; fix: run the migration on local test DB |
+| A2 | `withBusinessContext` wraps the entire request for both message and callback_query paths (verified at telegram.ts line 410) | Architecture Patterns | If not wrapped, `getConn()` returns admin `db`, atomicity still holds but RLS bypassed — low risk for session deduction correctness |
+| A3 | `@google/genai` `interactions.create` accepts the new `set_enforcement_policy` tool without schema changes to the Gemini call | Standard Stack | If Gemini rejects the tool format, Phase 7 tools all use the same shape so the issue would be pre-existing |
+
+**All assumptions are LOW risk given evidence from the codebase.**
+
+---
+
+## Open Questions
+
+1. **CHECK constraint vs. app-layer validation for `enforcement_policy`**
+   - What we know: CONTEXT.md says "Planner decides." The CHECK constraint is free to add in the migration and provides DB-level safety. App-layer validation via Zod is already planned.
+   - What's unclear: Whether the `randevuclaw_app` role can violate the constraint (it shouldn't but a direct SQL injection attack bypasses Zod).
+   - Recommendation: Add both — CHECK constraint in the migration (defense in depth) AND Zod `.enum()` in the NLU tool handler. No downside.
+
+2. **`getClientActiveMembership` vs. a new `getActiveMembershipForDeduction` function**
+   - What we know: Existing `getClientActiveMembership` in billing/queries.ts does NOT use `.for('update')`. Phase 8 needs the locked variant.
+   - What's unclear: Whether to overload the existing function with a `lockForUpdate?: boolean` param or add a new function.
+   - Recommendation: Add a new `getActiveMembershipForDeduction()` function that returns the raw membership row (including `id`) and uses `.for('update')`. The existing `getClientActiveMembership` stays untouched (PAY-03 doesn't need locking).
+
+---
 
 ## Sources
 
 ### Primary (HIGH confidence)
-
-- **Drizzle ORM 0.30+ docs** — db.transaction() and .for('update') support for SELECT FOR UPDATE
-  - Used for: Pattern 1 (atomic session deduction), locking mechanism
-- **PostgreSQL 13+ documentation** — SELECT FOR UPDATE syntax and row-level locking semantics
-  - Used for: Understanding locking behavior, preventing concurrent updates
-- **Phase 7 codebase (src/billing/queries.ts)** — Established ledger pattern with UNIQUE idempotency_key
-  - Used for: SESS requirements, append-only ledger pattern
-- **Phase 3 codebase (src/calendar/sync.ts)** — Established db.transaction() pattern in this project
-  - Used for: Transaction structure, error handling within transactions
-- **date-fns 4.4.0 docs** — Europe/Athens timezone support for rolling window expiry calculations
-  - Used for: ROADMAP locked decision confirmation, DST-safe date math
+- `src/webhooks/telegram.ts` — Confirmed `withBusinessContext(business.id)` wraps ALL of `handleCallbackQuery` and `handleFoundBusiness` at line 410. [VERIFIED: local codebase]
+- `drizzle-orm/pg-core/query-builders/select.d.ts` v0.45.2 — `.for('update')` available on PgSelect queries at line 586. [VERIFIED: local node_modules]
+- `src/billing/queries.ts` — `createMembership` confirms `db.transaction()` + `onConflictDoNothing()` pattern; `getClientActiveMembership` confirms read path. [VERIFIED: local codebase]
+- `src/database/schema.ts` — Confirmed `membershipLedger.bookingId` FK exists (Phase 7 schema), enabling credit-restore lookup without adding `membership_id` to `bookings`. [VERIFIED: local codebase]
+- `migrations/0006_billing_schema.sql` — Migration pattern (IF NOT EXISTS guards, GRANT statements) for `0007_enforcement_policy.sql`. [VERIFIED: local codebase]
+- `src/onboarding/ai-owner-agent.ts` — `OWNER_TOOLS` array shape for `set_enforcement_policy` tool definition. [VERIFIED: local codebase]
+- `.planning/phases/08-enforcement-session-deduction/08-CONTEXT.md` — All D-01..D-12 locked decisions. [VERIFIED: local codebase]
 
 ### Secondary (MEDIUM confidence)
+- `src/utils/timezone.ts` — `isoDateInAthens` for expiry comparison. Confirmed implementation matches claimed DST-safety. [VERIFIED: local codebase]
+- `tests/billing-membership-creation.test.ts` — Integration test pattern (jest.resetModules + real Postgres) for new Phase 8 integration tests. [VERIFIED: local codebase]
 
-- **REQUIREMENTS.md §SESS-01..04, ENFC-01..03** — Locked phase requirements
-  - Used for: Requirements traceability, success criteria
-- **ROADMAP.md §Phase 8 success criteria** — Official phase goals
-  - Used for: Architectural responsibility mapping, phase boundaries
-
-### Tertiary (LOW confidence)
-
-- None — all architectural decisions are either locked in STATE.md/ROADMAP or verified from codebase.
+---
 
 ## Metadata
 
 **Confidence breakdown:**
+- Standard stack: HIGH — all dependencies already installed; Drizzle `.for('update')` confirmed in local node_modules
+- Architecture: HIGH — `withBusinessContext` wrapping confirmed in source; no ambiguity about transaction ownership
+- Pitfalls: HIGH — all pitfalls derived from reading actual code paths; no speculation required
+- Test patterns: HIGH — existing test files provide clear templates for new tests
 
-- **Standard stack**: HIGH — drizzle-orm, @google/genai, date-fns all verified in Phase 7; no new packages needed.
-- **Architecture**: HIGH — SELECT FOR UPDATE pattern established in Phase 3 calendar-sync.ts; ledger pattern established in Phase 7 billing-queries.ts.
-- **Pitfalls**: HIGH — Race condition pitfalls are well-known in fintech (session/ledger operations); Phase 7 already implemented idempotency safeguards that extend here.
-- **Assumptions**: MEDIUM — A2-A4 depend on Phase 7 execution state; planner must verify Phase 7 schema is complete before Phase 8 planning.
-
-**Research date:** 2026-07-21
-**Valid until:** 2026-08-04 (2 weeks — database/transaction patterns stable; Drizzle/date-fns have stable releases)
-
----
-
-*Phase: 8 — Enforcement & Session Deduction*
-*Research completed: 2026-07-21 by Claude Code research agent*
-*Ready for phase planning via /gsd-plan-phase*
+**Research date:** 2026-07-20
+**Valid until:** 2026-08-20 (stable domain; only changes if drizzle-orm or Gemini SDK is upgraded)
