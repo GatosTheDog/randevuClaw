@@ -1,10 +1,12 @@
 ---
 phase: 8
 slug: enforcement-session-deduction
+# status lifecycle: draft (seeded by plan-phase) → validated (set by validate-phase §6)
+# audit-milestone §5.5 distinguishes NOT-VALIDATED (draft) from PARTIAL (validated + nyquist_compliant: false) (#2117)
 status: draft
 nyquist_compliant: false
 wave_0_complete: false
-created: 2026-07-21
+created: 2026-07-20
 ---
 
 # Phase 8 — Validation Strategy
@@ -17,20 +19,20 @@ created: 2026-07-21
 
 | Property | Value |
 |----------|-------|
-| **Framework** | Jest + Drizzle ORM in-process Postgres (same as Phase 7) |
-| **Config file** | jest.config.js (existing from Phase 2+) |
-| **Quick run command** | `npm test -- src/billing/__tests__/enforcement.test.ts --testTimeout=10000` |
-| **Full suite command** | `npm test -- src/billing/__tests__/enforcement.test.ts src/conversation/__tests__/booking-enforcement.test.ts` |
-| **Estimated runtime** | ~15 seconds (quick) / ~60 seconds (full) |
+| **Framework** | vitest / jest (TypeScript) |
+| **Config file** | vitest.config.ts or jest.config.ts |
+| **Quick run command** | `npm test -- --testPathPattern=phase-08` |
+| **Full suite command** | `npm test` |
+| **Estimated runtime** | ~30 seconds |
 
 ---
 
 ## Sampling Rate
 
-- **After every task commit:** Run `npm test -- src/billing/__tests__/enforcement.test.ts --testTimeout=10000`
-- **After every plan wave:** Run `npm test -- src/billing/__tests__/enforcement.test.ts src/conversation/__tests__/booking-enforcement.test.ts`
-- **Before `/gsd-verify-work`:** Full suite must be green + manual UAT of "block" and "flag" policies via Telegram
-- **Max feedback latency:** 60 seconds
+- **After every task commit:** Run `npm test -- --testPathPattern=phase-08`
+- **After every plan wave:** Run `npm test`
+- **Before `/gsd-verify-work`:** Full suite must be green
+- **Max feedback latency:** 30 seconds
 
 ---
 
@@ -38,15 +40,14 @@ created: 2026-07-21
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 08-W0-01 | 01 | 0 | SESS-01..04, ENFC-01..03 | T-08-01 / T-08-02 | Test stubs exist before any implementation; schema migration applied | unit stub | `npm test -- src/billing/__tests__/enforcement.test.ts` | ❌ W0 | ⬜ pending |
-| 08-W0-02 | 01 | 0 | ENFC-01 | T-08-03 | NLU tool stubs compile without importing unbuilt modules | unit stub | `npm test -- src/onboarding/__tests__/ai-owner-agent.test.ts` | ❌ W0 | ⬜ pending |
-| 08-01-01 | Schema | 1 | ENFC-01 | T-08-04 | enforcement_policy column exists on businesses table; drizzle-kit push applied | integration | `npm test -- src/billing/__tests__/enforcement.test.ts -t "schema"` | ❌ W0 | ⬜ pending |
-| 08-02-01 | Deduction | 2 | SESS-01 | T-08-01 | Concurrent bookings deduct exactly once from same membership (race prevented) | integration | `npm test -- src/billing/__tests__/enforcement.test.ts -t "concurrent_booking_same_membership_deducts_one"` | ❌ W0 | ⬜ pending |
-| 08-02-02 | Deduction | 2 | SESS-03,04 | — | Unlimited memberships: no ledger entry, no counter change on book/cancel | unit | `npm test -- src/billing/__tests__/enforcement.test.ts -t "unlimited_membership"` | ❌ W0 | ⬜ pending |
-| 08-03-01 | Cancel | 3 | SESS-02 | T-08-02 | Cancel within validity restores credit; cancel after expiry forfeits credit | integration | `npm test -- src/billing/__tests__/enforcement.test.ts -t "cancel.*refund"` | ❌ W0 | ⬜ pending |
-| 08-04-01 | Enforce | 4 | ENFC-02 | T-08-03 | Block policy + no membership → booking refused, no booking inserted | integration | `npm test -- src/conversation/__tests__/booking-enforcement.test.ts -t "block_policy_refuses_unpaid"` | ❌ W0 | ⬜ pending |
-| 08-04-02 | Enforce | 4 | ENFC-03 | T-08-03 | Flag policy + no membership → booking inserted, owner alert sent (best-effort) | integration | `npm test -- src/conversation/__tests__/booking-enforcement.test.ts -t "flag_policy_books_and_alerts"` | ❌ W0 | ⬜ pending |
-| 08-05-01 | NLU | 5 | ENFC-01 | T-08-04 | set_enforcement_policy NLU tool persists "block"/"flag" to DB; rejects invalid values | integration | `npm test -- src/onboarding/__tests__/ai-owner-agent.test.ts -t "set_enforcement_policy"` | ❌ W0 | ⬜ pending |
+| 08-01-01 | 01 | 1 | SESS-01 | T-08-01 / — | Session deducted exactly once per booking (idempotency key) | unit | `npm test -- --testPathPattern=session-deduction` | ❌ W0 | ⬜ pending |
+| 08-01-02 | 01 | 1 | SESS-02 | — | Credit restored on cancellation within validity window | unit | `npm test -- --testPathPattern=credit-restore` | ❌ W0 | ⬜ pending |
+| 08-01-03 | 01 | 1 | SESS-03 | — | No credit restore on expired membership cancellation | unit | `npm test -- --testPathPattern=credit-restore` | ❌ W0 | ⬜ pending |
+| 08-01-04 | 01 | 1 | SESS-04 | — | Unlimited membership: no count change, expiry-only check | unit | `npm test -- --testPathPattern=unlimited-membership` | ❌ W0 | ⬜ pending |
+| 08-02-01 | 02 | 2 | ENFC-01 | T-08-02 / — | enforcement_policy migration applies cleanly | integration | `npm run db:migrate` | ✅ | ⬜ pending |
+| 08-02-02 | 02 | 2 | ENFC-01 | — | set_enforcement_policy NLU tool recognized and persisted | unit | `npm test -- --testPathPattern=enforcement-policy` | ❌ W0 | ⬜ pending |
+| 08-03-01 | 03 | 3 | ENFC-02 | T-08-03 / — | Block policy: booking rejected with Greek refusal | unit | `npm test -- --testPathPattern=enforcement-check` | ❌ W0 | ⬜ pending |
+| 08-03-02 | 03 | 3 | ENFC-03 | — | Flag policy: booking proceeds + owner alert sent | unit | `npm test -- --testPathPattern=enforcement-check` | ❌ W0 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -54,13 +55,13 @@ created: 2026-07-21
 
 ## Wave 0 Requirements
 
-- [ ] `src/billing/__tests__/enforcement.test.ts` — stubs for SESS-01/02/03/04 (concurrent deduction, expiry-aware refund, unlimited no-op)
-- [ ] `src/conversation/__tests__/booking-enforcement.test.ts` — stubs for ENFC-02/03 (block vs flag policies)
-- [ ] `src/onboarding/__tests__/ai-owner-agent.test.ts::set_enforcement_policy` — stub for ENFC-01 (policy NLU tool)
-- [ ] Schema migration `0005-enforcement-policy.sql` + `drizzle-kit push` [BLOCKING — must run before any code]
-- [ ] Integration test fixtures: 2 memberships (1 active + 1 expired), businesses with "block" and "flag" enforcement policies
+- [ ] `src/__tests__/phase-08/session-deduction.test.ts` — stubs for SESS-01, SESS-02, SESS-03
+- [ ] `src/__tests__/phase-08/unlimited-membership.test.ts` — stubs for SESS-04
+- [ ] `src/__tests__/phase-08/enforcement-policy.test.ts` — stubs for ENFC-01
+- [ ] `src/__tests__/phase-08/enforcement-check.test.ts` — stubs for ENFC-02, ENFC-03
+- [ ] `src/__tests__/phase-08/credit-restore.test.ts` — stubs for SESS-02, SESS-03
 
-*All stubs must compile without imports from unbuilt modules (use `it.todo` pattern from Phase 7).*
+*Existing test infrastructure (vitest/jest) assumed from project setup.*
 
 ---
 
@@ -68,9 +69,9 @@ created: 2026-07-21
 
 | Behavior | Requirement | Why Manual | Test Instructions |
 |----------|-------------|------------|-------------------|
-| "Block" policy blocks unpaid client via real Telegram chat | ENFC-02 | Requires live bot session; mocked in unit tests only | Set policy to "block", send booking request from client with no membership, verify Greek refusal message received |
-| "Flag" policy allows booking and sends owner alert | ENFC-03 | Requires live Telegram delivery for both client and owner | Set policy to "flag", book as unpaid client, verify booking created AND owner receives Greek alert message |
-| Owner changes enforcement policy mid-session via chat | ENFC-01 | Requires live NLU tool invocation | Send "θέλω να αλλάξω πολιτική επιβολής σε block" to owner bot; verify DB updated and subsequent booking uses new policy |
+| Greek refusal message text and formatting | ENFC-02 | Requires live Telegram message inspection | Send booking as client with block policy; verify message text matches spec |
+| Owner flag alert fires before Αποδοχή/Απόρριψη keyboard | ENFC-03 | Message ordering in Telegram chat requires manual inspection | Trigger flag-policy booking; verify alert appears above keyboard in owner chat |
+| SELECT FOR UPDATE prevents double-deduction under concurrent load | SESS-01 | Requires concurrent webhook simulation | Send 2 simultaneous booking requests for same client; verify only 1 deduction in ledger |
 
 ---
 
@@ -80,7 +81,7 @@ created: 2026-07-21
 - [ ] Sampling continuity: no 3 consecutive tasks without automated verify
 - [ ] Wave 0 covers all MISSING references
 - [ ] No watch-mode flags
-- [ ] Feedback latency < 60s
+- [ ] Feedback latency < 30s
 - [ ] `nyquist_compliant: true` set in frontmatter
 
 **Approval:** pending
