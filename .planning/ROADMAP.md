@@ -158,28 +158,24 @@ Plans:
   4. Owner sets the business enforcement policy via chat ("block if no membership" or "allow and flag"); the chosen policy takes effect immediately for all subsequent booking attempts.
   5. With "block" policy active, a client without a valid membership receives a Greek refusal message; with "flag" policy, the booking proceeds and the owner receives a Greek alert identifying the unpaid client.
 
-**Plans**: 6 plans
+**Plans**: 5 plans
 Plans:
 **Wave 1**
 
-- [ ] 08-01-PLAN.md — Wave 0: Test stubs (3 test files, COVERAGE.md)
+- [ ] 08-01-PLAN.md — Wave 0: Test scaffolding (14 it.todo stubs across 3 test files)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 08-02-PLAN.md — Wave 1: Schema extension (enforcement_policy column) + migration SQL + [BLOCKING] drizzle-kit push
+- [ ] 08-02-PLAN.md — Schema migration (0007_enforcement_policy.sql) + schema.ts + Business interface + DB apply
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 08-03-PLAN.md — Wave 2: Query layer (billing/queries.ts 4 new functions + billing/enforcement.ts)
+- [ ] 08-03-PLAN.md — Billing query layer (6 new functions in billing/queries.ts) + integration tests
 
-**Wave 4** *(blocked on Wave 3 completion, parallel)*
+**Wave 4** *(blocked on Wave 3 completion — plans 04 and 05 run in parallel)*
 
-- [ ] 08-04-PLAN.md — Wave 3: Booking agent integration (function-executor.ts — enforcement + deduction + refund)
-- [ ] 08-05-PLAN.md — Wave 3: Owner NLU tool (ai-owner-agent.ts set_enforcement_policy)
-
-**Wave 5** *(blocked on Wave 4 completion)*
-
-- [ ] 08-06-PLAN.md — Wave 4: Integration test implementation (replace all it.todo stubs)
+- [ ] 08-04-PLAN.md — Booking lifecycle integration (bookAppointmentTool + cancelAppointmentTool + telegram.ts cancel paths + unit tests)
+- [ ] 08-05-PLAN.md — Enforcement NLU tool (handleSetEnforcementPolicy + set_enforcement_policy in ai-owner-agent.ts + unit tests)
 
 ### Phase 9: Expiry Notifications & Client Balance
 
