@@ -412,7 +412,11 @@ async function executeOwnerTool(
     }
 
     case 'deactivate_package': {
-      return handleDeactivatePackage(Number(args.package_id));
+      // WR-01: wrap in withBusinessContext so RLS enforcement prevents cross-tenant
+      // deactivation — mirrors the pattern used by list_packages and view_client_membership
+      return withBusinessContext(business.id, () =>
+        handleDeactivatePackage(business.id, Number(args.package_id))
+      );
     }
 
     case 'record_payment': {

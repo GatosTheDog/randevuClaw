@@ -125,12 +125,13 @@ export async function handleListPackages(businessId: number): Promise<string> {
  * Existing memberships referencing this packageId are NOT affected — they
  * retain their session counts and expiry dates after the package is deactivated.
  */
-export async function handleDeactivatePackage(packageId: number): Promise<string> {
+// WR-01: businessId added as defense-in-depth ownership guard passed through to deactivatePackage.
+export async function handleDeactivatePackage(businessId: number, packageId: number): Promise<string> {
   try {
-    await deactivatePackage(packageId);
+    await deactivatePackage(businessId, packageId);
     return 'Το πακέτο απενεργοποιήθηκε. Υπάρχουσες συνδρομές δεν επηρεάζονται.';
   } catch (err) {
-    logger.error({ err, packageId }, 'handleDeactivatePackage failed');
+    logger.error({ err, packageId, businessId }, 'handleDeactivatePackage failed');
     return 'Σφάλμα κατά την απενεργοποίηση πακέτου. Δοκιμάστε ξανά.';
   }
 }

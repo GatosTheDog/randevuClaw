@@ -128,12 +128,18 @@ export async function listPackages(businessId: number): Promise<BillingPackage[]
 /**
  * Deactivates a package (soft-delete). The billing_packages row is never
  * physically deleted — deactivation preserves audit history.
+ *
+ * WR-01: businessId is required as a defense-in-depth ownership guard.
+ * The WHERE clause includes BOTH packageId AND businessId so that a hallucinated
+ * or prompt-injected package_id from another tenant is a no-op even if RLS is
+ * misconfigured. Uses getConn() so it benefits from withBusinessContext RLS when
+ * called through the owner tool chain.
  */
-export async function deactivatePackage(packageId: number): Promise<void> {
-  await db
+export async function deactivatePackage(businessId: number, packageId: number): Promise<void> {
+  await getConn()
     .update(billingPackages)
     .set({ isActive: false })
-    .where(eq(billingPackages.id, packageId));
+    .where(and(eq(billingPackages.id, packageId), eq(billingPackages.businessId, businessId)));
 }
 
 /**
