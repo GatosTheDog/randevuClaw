@@ -30,6 +30,7 @@ const KNOWN_BUSINESS = {
   botToken: 'test-bot-1-token',
   webhookId: 'test-webhook-id-1',
   webhookSecret: 'test-bot-1-webhook-secret',
+  enforcementPolicy: 'allow',
   createdAt: new Date(),
 };
 
@@ -45,6 +46,7 @@ const KNOWN_BUSINESS_2 = {
   botToken: 'test-bot-2-token',
   webhookId: 'test-webhook-id-2',
   webhookSecret: 'test-bot-2-webhook-secret',
+  enforcementPolicy: 'allow',
   createdAt: new Date(),
 };
 
@@ -314,6 +316,7 @@ describe('POST /webhooks/telegram/:webhookId — callback_query owner approval (
     botToken: null,
     webhookId: null,
     webhookSecret: null,
+    enforcementPolicy: 'allow',
     createdAt: new Date(),
   };
 

@@ -59,6 +59,7 @@ const OWNER_BUSINESS_1 = {
   botToken: 'test-bot-token',
   webhookId: null,
   webhookSecret: null,
+  enforcementPolicy: 'allow',
   createdAt: new Date(),
 };
 

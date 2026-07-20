@@ -229,6 +229,7 @@ describe('executeTool', () => {
       botToken: null,
       webhookId: null,
       webhookSecret: null,
+      enforcementPolicy: 'allow',
       createdAt: new Date(),
     };
     mockedFindBusinessById.mockResolvedValue(fullBusiness);

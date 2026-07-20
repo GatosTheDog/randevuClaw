@@ -93,6 +93,7 @@ const TEST_BUSINESS = {
   webhookSecret: 'existing-webhook-secret',
   googleRefreshToken: null,
   agendaSentDate: null,
+  enforcementPolicy: 'allow',
   createdAt: new Date(),
 };
 

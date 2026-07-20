@@ -97,6 +97,7 @@ function makeBusiness(overrides: Partial<Business> = {}): Business {
     webhookSecret: 'secret',
     googleRefreshToken: null,
     agendaSentDate: null,
+    enforcementPolicy: 'allow',
     createdAt: new Date(),
     ...overrides,
   };

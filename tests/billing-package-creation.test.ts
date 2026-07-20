@@ -90,6 +90,7 @@ const MOCK_BUSINESS = {
   phoneNumberId: null,
   googleRefreshToken: null,
   agendaSentDate: null,
+  enforcementPolicy: 'allow',
   createdAt: new Date(),
 } as const;
 

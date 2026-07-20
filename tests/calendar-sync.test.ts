@@ -56,6 +56,7 @@ function makeBusiness(overrides: Partial<Business> = {}): Business {
     botToken: null,
     webhookId: null,
     webhookSecret: null,
+    enforcementPolicy: 'allow',
     createdAt: new Date(),
     ...overrides,
   };

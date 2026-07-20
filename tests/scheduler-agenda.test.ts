@@ -41,6 +41,7 @@ function makeBusiness(overrides: Partial<queries.Business> = {}): queries.Busine
     botToken: 'test-bot-token',
     webhookId: 'test-webhook-id',
     webhookSecret: null,
+    enforcementPolicy: 'allow',
     createdAt: new Date(),
     ...overrides,
   };
