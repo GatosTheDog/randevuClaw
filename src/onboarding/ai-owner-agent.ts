@@ -19,6 +19,7 @@ import {
   handleListPackages,
   handleDeactivatePackage,
   handleViewClientMembership,
+  handleSetEnforcementPolicy,
   CreatePackageResult,
 } from '../billing/tools';
 import { showClientSelection } from '../telegram/handlers/payment-flow';
@@ -196,6 +197,26 @@ export const OWNER_TOOLS = [
       required: ['client_phone'],
     },
   },
+  // ---------------------------------------------------------------------------
+  // Phase 8: Enforcement policy tool (ENFC-01)
+  // ---------------------------------------------------------------------------
+  {
+    type: 'function' as const,
+    name: 'set_enforcement_policy',
+    description:
+      'Ορίζει την πολιτική κρατήσεων για πελάτες χωρίς ενεργή συνδρομή: "block" = μπλοκάρει (αρνείται κράτηση), "flag" = επιτρέπει αλλά ειδοποιεί τον ιδιοκτήτη, "allow" = επιτρέπει πάντα (προεπιλογή).',
+    parameters: {
+      type: 'object',
+      properties: {
+        policy: {
+          type: 'string',
+          enum: ['allow', 'block', 'flag'],
+          description: 'Πολιτική εφαρμογής: allow | block | flag',
+        },
+      },
+      required: ['policy'],
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -264,6 +285,8 @@ interface ToolArgs {
   session_count?: number | null;
   package_id?: number;
   client_phone?: string;
+  // Phase 8: enforcement policy (ENFC-01)
+  policy?: string;
 }
 
 /**
@@ -404,6 +427,19 @@ async function executeOwnerTool(
       // Wrap in withBusinessContext so RLS enforcement applies (T-07-03)
       return withBusinessContext(business.id, () =>
         handleViewClientMembership(business.id, clientPhone)
+      );
+    }
+
+    // -----------------------------------------------------------------------
+    // Phase 8: Enforcement policy case (ENFC-01 / T-08-12)
+    // -----------------------------------------------------------------------
+
+    case 'set_enforcement_policy': {
+      // withBusinessContext ensures the UPDATE on businesses runs under RLS
+      // for the correct tenant — T-08-12 mitigation (bypassing withBusinessContext
+      // would let the UPDATE run as admin db user, breaking tenant isolation).
+      return withBusinessContext(business.id, () =>
+        handleSetEnforcementPolicy(business.id, args as Record<string, unknown>)
       );
     }
 

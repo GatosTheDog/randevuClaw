@@ -1,7 +1,6 @@
 // covers ENFC-01
 // Unit tests for the set_enforcement_policy handler.
-// Uses jest.mock — no real DB calls. setBusinessEnforcementPolicy and
-// handleSetEnforcementPolicy do not yet exist; they ship in Plan 05.
+// Uses jest.mock — no real DB calls.
 
 // ---------------------------------------------------------------------------
 // Module mocks (hoisted before imports by Jest)
@@ -15,8 +14,8 @@ jest.mock('../src/billing/queries', () => ({
   createMembership: jest.fn(),
   activatePackage: jest.fn(),
   cancelPendingPackage: jest.fn(),
-  // Phase 8 addition — does not exist yet; mocked here for future test body use
-  setBusinessEnforcementPolicy: jest.fn(),
+  // Phase 8 addition — mocked for test assertions
+  setBusinessEnforcementPolicy: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock('../src/utils/logger', () => ({
@@ -29,13 +28,41 @@ jest.mock('../src/utils/logger', () => ({
 }));
 
 // ---------------------------------------------------------------------------
+// Imports (after jest.mock hoisting)
+// ---------------------------------------------------------------------------
+
+import { handleSetEnforcementPolicy } from '../src/billing/tools';
+import { setBusinessEnforcementPolicy } from '../src/billing/queries';
+
+const mockedSetBusinessEnforcementPolicy = setBusinessEnforcementPolicy as jest.MockedFunction<
+  typeof setBusinessEnforcementPolicy
+>;
+
+// ---------------------------------------------------------------------------
 // Tests
-// NOTE: handleSetEnforcementPolicy is NOT imported at module level — it does
-// not yet exist. Requires will go inside the filled-in test bodies in Plan 05.
 // ---------------------------------------------------------------------------
 
 describe('handleSetEnforcementPolicy — ENFC-01', () => {
-  it.todo('persists the chosen policy to the businesses table');
-  it.todo('returns a Greek confirmation string containing the policy name');
-  it.todo('returns a Greek error string without DB call when policy value is invalid');
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockedSetBusinessEnforcementPolicy.mockResolvedValue(undefined);
+  });
+
+  it('persists the chosen policy to the businesses table', async () => {
+    await handleSetEnforcementPolicy(1, { policy: 'block' });
+    expect(mockedSetBusinessEnforcementPolicy).toHaveBeenCalledTimes(1);
+    expect(mockedSetBusinessEnforcementPolicy).toHaveBeenCalledWith(1, 'block');
+  });
+
+  it('returns a Greek confirmation string containing the policy name', async () => {
+    const result = await handleSetEnforcementPolicy(1, { policy: 'flag' });
+    expect(result).toContain('πολιτική');
+    expect(result).toContain('flag');
+  });
+
+  it('returns a Greek error string without DB call when policy value is invalid', async () => {
+    const result = await handleSetEnforcementPolicy(1, { policy: 'deny' });
+    expect(result).toContain('Μη έγκυρη');
+    expect(mockedSetBusinessEnforcementPolicy).not.toHaveBeenCalled();
+  });
 });
