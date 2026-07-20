@@ -306,6 +306,10 @@ async function executeOwnerTool(
   today: string,
   ownerTelegramId: string
 ): Promise<string> {
+  // WR-02: top-level try/catch so any DB error (e.g. unique constraint on add_service)
+  // returns a Greek error string to Gemini instead of propagating uncaught and silencing
+  // the owner's Telegram reply.
+  try {
   switch (toolName) {
     case 'update_hours': {
       const { day_of_week, open_time, close_time } = args;
@@ -449,6 +453,10 @@ async function executeOwnerTool(
 
     default:
       return `Άγνωστο εργαλείο: ${toolName}`;
+  }
+  } catch (err) {
+    logger.error({ err, toolName, businessId: business.id }, 'executeOwnerTool failed');
+    return 'Σφάλμα κατά την εκτέλεση. Δοκιμάστε ξανά.';
   }
 }
 
