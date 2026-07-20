@@ -126,12 +126,12 @@ Plans:
   4. Owner deactivates a package via chat; it no longer appears in new payment flows while all existing memberships with that package remain intact.
   5. Owner queries a specific client's membership via chat and receives a Greek reply showing package name, sessions remaining, and membership expiry date.
 
-**Plans**: 1/5 plans executed
+**Plans**: 2/5 plans executed
 Plans:
 **Wave 1**
 
 - [x] 07-01-PLAN.md — Wave 0: Test scaffolding (8 billing test stubs + COVERAGE.md)
-- [ ] 07-02-PLAN.md — Wave 1: Schema extension (3 new tables + client_name column) + migration SQL + [BLOCKING] drizzle-kit push
+- [x] 07-02-PLAN.md — Wave 1: Schema extension (3 new tables + client_name column) + migration SQL + [BLOCKING] drizzle-kit push
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -183,6 +183,6 @@ Plans:
 | 4. Per-Bot Foundation | v1.1 | 6/6 | Complete | 2026-07-11 |
 | 5. Owner Self-Serve Onboarding | v1.1 | 7/7 | Complete | 2026-07-17 |
 | 6. GDPR Compliance & Rate-Limit Resilience | v1.3 | 0/TBD | Deferred | - |
-| 7. Billing Configuration & Payment Recording | v1.2 | 1/5 | In Progress|  |
+| 7. Billing Configuration & Payment Recording | v1.2 | 2/5 | In Progress|  |
 | 8. Enforcement & Session Deduction | v1.2 | 0/TBD | Not started | - |
 | 9. Expiry Notifications & Client Balance | v1.2 | 0/TBD | Not started | - |
