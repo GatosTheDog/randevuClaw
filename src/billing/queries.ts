@@ -378,6 +378,133 @@ export async function getBusinessEnforcementPolicy(businessId: number): Promise<
   return rows[0]?.enforcementPolicy ?? 'allow';
 }
 
+// ---------------------------------------------------------------------------
+// Phase 8: Session deduction write operations
+// ---------------------------------------------------------------------------
+
+/**
+ * Atomically deducts 1 session from a membership by:
+ * 1. Inserting a 'session_deducted' ledger row (idempotency guard via
+ *    onConflictDoNothing on idempotency_key UNIQUE constraint — D-12 / T-08-02)
+ * 2. Only when a new row was inserted: decrementing sessionsRemaining by 1
+ *
+ * CALLER RESPONSIBILITY (D-06): do NOT call this when sessionsRemaining IS NULL
+ * (unlimited membership) — caller must check before invoking.
+ *
+ * Uses getConn() — participates in the withBusinessContext appDb.transaction()
+ * for atomicity with the booking insert (Pitfall 1/2 in RESEARCH.md).
+ */
+export async function deductSession(
+  membershipId: number,
+  bookingId: number,
+  idempotencyKey: string
+): Promise<void> {
+  // Step 1: Insert ledger row; onConflictDoNothing returns empty array on replay
+  const inserted = await getConn()
+    .insert(membershipLedger)
+    .values({
+      membershipId,
+      operationType: 'session_deducted',
+      sessionsDeducted: 1,
+      bookingId,
+      idempotencyKey,
+    })
+    .onConflictDoNothing()
+    .returning({ id: membershipLedger.id });
+
+  // Step 2: Idempotency guard — skip counter update if already deducted (D-12)
+  if (inserted.length === 0) return;
+
+  // Step 3: Decrement counter only when a new ledger row was inserted
+  await getConn()
+    .update(memberships)
+    .set({ sessionsRemaining: sql`${memberships.sessionsRemaining} - 1` })
+    .where(eq(memberships.id, membershipId));
+
+  logger.info({ membershipId, bookingId, idempotencyKey }, 'Session deducted');
+}
+
+/**
+ * Restores 1 session credit when a booking is cancelled, subject to:
+ * - SESS-04: Skip if sessionsRemaining IS NULL (unlimited membership — null check FIRST)
+ * - SESS-03: Skip if membership.expiresAt < nowAthens (expired at cancel time)
+ * - D-05: Idempotent via onConflictDoNothing on idempotency_key
+ *
+ * Uses getConn() — participates in the withBusinessContext appDb.transaction()
+ * for atomicity with the booking status update (Pitfall 1/2 in RESEARCH.md).
+ */
+export async function restoreCredit(
+  membershipId: number,
+  bookingId: number,
+  idempotencyKey: string
+): Promise<void> {
+  // Step 1: Fetch current membership state (fresh DB read — avoids stale-expiry decisions)
+  const membershipRows = await getConn()
+    .select({
+      expiresAt: memberships.expiresAt,
+      sessionsRemaining: memberships.sessionsRemaining,
+    })
+    .from(memberships)
+    .where(eq(memberships.id, membershipId))
+    .limit(1);
+
+  const membership = membershipRows[0];
+  // Step 2: Defensive guard — membership row not found
+  if (!membership) return;
+
+  // Step 3: SESS-04 — unlimited membership (sessionsRemaining IS NULL): no counter to restore
+  // IMPORTANT: null check MUST come before the expiresAt check (FLAGGED-UNVERIFIED ordering)
+  if (membership.sessionsRemaining === null) return;
+
+  // Step 4: SESS-03 — membership expired at time of cancellation: no credit restore
+  const nowAthens = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/Athens' }));
+  if (membership.expiresAt < nowAthens) return;
+
+  // Step 5: Insert credit_restored ledger row (idempotency guard)
+  const inserted = await getConn()
+    .insert(membershipLedger)
+    .values({
+      membershipId,
+      operationType: 'credit_restored',
+      sessionsDeducted: -1,
+      bookingId,
+      idempotencyKey,
+    })
+    .onConflictDoNothing()
+    .returning({ id: membershipLedger.id });
+
+  // Step 6: Idempotent replay guard — skip if already restored (D-05)
+  if (inserted.length === 0) return;
+
+  // Step 7: Increment counter only when a new ledger row was inserted
+  await getConn()
+    .update(memberships)
+    .set({ sessionsRemaining: sql`${memberships.sessionsRemaining} + 1` })
+    .where(eq(memberships.id, membershipId));
+
+  logger.info({ membershipId, bookingId }, 'Credit restored');
+}
+
+/**
+ * Updates the enforcement policy for a business. Uses getConn() so it
+ * participates in the withBusinessContext RLS transaction when called from
+ * ai-owner-agent.ts (D-09).
+ *
+ * Allowed values: 'allow' | 'block' | 'flag' (enforced at DB level via CHECK
+ * constraint in migration 0007 and at app level via Zod in billing/tools.ts).
+ */
+export async function setBusinessEnforcementPolicy(
+  businessId: number,
+  policy: string
+): Promise<void> {
+  await getConn()
+    .update(businesses)
+    .set({ enforcementPolicy: policy })
+    .where(eq(businesses.id, businessId));
+
+  logger.info({ businessId, policy }, 'Enforcement policy updated');
+}
+
 /**
  * Returns the client's current active membership for a business, or null if
  * no active non-expired membership exists. Uses getConn() for RLS (T-07-03).
