@@ -11,8 +11,18 @@ import {
   listServicesForBusiness,
   listBookingsForDate,
   findServiceById,
+  withBusinessContext,
 } from '../database/queries';
 import { logger } from '../utils/logger';
+import {
+  handleCreatePackage,
+  handleListPackages,
+  handleDeactivatePackage,
+  handleViewClientMembership,
+  CreatePackageResult,
+} from '../billing/tools';
+import { showClientSelection } from '../telegram/handlers/payment-flow';
+import { sendTelegramMessageWithKeyboard } from '../telegram/client';
 
 const ai = new GoogleGenAI({ apiKey: config.geminiApiKey });
 const GEMINI_MODEL = 'gemini-3.1-flash-lite';
@@ -100,6 +110,92 @@ export const OWNER_TOOLS = [
       required: [],
     },
   },
+  // ---------------------------------------------------------------------------
+  // Phase 7: Billing tools (D-07)
+  // ---------------------------------------------------------------------------
+  {
+    type: 'function' as const,
+    name: 'create_package',
+    description:
+      'Δημιουργεί νέο πακέτο μαθημάτων για την επιχείρηση. Χρησιμοποιείται όταν ο ιδιοκτήτης θέλει να ορίσει νέο πακέτο με τιμή, διάρκεια και αριθμό συνεδριών.',
+    parameters: {
+      type: 'object',
+      properties: {
+        name: {
+          type: 'string',
+          description: "Όνομα πακέτου, π.χ. 'Μηνιαίο', 'Εισαγωγικό'",
+        },
+        price_cents: {
+          type: 'integer',
+          description: 'Τιμή σε λεπτά ευρώ, π.χ. 8000 για €80,00',
+        },
+        valid_days: {
+          type: 'integer',
+          description: 'Ημέρες ισχύος, π.χ. 30',
+        },
+        session_count: {
+          type: 'integer',
+          nullable: true,
+          description:
+            'Αριθμός συνεδριών. Null/απών για απεριόριστες — αναγνωρίζεται από λέξεις: απεριόριστες, απεριόριστο, χωρίς όριο, unlimited',
+        },
+      },
+      required: ['name', 'price_cents', 'valid_days', 'session_count'],
+    },
+  },
+  {
+    type: 'function' as const,
+    name: 'list_packages',
+    description: 'Εμφανίζει όλα τα ενεργά πακέτα της επιχείρησης.',
+    parameters: {
+      type: 'object',
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    type: 'function' as const,
+    name: 'deactivate_package',
+    description:
+      'Απενεργοποιεί ένα πακέτο (υπάρχουσες συνδρομές δεν επηρεάζονται). Το πακέτο δεν εμφανίζεται πλέον σε νέες πληρωμές.',
+    parameters: {
+      type: 'object',
+      properties: {
+        package_id: {
+          type: 'integer',
+          description: 'ID του πακέτου που θα απενεργοποιηθεί',
+        },
+      },
+      required: ['package_id'],
+    },
+  },
+  {
+    type: 'function' as const,
+    name: 'record_payment',
+    description:
+      'Ξεκινά τη ροή καταγραφής πληρωμής — εμφανίζει πλήκτρα επιλογής πελάτη και πακέτου. Χρησιμοποιείται όταν ο ιδιοκτήτης αναφέρει πληρωμή ή αγορά πακέτου.',
+    parameters: {
+      type: 'object',
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    type: 'function' as const,
+    name: 'view_client_membership',
+    description:
+      'Εμφανίζει την ενεργή συνδρομή ενός πελάτη — υπόλοιπο συνεδριών και ημερομηνία λήξης.',
+    parameters: {
+      type: 'object',
+      properties: {
+        client_phone: {
+          type: 'string',
+          description: 'Τηλέφωνο ή Telegram ID του πελάτη',
+        },
+      },
+      required: ['client_phone'],
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -154,6 +250,7 @@ function buildOwnerSystemPrompt(
 // ---------------------------------------------------------------------------
 
 interface ToolArgs {
+  // Existing scheduling / service fields
   day_of_week?: number;
   open_time?: string;
   close_time?: string;
@@ -162,14 +259,29 @@ interface ToolArgs {
   duration_min?: number;
   service_name?: string;
   new_price_cents?: number;
+  // Phase 7: billing fields (D-07)
+  valid_days?: number;
+  session_count?: number | null;
+  package_id?: number;
+  client_phone?: string;
 }
 
+/**
+ * Executes a Gemini-dispatched owner tool and returns a Greek string to feed
+ * back to Gemini as the function result.
+ *
+ * D-08 / D-03 special case: create_package and record_payment send their own
+ * Telegram messages (keyboard or direct reply) and return '' (empty string).
+ * The Gemini loop treats '' as a signal to break immediately — the caller must
+ * NOT send an additional reply when the return value is ''.
+ */
 async function executeOwnerTool(
   toolName: string,
   args: ToolArgs,
   business: Business,
   svcList: Service[],
-  today: string
+  today: string,
+  ownerTelegramId: string
 ): Promise<string> {
   switch (toolName) {
     case 'update_hours': {
@@ -244,6 +356,55 @@ async function executeOwnerTool(
         })
       );
       return lines.join('\n');
+    }
+
+    // -----------------------------------------------------------------------
+    // Phase 7: Billing tool cases (D-07, D-03, D-08)
+    // -----------------------------------------------------------------------
+
+    case 'create_package': {
+      // D-03: handleCreatePackage inserts with isActive:false (pending confirmation).
+      // If Gemini-parsed args are valid, returns CreatePackageResult with confirmation
+      // text + pendingPackageId. If invalid, returns a Greek error string.
+      const result = await handleCreatePackage(business.id, args as Record<string, unknown>);
+      if (typeof result === 'object' && result !== null && 'pendingPackageId' in result) {
+        const pkgResult = result as CreatePackageResult;
+        // Send Ναι/Όχι confirmation keyboard directly to the owner (D-03).
+        // Return '' so the Gemini loop breaks and no extra reply is sent.
+        await sendTelegramMessageWithKeyboard(ownerTelegramId, pkgResult.confirmationText, [
+          [
+            { text: '✅ Ναι', callback_data: `billing:pkg_confirm:${pkgResult.pendingPackageId}` },
+            { text: '❌ Όχι', callback_data: `billing:pkg_cancel:${pkgResult.pendingPackageId}` },
+          ],
+        ]);
+        return '';
+      }
+      // Zod validation failed — return the Greek error string to Gemini
+      return result as string;
+    }
+
+    case 'list_packages': {
+      // Wrap in withBusinessContext so RLS enforcement applies (T-07-03)
+      return withBusinessContext(business.id, () => handleListPackages(business.id));
+    }
+
+    case 'deactivate_package': {
+      return handleDeactivatePackage(Number(args.package_id));
+    }
+
+    case 'record_payment': {
+      // D-08: Gemini detected payment intent → switch to inline keyboard flow.
+      // showClientSelection sends the keyboard directly; return '' to break the loop.
+      await showClientSelection(business.id, ownerTelegramId);
+      return '';
+    }
+
+    case 'view_client_membership': {
+      const clientPhone = String(args.client_phone ?? '');
+      // Wrap in withBusinessContext so RLS enforcement applies (T-07-03)
+      return withBusinessContext(business.id, () =>
+        handleViewClientMembership(business.id, clientPhone)
+      );
     }
 
     default:
@@ -337,9 +498,21 @@ export async function aiOwnerAgent(
         call.arguments as ToolArgs,
         business,
         svcList,
-        today
+        today,
+        ownerTelegramId
       );
-      logger.info({ businessId: business.id, tool: call.name, result }, 'Owner tool executed');
+      logger.info(
+        { businessId: business.id, tool: call.name, result: result || '(keyboard sent)' },
+        'Owner tool executed'
+      );
+
+      // D-03 / D-08: '' signals the tool already sent its own Telegram message
+      // (keyboard or direct reply). Break the Gemini loop immediately — the
+      // caller must NOT send an additional reply when this function returns ''.
+      if (result === '') {
+        return '';
+      }
+
       functionResults.push({
         type: 'function_result',
         name: call.name,
