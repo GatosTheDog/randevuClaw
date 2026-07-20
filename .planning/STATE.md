@@ -2,17 +2,17 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Billing & Membership System
-current_phase: 07
-current_phase_name: billing-configuration-payment-recording
-status: verifying
-stopped_at: Completed 07-04-PLAN.md (billing tools.ts, payment-flow.ts, BILL-02/03/PAY-01 all green)
-last_updated: "2026-07-21T07:21:14.935Z"
+current_phase: 08
+current_phase_name: enforcement-session-deduction
+status: executing
+stopped_at: Completed 08-01-PLAN.md
+last_updated: "2026-07-20T14:26:59.361Z"
 last_activity: 2026-07-20
-last_activity_desc: Phase 07 execution started
+last_activity_desc: Phase 08 execution started
 progress:
   total_phases: 6
   completed_phases: 1
-  total_plans: 5
+  total_plans: 10
   completed_plans: 6
   percent: 17
 ---
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-17 after v1.1 milestone close)
 
 **Core value:** A client can book or cancel an appointment with a Greek business entirely through a chat conversation, in Greek, with zero friction — and the owner's calendar updates automatically.
-**Current focus:** Phase 07 — billing-configuration-payment-recording
+**Current focus:** Phase 08 — enforcement-session-deduction
 
 ## Current Position
 
-Phase: 07 (billing-configuration-payment-recording) — EXECUTING
-Plan: 5 of 5
-Status: Phase complete — ready for verification
-Last activity: 2026-07-20 — Phase 07 execution started
+Phase: 08 (enforcement-session-deduction) — EXECUTING
+Plan: 2 of 5
+Status: Ready to execute
+Last activity: 2026-07-20 — Phase 08 execution started
 
 ## Performance Metrics
 
@@ -82,6 +82,7 @@ Last activity: 2026-07-20 — Phase 07 execution started
 | Phase 07 P02 | 5 | 2 tasks | 2 files |
 | Phase 07 P03 | 12 | 3 tasks | 8 files |
 | Phase 07 P04 | 3 | 2 tasks | 7 files |
+| Phase 08 P01 | 3 | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -157,6 +158,8 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 07-03]: billing integration tests follow jest.resetModules() + require() pattern from booking-queries.test.ts
 - [Phase ?]: [Phase 07-04]: handleCreatePackage inserts isActive:false pending before owner confirmation (D-03)
 - [Phase ?]: [Phase 07-04]: callback_data contains only IDs (billing:package:{clientRelId}:{packageId}) — price in button text only (T-07-05)
+- [Phase ?]: it.todo stubs with no imports from unbuilt modules — Wave 0 scaffolding keeps ts-jest green before Phase 8 implementations exist
+- [Phase ?]: [Phase 08-01]: billing-enforcement-policy.test.ts mocks setBusinessEnforcementPolicy as jest.fn() without top-level import of handleSetEnforcementPolicy — ships in Plan 05
 
 ### Pending Todos
 
@@ -203,8 +206,8 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-07-09:
 
 ## Session Continuity
 
-Last session: 2026-07-21T07:21:14.925Z
-Stopped at: Completed 07-04-PLAN.md (billing tools.ts, payment-flow.ts, BILL-02/03/PAY-01 all green)
+Last session: 2026-07-20T14:26:59.354Z
+Stopped at: Completed 08-01-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

@@ -158,11 +158,11 @@ Plans:
   4. Owner sets the business enforcement policy via chat ("block if no membership" or "allow and flag"); the chosen policy takes effect immediately for all subsequent booking attempts.
   5. With "block" policy active, a client without a valid membership receives a Greek refusal message; with "flag" policy, the booking proceeds and the owner receives a Greek alert identifying the unpaid client.
 
-**Plans**: 5 plans
+**Plans**: 1/5 plans executed
 Plans:
 **Wave 1**
 
-- [ ] 08-01-PLAN.md — Wave 0: Test scaffolding (14 it.todo stubs across 3 test files)
+- [x] 08-01-PLAN.md — Wave 0: Test scaffolding (14 it.todo stubs across 3 test files)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -201,5 +201,5 @@ Plans:
 | 5. Owner Self-Serve Onboarding | v1.1 | 7/7 | Complete | 2026-07-17 |
 | 6. GDPR Compliance & Rate-Limit Resilience | v1.3 | 0/TBD | Deferred | - |
 | 7. Billing Configuration & Payment Recording | v1.2 | 5/5 | In Progress|  |
-| 8. Enforcement & Session Deduction | v1.2 | 0/TBD | Not started | - |
+| 8. Enforcement & Session Deduction | v1.2 | 1/5 | In Progress|  |
 | 9. Expiry Notifications & Client Balance | v1.2 | 0/TBD | Not started | - |
