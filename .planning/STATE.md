@@ -5,15 +5,15 @@ milestone_name: Billing & Membership System
 current_phase: 08
 current_phase_name: enforcement-session-deduction
 status: executing
-stopped_at: Completed 08-02-PLAN.md
-last_updated: "2026-07-20T14:39:37.215Z"
+stopped_at: Completed 08-03-PLAN.md
+last_updated: "2026-07-20T14:48:33.969Z"
 last_activity: 2026-07-20
 last_activity_desc: Phase 08 execution started
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 10
-  completed_plans: 7
+  completed_plans: 8
   percent: 17
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-17 after v1.1 milestone close)
 ## Current Position
 
 Phase: 08 (enforcement-session-deduction) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Ready to execute
 Last activity: 2026-07-20 — Phase 08 execution started
 
@@ -84,6 +84,7 @@ Last activity: 2026-07-20 — Phase 08 execution started
 | Phase 07 P04 | 3 | 2 tasks | 7 files |
 | Phase 08 P01 | 3 | 3 tasks | 3 files |
 | Phase 08 P02 | 10 | 2 tasks | 16 files |
+| Phase 08 P03 | 7 | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -163,6 +164,9 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 08-01]: billing-enforcement-policy.test.ts mocks setBusinessEnforcementPolicy as jest.fn() without top-level import of handleSetEnforcementPolicy — ships in Plan 05
 - [Phase ?]: [Phase 08-02]: CHECK constraint (enforcement_policy IN ('allow','block','flag')) added at DB layer — defense in depth alongside Zod app-layer validation planned for Plan 05
 - [Phase ?]: [Phase 08-02]: enforcementPolicy: string (not nullable) in Business interface — NOT NULL DEFAULT 'allow' in migration guarantees no null values after column is added
+- [Phase ?]: [Phase 08-03]: getConn() used exclusively in all Phase 8 write functions — db.transaction() would break atomicity with withBusinessContext
+- [Phase ?]: [Phase 08-03]: restoreCredit checks sessionsRemaining === null BEFORE computing nowAthens — SESS-04 exits early for unlimited memberships regardless of expiry state
+- [Phase ?]: [Phase 08-03]: Test bookings use 'cancelled' status to bypass unique_active_slot_per_business partial index — real booking rows inserted for FK integrity
 
 ### Pending Todos
 
@@ -209,8 +213,8 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-07-09:
 
 ## Session Continuity
 
-Last session: 2026-07-20T14:39:37.209Z
-Stopped at: Completed 08-02-PLAN.md
+Last session: 2026-07-20T14:48:33.962Z
+Stopped at: Completed 08-03-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
