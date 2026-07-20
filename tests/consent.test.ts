@@ -68,7 +68,7 @@ describe('getOrCreateClientRelationship unit tests', () => {
   >;
 
   const mockRow = {
-    id: 1, businessId: 1, senderPhone: '306900000000',
+    id: 1, businessId: 1, senderPhone: '306900000000', clientName: null,
     consentGiven: true, consentTimestamp: new Date(), createdAt: new Date(),
   };
 
@@ -117,7 +117,7 @@ describe('Test 3 (webhook level): consent notice in reply', () => {
     >;
     mockedFindCBR.mockResolvedValue(null);
     mockedInsertCBR.mockResolvedValue({
-      id: 1, businessId: 1, senderPhone: '306900000000',
+      id: 1, businessId: 1, senderPhone: '306900000000', clientName: null,
       consentGiven: true, consentTimestamp: new Date(), createdAt: new Date(),
     });
 
@@ -137,7 +137,7 @@ describe('Test 3 (webhook level): consent notice in reply', () => {
       typeof queries.findClientBusinessRelationship
     >;
     mockedFindCBR.mockResolvedValue({
-      id: 1, businessId: 1, senderPhone: '306900000000',
+      id: 1, businessId: 1, senderPhone: '306900000000', clientName: null,
       consentGiven: true, consentTimestamp: new Date(), createdAt: new Date(),
     });
 

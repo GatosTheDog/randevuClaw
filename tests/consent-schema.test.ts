@@ -23,6 +23,7 @@ describe('Test 4: consent row schema contract', () => {
       id: 1,
       businessId: 2,
       senderPhone: '306911111111',
+      clientName: null,
       consentGiven: true,
       consentTimestamp: insertedAt,
       createdAt: insertedAt,

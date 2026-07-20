@@ -40,6 +40,8 @@ export interface ClientBusinessRelationship {
   id: number;
   businessId: number;
   senderPhone: string;
+  /** Phase 7 (D-04): captured from Telegram from.first_name, upserted on every message. */
+  clientName: string | null;
   consentGiven: boolean;
   consentTimestamp: Date;
   createdAt: Date;
@@ -144,31 +146,40 @@ export async function findClientBusinessRelationship(
   return rows[0] ?? null;
 }
 
+/**
+ * Upserts the client–business relationship row.
+ *
+ * D-04: clientName is upserted (not skipped) on every call so the stored
+ * value always reflects the latest Telegram from.first_name. Callers pass
+ * undefined when the name is unavailable; onConflictDoUpdate then stores null,
+ * which is correct — the field is nullable.
+ *
+ * The consentTimestamp is refreshed on every upsert to record the most recent
+ * contact time. onConflictDoUpdate eliminates the prior check-then-insert
+ * race (CR-01) — a single atomic upsert always returns a row.
+ */
 export async function insertClientBusinessRelationship(
   businessId: number,
-  senderPhone: string
+  senderPhone: string,
+  clientName?: string
 ): Promise<ClientBusinessRelationship> {
-  // onConflictDoNothing guards the unique_client_business index (schema.ts)
-  // against the check-then-insert race in getOrCreateClientRelationship
-  // (checker.ts): if a concurrent request already inserted the row, this
-  // insert is a no-op (rows[0] undefined) and we re-fetch the winning row
-  // instead of throwing an uncaught unique-violation error (CR-01).
   const rows = await getConn()
     .insert(clientBusinessRelationships)
     .values({
       businessId,
       senderPhone,
+      clientName,
       consentGiven: true,
       consentTimestamp: new Date(),
     })
-    .onConflictDoNothing()
+    .onConflictDoUpdate({
+      target: [clientBusinessRelationships.businessId, clientBusinessRelationships.senderPhone],
+      // D-04: always upsert clientName to reflect the latest Telegram display name
+      set: { clientName, consentTimestamp: new Date() },
+    })
     .returning();
 
-  if (rows[0]) return rows[0];
-
-  const existing = await findClientBusinessRelationship(businessId, senderPhone);
-  if (!existing) throw new Error('Failed to read client relationship after conflict');
-  return existing;
+  return rows[0];
 }
 
 export async function findMessageByWhatsappId(
