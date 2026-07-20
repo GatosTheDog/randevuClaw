@@ -7,6 +7,7 @@ import {
   findBusinessById,
   findServiceById,
   insertOrIgnoreTelegramUpdate,
+  insertClientBusinessRelationship,
   markTelegramUpdateProcessed,
   updateBookingStatus,
   updateBookingStatusIfPending,
@@ -18,9 +19,19 @@ import { getOrCreateBotInstance } from '../telegram/registry';
 import { routeConversationMessage } from '../conversation/router';
 import { deleteBookingFromCalendar, syncBookingToCalendar } from '../calendar/sync';
 import { aiOwnerAgent } from '../onboarding/ai-owner-agent';
+import { findBusinessByOwnerTelegramId } from '../onboarding/queries';
+import {
+  handleConfirmMembership,
+  handleCancelPackage,
+  handleConfirmPackage,
+  showPackageSelection,
+  showMembershipConfirmation,
+} from '../telegram/handlers/payment-flow';
 
 interface TelegramFrom {
   id: number;
+  /** Nullable: Telegram does not require users to set a first name. */
+  first_name?: string;
 }
 
 interface TelegramMessage {
@@ -55,7 +66,11 @@ async function handleFoundBusiness(
     if (business.ownerTelegramId === senderTelegramId) {
       const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD UTC; close enough for schedule view
       const reply = await aiOwnerAgent(business, senderTelegramId, messageText, today);
-      await sendTelegramMessage(senderTelegramId, reply);
+      // D-03/D-08: tools that send their own keyboards (create_package, record_payment)
+      // return '' to signal that no additional reply should be sent. Skip empty replies.
+      if (reply) {
+        await sendTelegramMessage(senderTelegramId, reply);
+      }
       await markTelegramUpdateProcessed(updateId, business.id);
       return;
     }
@@ -73,11 +88,48 @@ async function handleFoundBusiness(
 // booking (T-02-17): only the exact "approve_<digits>" / "reject_<digits>"
 // shape is accepted, anything else (including a totally different action
 // name) is rejected as malformed.
+//
+// Phase 7 extension: also parses billing callback_data patterns of the form
+// "billing:<action>:<id1>[:id2]". The billing discriminant ('firstId' in result)
+// separates the two result shapes so TypeScript narrows the union correctly.
+export type BookingCallbackResult = { action: 'approve' | 'reject' | 'client_cancel'; bookingId: number };
+export type BillingCallbackResult = {
+  action:
+    | 'billing:client'
+    | 'billing:package'
+    | 'billing:mem_confirm'
+    | 'billing:mem_cancel'
+    | 'billing:pkg_confirm'
+    | 'billing:pkg_cancel';
+  firstId: number;
+  optionalSecondId?: number;
+};
+
 export function parseCallbackData(
   data: string | undefined
-): { action: 'approve' | 'reject' | 'client_cancel'; bookingId: number } | null {
-  const match = data?.match(/^(approve|reject|client_cancel)_(\d+)$/);
-  return match ? { action: match[1] as 'approve' | 'reject' | 'client_cancel', bookingId: Number(match[2]) } : null;
+): BookingCallbackResult | BillingCallbackResult | null {
+  // Existing booking action pattern (unchanged — T-02-17)
+  const bookingMatch = data?.match(/^(approve|reject|client_cancel)_(\d+)$/);
+  if (bookingMatch) {
+    return {
+      action: bookingMatch[1] as BookingCallbackResult['action'],
+      bookingId: Number(bookingMatch[2]),
+    };
+  }
+
+  // Phase 7: billing action pattern — IDs only, never prices in callback_data (T-07-05)
+  const billingMatch = data?.match(
+    /^billing:(pkg_confirm|pkg_cancel|client|package|mem_confirm|mem_cancel):(\d+)(?::(\d+))?$/
+  );
+  if (billingMatch) {
+    return {
+      action: `billing:${billingMatch[1]}` as BillingCallbackResult['action'],
+      firstId: Number(billingMatch[2]),
+      optionalSecondId: billingMatch[3] ? Number(billingMatch[3]) : undefined,
+    };
+  }
+
+  return null;
 }
 
 // OWNER_APPROVE_ACK_GREEK / OWNER_REJECT_ACK_GREEK removed (WR-01/WR-04):
@@ -154,6 +206,54 @@ async function handleCallbackQuery(
 
   if (parsed.action === 'client_cancel') {
     await handleClientCancelCallback(parsed.bookingId, senderTelegramId);
+    return;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Phase 7: Billing callback routing (T-07-01, T-07-05, T-07-06)
+  // Discriminant: 'firstId' in result → BillingCallbackResult
+  // ---------------------------------------------------------------------------
+  if ('firstId' in parsed) {
+    const { firstId, optionalSecondId } = parsed;
+    logger.debug({ action: parsed.action, firstId, optionalSecondId }, 'Billing callback parsed');
+
+    // T-07-01: resolve business from owner's Telegram ID before any mutation.
+    // T-07-06: businessId is derived from authenticated senderTelegramId, not
+    // from untrusted callback_data, to prevent multi-tenant data leaks.
+    const ownerBusiness = await findBusinessByOwnerTelegramId(senderTelegramId);
+    if (!ownerBusiness) {
+      logger.warn({ senderTelegramId, action: parsed.action }, 'billing callback from unregistered owner, ignoring');
+      return;
+    }
+    const businessId = ownerBusiness.id;
+
+    if (parsed.action === 'billing:client') {
+      // Client selected → show package selection keyboard
+      await showPackageSelection(businessId, senderTelegramId, firstId);
+    } else if (parsed.action === 'billing:package') {
+      // Package selected → show membership confirmation
+      if (optionalSecondId === undefined) {
+        logger.warn({ data: callbackQuery.data }, 'billing:package callback missing packageId, ignoring');
+        return;
+      }
+      await showMembershipConfirmation(businessId, senderTelegramId, firstId, optionalSecondId);
+    } else if (parsed.action === 'billing:mem_confirm') {
+      // Owner confirmed membership → create membership record
+      if (optionalSecondId === undefined) {
+        logger.warn({ data: callbackQuery.data }, 'billing:mem_confirm callback missing packageId, ignoring');
+        return;
+      }
+      await handleConfirmMembership(businessId, firstId, optionalSecondId, senderTelegramId, callbackQuery.id);
+    } else if (parsed.action === 'billing:mem_cancel') {
+      // Owner cancelled payment flow
+      await sendTelegramMessage(senderTelegramId, '❌ Ακυρώθηκε η πληρωμή.');
+    } else if (parsed.action === 'billing:pkg_confirm') {
+      // Owner confirmed package creation → activate pending package
+      await handleConfirmPackage(firstId, businessId, senderTelegramId, callbackQuery.id);
+    } else if (parsed.action === 'billing:pkg_cancel') {
+      // Owner cancelled package creation → delete pending package
+      await handleCancelPackage(firstId, businessId, senderTelegramId, callbackQuery.id);
+    }
     return;
   }
 
@@ -340,6 +440,20 @@ export async function handleTelegramWebhookPost(req: Request, res: Response): Pr
 
         if (update.message) {
           await handleFoundBusiness(updateId, business, senderTelegramId, update.message.text ?? '');
+
+          // D-04: upsert clientName from Telegram from.first_name on every client message.
+          // Called AFTER handleFoundBusiness so getOrCreateClientRelationship's
+          // isFirstContact detection is not affected (it runs inside handleFoundBusiness →
+          // routeConversationMessage → getOrCreateClientRelationship for client messages).
+          // Owners are excluded: owner messages go to aiOwnerAgent, not consent checker,
+          // so creating an owner clientBusinessRelationship record is unnecessary.
+          if (business.ownerTelegramId !== senderTelegramId) {
+            await insertClientBusinessRelationship(
+              business.id,
+              senderTelegramId,
+              update.message.from.first_name
+            );
+          }
         }
       });
     });
