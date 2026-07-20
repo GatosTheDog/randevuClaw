@@ -1,86 +1,34 @@
 # Phase 8: Enforcement & Session Deduction - Pattern Map
 
-**Mapped:** 2026-07-21
-**Files analyzed:** 8 new/modified files
-**Analogs found:** 7 / 8 matches
+**Mapped:** 2026-07-20
+**Files analyzed:** 11 (8 modified, 1 new migration, 2 new test files)
+**Analogs found:** 11 / 11
 
 ## File Classification
 
 | New/Modified File | Role | Data Flow | Closest Analog | Match Quality |
 |-------------------|------|-----------|----------------|---------------|
-| `src/database/schema.ts` | schema | data-definition | `src/database/schema.ts` (existing) | exact |
-| `src/database/migrations/0005-enforcement-policy.sql` | migration | data-definition | `src/database/schema.ts` (Phase 7 pattern) | role-match |
-| `src/billing/queries.ts` | service/queries | CRUD | `src/billing/queries.ts` (Phase 7) | exact |
-| `src/billing/enforcement.ts` | service | CRUD | `src/billing/queries.ts` (transaction pattern) | role-match |
-| `src/conversation/function-executor.ts` | controller | request-response | `src/conversation/function-executor.ts` (existing) | exact |
-| `src/onboarding/ai-owner-agent.ts` | controller/NLU | request-response | `src/onboarding/ai-owner-agent.ts` (existing Phase 7) | exact |
-| `src/billing/__tests__/enforcement.test.ts` | test | test | `src/billing/queries.ts` (test pattern in Phase 7) | role-match |
-| `src/conversation/__tests__/booking-enforcement.test.ts` | test | test | `src/conversation/function-executor.ts` (test pattern Phase 2+) | role-match |
+| `src/billing/queries.ts` | service | CRUD | `src/billing/queries.ts` (self — extend) | exact |
+| `src/billing/tools.ts` | service | request-response | `src/billing/tools.ts` (self — extend) | exact |
+| `src/conversation/function-executor.ts` | service | CRUD | `src/conversation/function-executor.ts` (self — extend) | exact |
+| `src/database/schema.ts` | model | CRUD | `src/database/schema.ts` (self — extend) | exact |
+| `src/database/queries.ts` | model | CRUD | `src/database/queries.ts` (self — extend) | exact |
+| `src/onboarding/ai-owner-agent.ts` | service | request-response | `src/onboarding/ai-owner-agent.ts` (self — extend) | exact |
+| `src/webhooks/telegram.ts` | controller | event-driven | `src/webhooks/telegram.ts` (self — extend) | exact |
+| `migrations/0007_enforcement_policy.sql` | migration | batch | `migrations/0006_billing_schema.sql` | exact |
+| `tests/billing-session-deduction.test.ts` | test | CRUD | `tests/billing-membership-creation.test.ts` | role-match |
+| `tests/billing-enforcement-policy.test.ts` | test | request-response | `tests/billing-tools.test.ts` | role-match |
+| `tests/function-executor.test.ts` | test | CRUD | `tests/function-executor.test.ts` (self — extend) | exact |
+
+---
 
 ## Pattern Assignments
 
-### `src/database/schema.ts` (schema, data-definition)
+### `src/billing/queries.ts` — new functions: `getActiveMembershipForDeduction`, `findMembershipByBooking`, `deductSession`, `restoreCredit`, `getBusinessEnforcementPolicy`
 
-**Analog:** `src/database/schema.ts` lines 12–44 (businesses table)
+**Analog:** `src/billing/queries.ts` (existing functions in the same file)
 
-**Task:** Add `enforcementPolicy` column to businesses table (Phase 8, ENFC-01).
-
-**Imports pattern** (lines 1–10):
-```typescript
-import {
-  pgTable,
-  serial,
-  text,
-  integer,
-  boolean,
-  timestamp,
-  uniqueIndex,
-} from 'drizzle-orm/pg-core';
-import { sql } from 'drizzle-orm';
-```
-
-**Table extension pattern** (lines 42–44, add after existing columns):
-```typescript
-// Phase 8 (nullable — table is non-empty; nullable for backward compatibility):
-// enforcement policy for this business: 'block' (refuse unpaid clients) or 'flag'
-// (allow and alert owner). Default is 'flag' (safest). Queried fresh on every
-// booking attempt (no caching) per ENFC-01 requirement.
-enforcementPolicy: text('enforcement_policy'),
-```
-
-**Nullable column convention** (existing pattern from lines 20–34):
-- Non-empty table → nullable column with no default
-- RLS and multi-tenant comments follow schema at lines 18–34
-
----
-
-### `src/database/migrations/0005-enforcement-policy.sql` (migration, data-definition)
-
-**Analog:** Phase 7 migration pattern (inferred from schema.ts Phase 7 comments)
-
-**Pattern:** SQL migration file for schema changes; structure:
-
-```sql
--- Phase 8: Add enforcement_policy column to businesses table
--- D-01: nullable because table is non-empty (Phase 1 seed businesses exist)
-
-ALTER TABLE businesses ADD COLUMN enforcement_policy TEXT;
-
--- No explicit default; Postgres leaves NULL for existing rows.
--- New rows created via src/onboarding/steps.ts use NULL (app provides default at query time).
-```
-
-**Drizzle Kit Push:** After migration, run `npx drizzle-kit push` (standard Phase 1–5 pattern).
-
----
-
-### `src/billing/queries.ts` (service/queries, CRUD)
-
-**Analog:** `src/billing/queries.ts` lines 225–295 (createMembership transaction pattern)
-
-**Task:** Add four new query functions for Phase 8: `getActiveMembershipForClient`, `getEnforcementPolicy`, `insertBookingWithSessionDeduction`, `cancelBookingWithRefund`.
-
-**Imports pattern** (existing lines 1–18):
+**Imports pattern** (lines 1–18 — reuse exactly):
 ```typescript
 import { and, desc, eq, gt, gte, sql } from 'drizzle-orm';
 import { db } from '../database/db';
@@ -96,726 +44,456 @@ import { getConn } from '../database/queries';
 import { isoDateInAthens, addCalendarDays } from '../utils/timezone';
 import { logger } from '../utils/logger';
 ```
+Phase 8 adds: `businesses` to the schema import list; `gt` is already imported.
 
-**Query function 1: getActiveMembershipForClient** (read-only pre-flight):
+**Core read pattern — SELECT with getConn()** (lines 301–336, `getClientActiveMembership`):
 ```typescript
-/**
- * Returns the client's current active membership for a business,
- * or null if no active non-expired membership exists.
- * Uses getConn() for RLS enforcement.
- */
-export async function getActiveMembershipForClient(
-  businessId: number,
-  clientPhone: string
-): Promise<Membership | null> {
+export async function getClientActiveMembership(...) {
   const rows = await getConn()
-    .select()
+    .select({ ... })
     .from(memberships)
-    .where(
-      and(
-        eq(memberships.businessId, businessId),
-        eq(memberships.clientPhone, clientPhone),
-        eq(memberships.isActive, true),
-        gt(memberships.expiresAt, new Date()) // Not expired
-      )
-    )
+    .innerJoin(...)
+    .where(and(
+      eq(memberships.businessId, businessId),
+      eq(memberships.clientPhone, clientPhone),
+      eq(memberships.isActive, true),
+      gt(memberships.expiresAt, new Date())
+    ))
     .limit(1);
-  return rows[0] ?? null;
+  if (!rows[0]) return null;
+  return { ... };
 }
 ```
+`getActiveMembershipForDeduction` follows this pattern plus `.for('update')` before `.limit(1)`.
 
-**Query function 2: getEnforcementPolicy** (read-only config):
+**Core ledger-write pattern — onConflictDoNothing idempotency** (lines 280–295, `createMembership` inner block):
 ```typescript
-/**
- * Returns the enforcement policy for a business ('block' or 'flag').
- * Defaults to 'flag' if not set (safest policy — allow and alert owner).
- * Uses getConn() for RLS enforcement.
- */
-export async function getEnforcementPolicy(businessId: number): Promise<'block' | 'flag'> {
-  const rows = await getConn()
-    .select({ policy: businesses.enforcementPolicy })
-    .from(businesses)
-    .where(eq(businesses.id, businessId))
-    .limit(1);
-  
-  const policy = rows[0]?.policy;
-  return policy === 'block' ? 'block' : 'flag'; // Default to 'flag'
-}
+// D-11: append-only ledger with idempotency guard
+await tx.insert(membershipLedger).values({
+  membershipId: memberId,
+  operationType: 'payment_recorded',
+  sessionsDeducted: 0,
+  reason: 'Payment recorded by owner',
+  idempotencyKey,
+});
 ```
+Phase 8 version replaces `tx.insert` with `getConn().insert` (because atomicity comes from `withBusinessContext`, not a local `db.transaction()`), and appends `.onConflictDoNothing().returning({ id: membershipLedger.id })` for idempotency detection.
 
-**Query function 3: insertBookingWithSessionDeduction** (atomic transaction with SELECT FOR UPDATE):
+**Counter update pattern** (lines 261–272, `createMembership` upsert):
 ```typescript
-/**
- * Atomically inserts a booking and deducts 1 session from the client's
- * membership inside a single db.transaction() with SELECT FOR UPDATE locking
- * to prevent concurrent deduction races (SESS-01, SESS-03).
- *
- * For unlimited sessions (sessionCount === null), skips deduction entirely.
- * Appends ledger entry (append-only, idempotency-keyed) if deduction occurs.
- *
- * Returns { booking, ledgerEntry } on success or { error: string } on failure.
- */
-export async function insertBookingWithSessionDeduction(
-  businessId: number,
-  clientPhone: string,
-  bookingData: {
-    serviceId: number;
-    calendarDate: string;
-    calendarTime: string;
-    requestId: string;
-    expiresAt: Date;
-  },
-  membershipId?: number
-): Promise<
-  | { booking: Booking; ledgerEntry: { id: number; operationType: string } | null }
-  | { error: string }
-> {
-  try {
-    const result = await db.transaction(async (tx) => {
-      // 1. If membershipId not provided, no deduction occurs — return booking only
-      if (!membershipId) {
-        const bookingRows = await tx
-          .insert(bookings)
-          .values({
-            businessId,
-            clientPhone,
-            ...bookingData,
-          })
-          .returning();
-        return { booking: bookingRows[0], ledgerEntry: null };
-      }
-
-      // 2. Acquire write lock on membership row (SELECT FOR UPDATE)
-      const membershipRows = await tx
-        .select()
-        .from(memberships)
-        .where(eq(memberships.id, membershipId))
-        .for('update'); // Drizzle syntax for SELECT FOR UPDATE
-
-      if (membershipRows.length === 0) {
-        throw new Error('MEMBERSHIP_NOT_FOUND');
-      }
-
-      const membership = membershipRows[0];
-
-      // 3. Validate membership is active and not expired
-      if (!membership.isActive || new Date() > membership.expiresAt) {
-        throw new Error('MEMBERSHIP_EXPIRED_OR_INACTIVE');
-      }
-
-      // 4. Insert booking
-      const bookingRows = await tx
-        .insert(bookings)
-        .values({
-          businessId,
-          clientPhone,
-          ...bookingData,
-        })
-        .returning();
-
-      if (bookingRows.length === 0) {
-        throw new Error('BOOKING_INSERT_FAILED');
-      }
-
-      const booking = bookingRows[0];
-
-      // 5. If unlimited sessions (sessionCount === null), skip ledger + decrement
-      if (membership.sessionCount === null) {
-        return { booking, ledgerEntry: null };
-      }
-
-      // 6. Append ledger entry (immutable, idempotency-keyed)
-      const idempotencyKey = `booking:${booking.id}:deduct`;
-      const ledgerRows = await tx
-        .insert(membershipLedger)
-        .values({
-          membershipId: membership.id,
-          operationType: 'session_deducted',
-          sessionsDeducted: 1,
-          bookingId: booking.id,
-          idempotencyKey,
-        })
-        .onConflictDoNothing() // Webhook replay safety
-        .returning();
-
-      const ledgerEntry = ledgerRows[0] ?? null;
-
-      // 7. Decrement sessions_remaining
-      await tx
-        .update(memberships)
-        .set({ sessionsRemaining: membership.sessionCount - 1 })
-        .where(eq(memberships.id, membership.id));
-
-      return { booking, ledgerEntry };
-    });
-
-    return result;
-  } catch (error) {
-    logger.error({ err: error, membershipId }, 'insertBookingWithSessionDeduction failed');
-    return { error: (error as Error).message };
-  }
-}
+await getConn()
+  .update(memberships)
+  .set({ sessionsRemaining: sql`${memberships.sessionsRemaining} - 1` })
+  .where(eq(memberships.id, membershipId));
 ```
+Credit restore uses `+ 1`. Import `sql` is already present on line 6.
 
-**Query function 4: cancelBookingWithRefund** (expiry-aware credit restore):
+**Error/logger pattern** (lines 288–290):
 ```typescript
-/**
- * Atomically cancels a booking and restores 1 session credit if the membership
- * was still active at cancel-time. If membership expired at cancel-time, no
- * credit is restored (sessions forfeited — SESS-02, SESS-04).
- *
- * Returns { cancelled, creditRestored, reason? }.
- */
-export async function cancelBookingWithRefund(
-  bookingId: number,
-  businessId: number
-): Promise<{ cancelled: boolean; creditRestored: boolean; reason?: string }> {
-  try {
-    // 1. Lookup booking
-    const booking = await findBookingById(businessId, bookingId);
-    if (!booking) {
-      return { cancelled: false, creditRestored: false, reason: 'booking_not_found' };
-    }
-
-    // 2. Lookup ledger entry to find which membership was deducted
-    const ledgerRows = await getConn()
-      .select()
-      .from(membershipLedger)
-      .where(
-        and(
-          eq(membershipLedger.bookingId, bookingId),
-          eq(membershipLedger.operationType, 'session_deducted')
-        )
-      )
-      .limit(1);
-
-    const membershipId = ledgerRows[0]?.membershipId;
-
-    if (!membershipId) {
-      // No ledger entry — no session was deducted (unlimited or pre-Phase-8)
-      // Still cancel the booking, but no refund
-      const cancelResult = await updateBookingStatus(bookingId, 'cancelled');
-      return { cancelled: cancelResult, creditRestored: false, reason: 'no_session_to_restore' };
-    }
-
-    // 3. Atomic cancel + conditional refund
-    return await db.transaction(async (tx) => {
-      // 3a. Cancel booking
-      const updatedBooking = await tx
-        .update(bookings)
-        .set({ bookingStatus: 'cancelled' })
-        .where(and(eq(bookings.id, bookingId), eq(bookings.businessId, businessId)))
-        .returning();
-
-      if (updatedBooking.length === 0) {
-        throw new Error('BOOKING_CANCEL_FAILED');
-      }
-
-      // 3b. Fetch membership to check expiry
-      const membershipRows = await tx
-        .select()
-        .from(memberships)
-        .where(eq(memberships.id, membershipId))
-        .limit(1);
-
-      if (membershipRows.length === 0) {
-        return { cancelled: true, creditRestored: false, reason: 'membership_not_found' };
-      }
-
-      const membership = membershipRows[0];
-
-      // 3c. Check if membership is still valid at cancel time
-      const now = new Date();
-      if (now > membership.expiresAt) {
-        // Membership expired — no credit restored (sessions forfeited)
-        return { cancelled: true, creditRestored: false, reason: 'membership_expired' };
-      }
-
-      // 3d. If unlimited (sessionCount === null), no refund
-      if (membership.sessionCount === null) {
-        return { cancelled: true, creditRestored: false, reason: 'unlimited_membership' };
-      }
-
-      // 3e. Append credit-restore entry to ledger
-      const idempotencyKey = `booking:${bookingId}:restore`;
-      await tx
-        .insert(membershipLedger)
-        .values({
-          membershipId: membership.id,
-          operationType: 'credit_restored',
-          sessionsDeducted: -1, // Negative = credit
-          bookingId: bookingId,
-          idempotencyKey,
-        })
-        .onConflictDoNothing(); // Webhook replay safety
-
-      // 3f. Increment sessions_remaining
-      await tx
-        .update(memberships)
-        .set({ sessionsRemaining: membership.sessionCount + 1 })
-        .where(eq(memberships.id, membership.id));
-
-      return { cancelled: true, creditRestored: true };
-    });
-  } catch (error) {
-    logger.error({ err: error, bookingId }, 'cancelBookingWithRefund failed');
-    return { cancelled: false, creditRestored: false, reason: (error as Error).message };
-  }
-}
+logger.info(
+  { businessId, clientPhone, packageId, memberId, expiresAtDate },
+  'Membership created'
+);
 ```
 
 ---
 
-### `src/billing/enforcement.ts` (service, CRUD)
+### `src/billing/tools.ts` — new function: `handleSetEnforcementPolicy`
 
-**Analog:** `src/billing/queries.ts` (transaction and membership validation patterns)
+**Analog:** `src/billing/tools.ts` (existing `handleCreatePackage`, `handleViewClientMembership`)
 
-**New file:** Centralized enforcement policy check and message building.
-
-**Imports pattern** (follow Phase 7 billing queries):
+**Imports pattern** (lines 1–14 — extend import list):
 ```typescript
-import { logger } from '../utils/logger';
-import { getActiveMembershipForClient, getEnforcementPolicy, Membership } from './queries';
-import { sendTelegramMessage } from '../telegram/client';
-```
-
-**Core pattern: Enforcement check before booking** (follows RESEARCH.md Pattern 2):
-```typescript
-/**
- * Pre-flight membership validation before booking. Returns one of:
- * - { allowed: true, membership: Membership }
- * - { allowed: false, message: string, shouldAlert: false } (policy="block")
- * - { allowed: true, membership: null, shouldAlert: true } (policy="flag", no membership)
- *
- * ENFC-01, ENFC-02, ENFC-03 enforcement logic in one place.
- */
-export async function checkEnforcementAndGetMembership(
-  businessId: number,
-  clientPhone: string
-): Promise<
-  | { allowed: true; membership: Membership | null; shouldAlert: false }
-  | { allowed: false; message: string; shouldAlert: false }
-  | { allowed: true; membership: null; shouldAlert: true }
-> {
-  const membership = await getActiveMembershipForClient(businessId, clientPhone);
-  const policy = await getEnforcementPolicy(businessId);
-
-  if (!membership) {
-    if (policy === 'block') {
-      // ENFC-02: refuse booking with Greek message
-      const refusalMsg = 'Δυστυχώς, δεν διαθέτετε ενεργή ιδιωτική συμφωνία για αυτό το στούντιο. Παρακαλώ επικοινωνήστε με τον ιδιοκτήτη.';
-      return { allowed: false, message: refusalMsg, shouldAlert: false };
-    }
-    // policy === 'flag': allow booking, but flag for owner alert later
-    return { allowed: true, membership: null, shouldAlert: true };
-  }
-
-  // Member exists — proceed regardless of policy
-  return { allowed: true, membership, shouldAlert: false };
-}
-
-/**
- * Builds Greek alert message for unpaid client booking (ENFC-03).
- * Used when policy="flag" and no membership exists.
- */
-export function buildUnpaidClientAlert(
-  clientName: string | null,
-  clientPhone: string,
-  calendarDate: string,
-  calendarTime: string
-): string {
-  const name = clientName || clientPhone;
-  return `⚠️ Νέα κράτηση χωρίς ενεργή συνδρομή\nΠελάτης: ${name}\nΗμερομηνία: ${calendarDate}\nΏρα: ${calendarTime}`;
-}
-```
-
----
-
-### `src/conversation/function-executor.ts` (controller, request-response)
-
-**Analog:** `src/conversation/function-executor.ts` lines 156–189 (bookAppointmentTool)
-
-**Task:** Wrap booking tool with atomic deduction and enforcement check.
-
-**Integration pattern** (modify bookAppointmentTool at lines 156–189):
-
-```typescript
+import { z } from 'zod';
 import {
-  getActiveMembershipForClient,
-  getEnforcementPolicy,
-  insertBookingWithSessionDeduction,
-} from '../billing/queries';
-import { checkEnforcementAndGetMembership, buildUnpaidClientAlert } from '../billing/enforcement';
+  createPackage,
+  listPackages,
+  deactivatePackage,
+  getClientActiveMembership,
+  // Phase 8: add setBusinessEnforcementPolicy
+} from './queries';
+import { logger } from '../utils/logger';
+```
 
-async function bookAppointmentTool(
-  args: Record<string, unknown>,
-  context: ToolContext
-): Promise<Record<string, unknown>> {
+**Zod schema pattern** (lines 20–26, `CreatePackageSchema`):
+```typescript
+export const CreatePackageSchema = z.object({
+  name: z.string().min(1, 'Το όνομα πακέτου είναι υποχρεωτικό'),
+  price_cents: z.number().int().min(0, 'Η τιμή πρέπει να είναι μη αρνητική'),
+  ...
+});
+```
+`SetEnforcementPolicySchema` follows same shape:
+```typescript
+export const SetEnforcementPolicySchema = z.object({
+  policy: z.enum(['allow', 'block', 'flag']),
+});
+```
+
+**Handler structure** (lines 44–86, `handleCreatePackage`):
+```typescript
+export async function handleCreatePackage(
+  businessId: number,
+  args: Record<string, unknown>
+): Promise<CreatePackageResult | string> {
+  const parsed = CreatePackageSchema.safeParse(args);
+  if (!parsed.success) {
+    const firstIssue = parsed.error.issues[0];
+    return `Σφάλμα επικύρωσης: ${firstIssue?.message ?? 'Μη έγκυρα δεδομένα'}`;
+  }
+  try {
+    // ... DB call ...
+    logger.info({ businessId, ... }, '...');
+    return { ... };
+  } catch (err) {
+    logger.error({ err, businessId }, 'handleCreatePackage failed');
+    return 'Σφάλμα κατά τη δημιουργία πακέτου. Δοκιμάστε ξανά.';
+  }
+}
+```
+`handleSetEnforcementPolicy(businessId, args)` copies this structure: safeParse → DB write → Greek success string | Greek error string.
+
+**Greek date formatting** (lines 148–150, `handleViewClientMembership`):
+```typescript
+const expiresAtStr = membership.expiresAt.toLocaleDateString('el-GR', {
+  timeZone: 'Europe/Athens',
+});
+```
+Use this pattern for `expiresAt` display in enforcement-related messages.
+
+---
+
+### `src/conversation/function-executor.ts` — extend `bookAppointmentTool` and `cancelAppointmentTool`
+
+**Analog:** `src/conversation/function-executor.ts` (self)
+
+**ToolContext interface** (lines 19–31 — extend, do not replace):
+```typescript
+export interface ToolContext {
+  business: { id: number; name: string; ownerTelegramId: string | null };
+  clientPhone: string;
+  requestId: string;
+  idempotencyKey: string;
+}
+```
+Phase 8 requires `context.business.enforcementPolicy` — extend the `business` shape to `{ id: number; name: string; ownerTelegramId: string | null; enforcementPolicy?: string }`.
+
+**bookAppointmentTool structure** (lines 156–189):
+```typescript
+async function bookAppointmentTool(args, context): Promise<Record<string, unknown>> {
   const parsed = BookAppointmentArgsSchema.parse(args);
-
   const service = await findServiceById(context.business.id, parsed.service_id);
   if (!service) return { success: false, error: 'service_not_found' };
 
-  // === PHASE 8: ENFORCEMENT CHECK (new) ===
-  const enforcementResult = await checkEnforcementAndGetMembership(
-    context.business.id,
-    context.clientPhone
-  );
+  // [Phase 8: enforcement pre-check + SELECT FOR UPDATE membership lookup HERE]
 
-  if (!enforcementResult.allowed) {
-    // policy="block" — refuse booking
-    await sendTelegramMessage(context.clientPhone, enforcementResult.message);
-    return { error: enforcementResult.message };
-  }
-
-  // === BOOKING INSERT WITH OPTIONAL SESSION DEDUCTION (modified) ===
   const expiresAt = new Date(Date.now() + PENDING_BOOKING_TTL_MS);
-  
-  // If membership exists, use insertBookingWithSessionDeduction; otherwise insertBooking
-  const booking = enforcementResult.membership
-    ? (
-        await insertBookingWithSessionDeduction(
-          context.business.id,
-          context.clientPhone,
-          {
-            serviceId: parsed.service_id,
-            calendarDate: parsed.calendar_date,
-            calendarTime: parsed.calendar_time,
-            requestId: context.idempotencyKey,
-            expiresAt,
-          },
-          enforcementResult.membership.id
-        )
-      ).booking ?? null
-    : await insertBooking({
-        businessId: context.business.id,
-        clientPhone: context.clientPhone,
-        serviceId: parsed.service_id,
-        calendarDate: parsed.calendar_date,
-        calendarTime: parsed.calendar_time,
-        requestId: context.idempotencyKey,
-        expiresAt,
-      });
+  const booking = await insertBooking({ ... });
 
-  if (!booking) {
-    return await resolveConflictOrTaken(context.clientPhone, context.idempotencyKey);
-  }
-
-  // === ALERT OWNER IF "FLAG" POLICY AND NO MEMBERSHIP (new) ===
-  try {
-    await alertOwnerNewBooking(booking, service, context.business);
-    
-    if (enforcementResult.shouldAlert) {
-      const clientName = await getClientName(context.business.id, context.clientPhone);
-      const alertMsg = buildUnpaidClientAlert(
-        clientName,
-        context.clientPhone,
-        parsed.calendar_date,
-        parsed.calendar_time
-      );
-      await sendTelegramMessage(context.business.ownerTelegramId, alertMsg).catch((e) =>
-        logger.warn({ err: e }, 'unpaid_client_alert_send_failed_non_critical')
-      );
+  if (booking) {
+    // [Phase 8: flag alert BEFORE alertOwnerNewBooking — D-11]
+    // [Phase 8: deductSession() call HERE]
+    try {
+      await alertOwnerNewBooking(booking, service, context.business);
+    } catch (err) {
+      logger.error({ err, bookingId: booking.id }, 'Booking created but owner alert failed');
     }
-  } catch (err) {
-    logger.error({ err, bookingId: booking.id }, 'Booking created but alert failed');
+    return { success: true, booking_id: booking.id, status: booking.bookingStatus };
   }
-
-  return { success: true, booking_id: booking.id, status: booking.bookingStatus };
+  return await resolveConflictOrTaken(context.clientPhone, context.idempotencyKey);
 }
 ```
 
-**Cancellation modification** (lines 191–237):
-
+**cancelAppointmentTool structure** (lines 191–237):
 ```typescript
-async function cancelAppointmentTool(
-  args: Record<string, unknown>,
-  context: ToolContext
-): Promise<Record<string, unknown>> {
+async function cancelAppointmentTool(args, context): Promise<Record<string, unknown>> {
   const parsed = CancelAppointmentArgsSchema.parse(args);
-
   const booking = await findBookingById(context.business.id, parsed.booking_id);
   if (!booking) return { success: false, error: 'booking_not_found' };
   if (booking.clientPhone !== context.clientPhone) return { success: false, error: 'not_your_booking' };
-  if (!ACTIVE_STATUSES.includes(booking.bookingStatus)) {
-    return { success: false, error: 'not_cancellable' };
+  if (!ACTIVE_STATUSES.includes(booking.bookingStatus)) return { success: false, error: 'not_cancellable' };
+
+  await updateBookingStatus(booking.id, 'cancelled');
+  // [Phase 8: findMembershipByBooking + restoreCredit() HERE — inside appDb.transaction()]
+  ...
+}
+```
+
+**Best-effort vs. critical pattern:**
+- Best-effort (existing): `try { await alertOwnerNewBooking(...); } catch (err) { logger.error(...); }` — used for non-critical side effects.
+- Critical (Phase 8 flag alert per D-11): `await sendTelegramMessage(ownerTelegramId, flagText)` — NO try/catch wrapper; must be awaited and allowed to surface errors.
+
+---
+
+### `src/database/schema.ts` — add `enforcementPolicy` column to `businesses`
+
+**Analog:** `src/database/schema.ts` (existing Drizzle column definitions)
+
+Read the existing `businesses` table definition in schema.ts and add:
+```typescript
+enforcementPolicy: text('enforcement_policy').notNull().default('allow'),
+```
+following the same column naming convention (camelCase Drizzle name → snake_case SQL).
+
+---
+
+### `src/database/queries.ts` — extend `Business` interface
+
+**Analog:** `src/database/queries.ts` (existing `Business` interface)
+
+Extend the TypeScript `Business` interface with:
+```typescript
+enforcementPolicy: string;  // 'allow' | 'block' | 'flag' — added by Phase 8 migration
+```
+Both schema.ts and queries.ts must be updated together (Pitfall 6 in RESEARCH.md).
+
+---
+
+### `src/onboarding/ai-owner-agent.ts` — add `set_enforcement_policy` to `OWNER_TOOLS` and `executeOwnerTool`
+
+**Analog:** `src/onboarding/ai-owner-agent.ts` (existing `OWNER_TOOLS` array and `executeOwnerTool` switch)
+
+**Tool definition pattern** (lines 116–145, `create_package` in `OWNER_TOOLS`):
+```typescript
+{
+  type: 'function' as const,
+  name: 'create_package',
+  description:
+    'Δημιουργεί νέο πακέτο μαθημάτων για την επιχείρηση...',
+  parameters: {
+    type: 'object',
+    properties: {
+      name: { type: 'string', description: "..." },
+      ...
+    },
+    required: ['name', 'price_cents', 'valid_days', 'session_count'],
+  },
+},
+```
+`set_enforcement_policy` follows same shape with `enum` property:
+```typescript
+{
+  type: 'function' as const,
+  name: 'set_enforcement_policy',
+  description:
+    'Ορίζει την πολιτική κρατήσεων για πελάτες χωρίς ενεργή συνδρομή: ' +
+    '"block" = μπλοκάρει (αρνείται κράτηση), "flag" = επιτρέπει αλλά ειδοποιεί τον ιδιοκτήτη, ' +
+    '"allow" = επιτρέπει πάντα (προεπιλογή).',
+  parameters: {
+    type: 'object',
+    properties: {
+      policy: {
+        type: 'string',
+        enum: ['allow', 'block', 'flag'],
+        description: 'Πολιτική εφαρμογής: allow | block | flag',
+      },
+    },
+    required: ['policy'],
+  },
+},
+```
+
+**executeOwnerTool switch case pattern** (lines 365–384, `create_package` case):
+```typescript
+case 'create_package': {
+  const result = await handleCreatePackage(business.id, args as Record<string, unknown>);
+  if (typeof result === 'object' && result !== null && 'pendingPackageId' in result) {
+    const pkgResult = result as CreatePackageResult;
+    await sendTelegramMessageWithKeyboard(ownerTelegramId, pkgResult.confirmationText, [...]);
+    return '';
   }
+  return result as string;
+}
+```
+`set_enforcement_policy` case is simpler (no confirmation keyboard needed):
+```typescript
+case 'set_enforcement_policy': {
+  return withBusinessContext(business.id, () =>
+    handleSetEnforcementPolicy(business.id, args as Record<string, unknown>)
+  );
+}
+```
+Note: wrap in `withBusinessContext` (as done for `list_packages` on line 388) so the UPDATE on `businesses` is RLS-gated.
 
-  // === PHASE 8: ATOMIC CANCEL WITH OPTIONAL REFUND (new) ===
-  const refundResult = await cancelBookingWithRefund(booking.id, context.business.id);
+---
 
-  if (!refundResult.cancelled) {
-    return { success: false, error: refundResult.reason || 'cancel_failed' };
+### `src/webhooks/telegram.ts` — extend `handleClientCancelCallback` and `handleCallbackQuery` reject branch
+
+**Analog:** `src/webhooks/telegram.ts` (self)
+
+**handleClientCancelCallback injection point** (after line 161):
+```typescript
+await updateBookingStatus(booking.id, 'cancelled');
+
+// [Phase 8: inject here — findMembershipByBooking + restoreCredit]
+const membershipId = await findMembershipByBooking(booking.id);
+if (membershipId !== null) {
+  await restoreCredit(membershipId, booking.id, `booking:${booking.id}:credit`);
+}
+// [existing calendar delete + owner notification continues unchanged]
+```
+
+**handleCallbackQuery reject branch** (after line 291 `updateBookingStatusIfPending` returns `updated`):
+```typescript
+} else {
+  // No cascade on reject: ...
+  // [Phase 8: inject restoreCredit here, same pattern as handleClientCancelCallback]
+  const membershipId = await findMembershipByBooking(updated.id);
+  if (membershipId !== null) {
+    await restoreCredit(membershipId, updated.id, `booking:${updated.id}:credit`);
   }
-
-  // Rest of logic (Calendar delete, owner alert) proceeds unchanged
-  try {
-    const fullBusiness = await findBusinessById(context.business.id);
-    if (fullBusiness) await deleteBookingFromCalendar(booking, fullBusiness);
-  } catch (err) {
-    logger.error({ err, bookingId: booking.id }, 'Calendar deletion failed (best-effort)');
-  }
-
-  const service = await findServiceById(context.business.id, booking.serviceId);
-  try {
-    if (context.business.ownerTelegramId) {
-      const ownerText = `Ακύρωση ραντεβού από πελάτη:\nΥπηρεσία: ${service?.name ?? 'άγνωστη'}\nΗμερομηνία: ${booking.calendarDate}\nΏρα: ${booking.calendarTime}\nΠελάτης: ${booking.clientPhone}`;
-      await sendTelegramMessage(context.business.ownerTelegramId, ownerText);
-    }
-    const cancelMsg = refundResult.creditRestored
-      ? 'Το ραντεβού σας ακυρώθηκε και η συνεδρία επιστράφηκε.'
-      : 'Το ραντεβού σας ακυρώθηκε.';
-    await sendTelegramMessage(booking.clientPhone, cancelMsg);
-  } catch (err) {
-    logger.error({ err, bookingId: booking.id }, 'Cancellation succeeded but notification failed');
-  }
-
-  return { success: true, booking_id: booking.id };
+  await sendTelegramMessage(updated.clientPhone, CLIENT_REJECT_NOTICE_GREEK);
 }
 ```
 
 ---
 
-### `src/onboarding/ai-owner-agent.ts` (controller/NLU, request-response)
+### `migrations/0007_enforcement_policy.sql` — NEW migration file
 
-**Analog:** `src/onboarding/ai-owner-agent.ts` lines 37–199 (OWNER_TOOLS array) and 278–399 (executeOwnerTool dispatcher)
+**Analog:** `migrations/0006_billing_schema.sql`
 
-**Task:** Add `set_enforcement_policy` tool to OWNER_TOOLS (ENFC-01).
-
-**Tool definition** (add to OWNER_TOOLS array after view_client_membership, around line 199):
-
-```typescript
-  {
-    type: 'function' as const,
-    name: 'set_enforcement_policy',
-    description:
-      'Ορίζει την πολιτική επιβολής για αποδεκτές κρατήσεις: "block" (απόρριψη χωρίς συνδρομή) ή "flag" (αποδοχή και ειδοποίηση ιδιοκτήτη).',
-    parameters: {
-      type: 'object',
-      properties: {
-        policy: {
-          type: 'string',
-          enum: ['block', 'flag'],
-          description: 'Πολιτική: "block" για απόρριψη ή "flag" για ειδοποίηση',
-        },
-      },
-      required: ['policy'],
-    },
-  },
+**Header comment pattern** (lines 1–12 of 0006):
+```sql
+-- Migration: 0007_enforcement_policy.sql
+-- Purpose: Add enforcement_policy column to businesses table (Phase 8 D-07).
+--
+-- How to apply:
+--   psql $DATABASE_URL -f migrations/0007_enforcement_policy.sql
+--
+-- Idempotency: ADD COLUMN uses IF NOT EXISTS. GRANT is natively idempotent.
+--   Safe to run multiple times.
 ```
 
-**Tool handler** (add to executeOwnerTool switch statement, around line 399):
-
-```typescript
-    case 'set_enforcement_policy': {
-      const policy = args.policy as string;
-      if (!['block', 'flag'].includes(policy)) {
-        return 'Άκυρη πολιτική. Χρησιμοποίησε "block" ή "flag".';
-      }
-
-      // Update businesses table with enforcement_policy
-      await db
-        .update(businesses)
-        .set({ enforcementPolicy: policy })
-        .where(eq(businesses.id, business.id));
-
-      const policyLabel = policy === 'block'
-        ? 'Άρνηση κρατήσεων χωρίς συνδρομή'
-        : 'Αποδοχή κρατήσεων και ειδοποίηση';
-
-      logger.info({ businessId: business.id, policy }, 'Enforcement policy updated');
-      return `OK: Πολιτική ορίστηκε σε "${policyLabel}".`;
-    }
+**ADD COLUMN pattern** (line 19–20 of 0006):
+```sql
+ALTER TABLE businesses
+  ADD COLUMN IF NOT EXISTS enforcement_policy TEXT NOT NULL DEFAULT 'allow'
+    CONSTRAINT enforcement_policy_valid
+      CHECK (enforcement_policy IN ('allow', 'block', 'flag'));
 ```
 
-**Imports** (add to existing imports at top):
-```typescript
-import { businesses } from '../database/schema'; // Already imported, just verify
+**GRANT pattern** (lines 114–116 of 0006):
+```sql
+GRANT UPDATE (enforcement_policy) ON businesses TO randevuclaw_app;
 ```
+
+---
+
+### `tests/billing-session-deduction.test.ts` — NEW integration test
+
+**Analog:** `tests/billing-membership-creation.test.ts` (closest existing integration test pattern for billing)
+
+Key patterns to copy from the membership creation test:
+- `jest.resetModules()` before requiring modules (cold-import isolation)
+- Real Postgres connection to `randevuclaw_test` DB
+- Wrap each test scenario in a transaction that is rolled back (`afterEach`)
+- Seed test data (business, client, package, membership) before each assertion
+- Assert both the ledger row (`membership_ledger`) AND the counter (`memberships.sessionsRemaining`) changed atomically
+
+---
+
+### `tests/billing-enforcement-policy.test.ts` — NEW unit test
+
+**Analog:** `tests/billing-tools.test.ts` (unit test with `jest.mock` for billing tools)
+
+Key patterns to copy:
+- `jest.mock('../src/billing/queries')` to stub DB calls
+- `jest.mock('../src/utils/logger')` to silence logs
+- Call `handleSetEnforcementPolicy(businessId, { policy: 'block' })` and assert the returned Greek string
+- Test Zod validation: invalid policy value → Greek error string, no DB call made
+
+---
+
+### `tests/function-executor.test.ts` — EXTEND with Phase 8 cases
+
+**Analog:** `tests/function-executor.test.ts` (self)
+
+Extend the existing mock-based unit test with cases for:
+- `bookAppointmentTool` with `block` policy + no membership → returns `{ success: false, error: 'no_membership', message: '...' }` (Greek)
+- `bookAppointmentTool` with `flag` policy + no membership → booking succeeds + `sendTelegramMessage` called with flag text BEFORE `alertOwnerNewBooking`
+- `bookAppointmentTool` with finite membership → `deductSession` called after `insertBooking`
+- `bookAppointmentTool` with unlimited membership (`sessionsRemaining: null`) → `deductSession` NOT called
+- `cancelAppointmentTool` → `restoreCredit` called after `updateBookingStatus`
+- `cancelAppointmentTool` with no deduction ledger row → `restoreCredit` NOT called (`findMembershipByBooking` returns null)
 
 ---
 
 ## Shared Patterns
 
-### Atomic Transaction with SELECT FOR UPDATE (Concurrency Safety)
+### Transaction Ownership: `getConn()` not `db.transaction()`
+**Source:** `src/billing/queries.ts` lines 109–113 (`getConn()` usage) vs. lines 230–294 (`db.transaction()` usage)
+**Apply to:** All Phase 8 DB writes inside `bookAppointmentTool`, `cancelAppointmentTool`, `handleClientCancelCallback`, and `handleCallbackQuery` reject branch
 
-**Source:** `src/billing/queries.ts` lines 225–295 (createMembership pattern), adapted for session deduction
+The existing `withBusinessContext()` in telegram.ts (line ~410) wraps ALL of these with `appDb.transaction()`. Phase 8 code MUST use `getConn()` to participate in that transaction. Using `db.transaction()` opens a second, separate connection and breaks atomicity.
 
-**Apply to:** `src/billing/enforcement.ts` insertBookingWithSessionDeduction, cancelBookingWithRefund
-
-**Pattern:**
 ```typescript
-return await db.transaction(async (tx) => {
-  // 1. Acquire exclusive lock
-  const rows = await tx
-    .select()
-    .from(table)
-    .where(eq(table.id, id))
-    .for('update');
-
-  if (rows.length === 0) throw new Error('NOT_FOUND');
-
-  const row = rows[0];
-
-  // 2. Validate state
-  if (!row.isValid) throw new Error('INVALID_STATE');
-
-  // 3. Perform mutations inside transaction
-  await tx.insert(...);
-  await tx.update(...);
-
-  return result;
-});
-```
-
-**Key details:**
-- `.for('update')` is Drizzle's syntax for `SELECT FOR UPDATE`
-- Holds lock until transaction commits — no other transaction can acquire the same lock
-- Prevents read-skew: concurrent reads cannot both see the same old state
-- Rollback on any error inside the transaction — all mutations are atomic
-
----
-
-### Idempotent Ledger Entries (Webhook Replay Safety)
-
-**Source:** `src/billing/queries.ts` lines 277–286 (membershipLedger.idempotencyKey pattern)
-
-**Apply to:** `src/billing/enforcement.ts` session_deducted and credit_restored ledger entries
-
-**Pattern:**
-```typescript
-const idempotencyKey = `booking:${booking.id}:deduct`;
-const ledgerRows = await tx
+// CORRECT (Phase 8): participates in withBusinessContext transaction
+await getConn()
   .insert(membershipLedger)
-  .values({
-    membershipId: membership.id,
-    operationType: 'session_deducted',
-    sessionsDeducted: 1,
-    bookingId: booking.id,
-    idempotencyKey,
-  })
-  .onConflictDoNothing() // Schema has UNIQUE constraint on idempotencyKey
-  .returning();
+  .values({ ... })
+  .onConflictDoNothing()
+  .returning({ id: membershipLedger.id });
 
-const ledgerEntry = ledgerRows[0] ?? null; // May be null on replay
+// WRONG: opens new connection, breaks atomicity
+await db.transaction(async (tx) => { ... });
 ```
 
-**Key details:**
-- Schema: `idempotencyKey: text('idempotency_key').notNull().unique()` (Phase 7, line 314)
-- `.onConflictDoNothing()` silently ignores the duplicate on webhook replay
-- `.returning()` returns empty array if conflict, so app detects and skips redundant work
-- Deterministic key format ensures same operation always produces same key
+### Idempotency: `onConflictDoNothing().returning()`
+**Source:** `src/billing/queries.ts` lines 279–295 (`createMembership` inner ledger insert — uses `tx.insert` but the pattern is identical)
+**Apply to:** `deductSession()` and `restoreCredit()` ledger inserts in `src/billing/queries.ts`
 
----
-
-### Read-Only RLS-Enforced Queries
-
-**Source:** `src/billing/queries.ts` lines 108–114 (listPackages), 133–140 (getPackageById), 301–336 (getClientActiveMembership)
-
-**Apply to:** All `getActiveMembershipForClient`, `getEnforcementPolicy` queries
-
-**Pattern:**
 ```typescript
-export async function readSensitiveData(businessId: number): Promise<Data | null> {
-  return getConn() // NOT db — uses RLS-enforced transaction if available
-    .select()
-    .from(table)
-    .where(eq(table.businessId, businessId))
-    .limit(1);
-}
+const inserted = await getConn()
+  .insert(membershipLedger)
+  .values({ ..., idempotencyKey })
+  .onConflictDoNothing()
+  .returning({ id: membershipLedger.id });
+
+if (inserted.length === 0) return; // already processed — idempotent replay
 ```
 
-**Key details:**
-- `getConn()` returns `currentTx.getStore() ?? db` from `src/database/queries.ts` line 22
-- Inside `withBusinessContext`, `getConn()` returns the RLS-enforced transaction
-- Outside `withBusinessContext` (routing, polling), `getConn()` returns admin `db`
-- RLS policy in PostgreSQL enforces `app.current_business_id` at database layer
+### Greek Language Messages
+**Source:** `src/conversation/function-executor.ts` lines 122–123 and 228–232; `src/billing/tools.ts` lines 67–78
+**Apply to:** All new user-facing strings in Phase 8
 
----
+- Block refusal: `"Για να κάνετε κράτηση, χρειάζεστε ενεργή συνδρομή. Επικοινωνήστε με ${businessName} για ανανέωση."`
+- Flag alert: `"⚠️ Νέα κράτηση από πελάτη χωρίς ενεργή συνδρομή: ${clientName}, ${service.name}, ${booking.calendarDate} ${booking.calendarTime}."`
+- Policy set confirmation: Greek string returned from `handleSetEnforcementPolicy`, e.g. `"Η πολιτική κρατήσεων ορίστηκε σε: block."`
 
-### Greek Error/Alert Messages (Localization)
+### Timezone-Safe Expiry Check
+**Source:** `src/utils/timezone.ts` (referenced in `src/billing/queries.ts` line 17)
+**Apply to:** `restoreCredit()` expiry check in `src/billing/queries.ts`
 
-**Source:** `src/conversation/function-executor.ts` lines 122, 228–231 (Greek messages)
-
-**Apply to:** `src/billing/enforcement.ts` refusal message and unpaid alert
-
-**Pattern:**
+Use `isoDateInAthens()` from `src/utils/timezone.ts` — never hand-roll UTC offset arithmetic. From RESEARCH.md "Don't Hand-Roll" table:
 ```typescript
-// Refusal (ENFC-02)
-const refusalMsg = 'Δυστυχώς, δεν διαθέτετε ενεργή ιδιωτική συμφωνία για αυτό το στούντιο. Παρακαλώ επικοινωνήστε με τον ιδιοκτήτη.';
-
-// Alert (ENFC-03)
-const alertMsg = `⚠️ Νέα κράτηση χωρίς ενεργή συνδρομή\nΠελάτης: ${clientName}\nΗμερομηνία: ${calendarDate}\nΏρα: ${calendarTime}`;
-
-// Cancellation confirmation (modified)
-const cancelMsg = refundResult.creditRestored
-  ? 'Το ραντεβού σας ακυρώθηκε και η συνεδρία επιστράφηκε.'
-  : 'Το ραντεβού σας ακυρώθηκε.';
+// For expiry comparison in restoreCredit:
+const nowAthens = new Date(
+  new Date().toLocaleString('en-US', { timeZone: 'Europe/Athens' })
+);
+if (membership.expiresAt < nowAthens) return; // SESS-03: skip restore
 ```
 
-**Key details:**
-- All Greek strings are hardcoded in the function (no external string map yet — Phase 9 may extract to i18n)
-- Client-facing messages use formal Greek; owner messages use informal emoji + Greek
-- Message sent via `sendTelegramMessage(phoneId, text)` (established pattern from Phase 2+)
+### Logger Pattern
+**Source:** `src/billing/queries.ts` lines 288–290; `src/billing/tools.ts` lines 79, 84
+**Apply to:** All new Phase 8 functions
 
----
-
-### Best-Effort Non-Blocking Notifications
-
-**Source:** `src/conversation/function-executor.ts` lines 177–184 and 226–234 (alertOwnerNewBooking, cancellation alert)
-
-**Apply to:** All owner alerts in Phase 8 (unpaid client alert, policy updates)
-
-**Pattern:**
 ```typescript
-try {
-  await sendTelegramMessage(context.business.ownerTelegramId, alertMsg);
-} catch (err) {
-  logger.warn({ err }, 'alert_send_failed_non_critical');
-  // NO rethrow — DB mutation has already committed, alert failure must not surface to client
-}
+// Info on success
+logger.info({ businessId, bookingId, membershipId }, 'Session deducted');
+// Error on catch — always include { err }
+logger.error({ err, businessId, bookingId }, 'deductSession failed');
 ```
-
-**Key details:**
-- DB mutation (booking insert/update, policy update) commits FIRST
-- Alert send attempt AFTER commit, wrapped in try/catch
-- If alert fails, log it but do NOT return error to client
-- Client receives success response; owner eventually sees alert or not
 
 ---
 
 ## No Analog Found
 
-No files require new patterns not found in codebase:
-
-| File | Role | Data Flow | Reason |
-|------|------|-----------|--------|
-| — | — | — | All Phase 8 files follow established patterns from Phase 2–7 |
+All files have close analogs in the codebase. No files require falling back to RESEARCH.md external patterns exclusively.
 
 ---
 
 ## Metadata
 
-**Analog search scope:** 
-- `src/database/schema.ts` (schema extensions)
-- `src/billing/queries.ts` (transaction + ledger patterns)
-- `src/conversation/function-executor.ts` (tool executor, error handling)
-- `src/onboarding/ai-owner-agent.ts` (NLU tool definitions, tool executor)
-- `src/calendar/sync.ts` (transaction patterns)
-- `src/database/queries.ts` (RLS + withBusinessContext pattern)
-
-**Files scanned:** 6 core analogs + 5 reference patterns
-
-**Pattern extraction date:** 2026-07-21
-
-**Key patterns identified:**
-1. Atomic session deduction via `db.transaction()` + `SELECT FOR UPDATE` prevents concurrent races
-2. Append-only ledger with UNIQUE idempotencyKey handles webhook replays safely
-3. RLS-enforced queries via `getConn()` inside `withBusinessContext` ensure tenant isolation
-4. Enforcement policy stored in database, queried fresh on every booking (no caching)
-5. Best-effort async notifications after DB commit prevent inconsistent state on send failure
-
----
-
-*Phase: 8 — Enforcement & Session Deduction*
-*Pattern mapping completed: 2026-07-21*
+**Analog search scope:** `src/billing/`, `src/conversation/`, `src/database/`, `src/onboarding/`, `src/webhooks/`, `migrations/`, `tests/`
+**Files scanned:** 7 source files + 1 migration + 2 test references
+**Pattern extraction date:** 2026-07-20
