@@ -5,15 +5,15 @@ milestone_name: Billing & Membership System
 current_phase: 07
 current_phase_name: billing-configuration-payment-recording
 status: executing
-stopped_at: Completed 07-02-PLAN.md (billing schema + Neon DB push verified)
-last_updated: "2026-07-20T09:13:55.637Z"
+stopped_at: Completed 07-03-PLAN.md (billing queries layer, clientName upsert, DST tests all green)
+last_updated: "2026-07-20T09:37:39.288Z"
 last_activity: 2026-07-20
 last_activity_desc: Phase 07 execution started
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 5
-  completed_plans: 2
+  completed_plans: 3
   percent: 0
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-17 after v1.1 milestone close)
 ## Current Position
 
 Phase: 07 (billing-configuration-payment-recording) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Ready to execute
 Last activity: 2026-07-20 — Phase 07 execution started
 
@@ -80,6 +80,7 @@ Last activity: 2026-07-20 — Phase 07 execution started
 |------|----------|-------|-------|
 | Phase 07 P01 | 4 | 2 tasks | 9 files |
 | Phase 07 P02 | 5 | 2 tasks | 2 files |
+| Phase 07 P03 | 12 | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -150,6 +151,9 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 07-02]: billingPackages partial index WHERE is_active = true — allows reusing a package name after deactivation
 - [Phase ?]: [Phase 07-02]: membershipLedger idempotency_key UNIQUE inline + explicit uniqueIndex — DB constraint plus query performance
 - [Phase ?]: [Phase 07-02]: memberships partial index WHERE is_active = true enforces D-10 one-active-membership at DB level
+- [Phase ?]: [Phase 07-03]: Exported getConn from database/queries.ts — needed by billing/queries.ts for RLS-scoped reads (T-07-03)
+- [Phase ?]: [Phase 07-03]: Each billing integration test uses unique clientPhone per test to avoid same-day idempotencyKey collisions
+- [Phase ?]: [Phase 07-03]: billing integration tests follow jest.resetModules() + require() pattern from booking-queries.test.ts
 
 ### Pending Todos
 
@@ -196,8 +200,8 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-07-09:
 
 ## Session Continuity
 
-Last session: 2026-07-20T09:13:48.706Z
-Stopped at: Completed 07-02-PLAN.md (billing schema + Neon DB push verified)
+Last session: 2026-07-20T09:37:39.273Z
+Stopped at: Completed 07-03-PLAN.md (billing queries layer, clientName upsert, DST tests all green)
 Resume file: None
 
 ## Operator Next Steps
