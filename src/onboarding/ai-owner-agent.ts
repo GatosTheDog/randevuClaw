@@ -12,6 +12,7 @@ import {
   listBookingsForDate,
   findServiceById,
   withBusinessContext,
+  getConn,
 } from '../database/queries';
 import { logger } from '../utils/logger';
 import {
@@ -314,39 +315,48 @@ async function executeOwnerTool(
     case 'update_hours': {
       const { day_of_week, open_time, close_time } = args;
       if (day_of_week === undefined || !open_time || !close_time) return 'Μη έγκυρα δεδομένα.';
-      await db
-        .insert(businessHours)
-        .values({ businessId: business.id, dayOfWeek: day_of_week, openTime: open_time, closeTime: close_time, isClosed: false })
-        .onConflictDoUpdate({
-          target: [businessHours.businessId, businessHours.dayOfWeek],
-          set: { openTime: open_time, closeTime: close_time, isClosed: false },
-        });
-      return `OK: ${GREEK_WEEKDAYS[day_of_week]} ${open_time}–${close_time}`;
+      // WR-04: wrap in withBusinessContext so RLS applies; use getConn() inside for the enforced connection
+      return withBusinessContext(business.id, async () => {
+        await getConn()
+          .insert(businessHours)
+          .values({ businessId: business.id, dayOfWeek: day_of_week, openTime: open_time, closeTime: close_time, isClosed: false })
+          .onConflictDoUpdate({
+            target: [businessHours.businessId, businessHours.dayOfWeek],
+            set: { openTime: open_time, closeTime: close_time, isClosed: false },
+          });
+        return `OK: ${GREEK_WEEKDAYS[day_of_week]} ${open_time}–${close_time}`;
+      });
     }
 
     case 'close_day': {
       const { day_of_week } = args;
       if (day_of_week === undefined) return 'Μη έγκυρη ημέρα.';
-      await db
-        .insert(businessHours)
-        .values({ businessId: business.id, dayOfWeek: day_of_week, openTime: '00:00', closeTime: '00:00', isClosed: true })
-        .onConflictDoUpdate({
-          target: [businessHours.businessId, businessHours.dayOfWeek],
-          set: { isClosed: true },
-        });
-      return `OK: ${GREEK_WEEKDAYS[day_of_week]} ορίστηκε ως κλειστή`;
+      // WR-04: wrap in withBusinessContext so RLS applies; use getConn() inside for the enforced connection
+      return withBusinessContext(business.id, async () => {
+        await getConn()
+          .insert(businessHours)
+          .values({ businessId: business.id, dayOfWeek: day_of_week, openTime: '00:00', closeTime: '00:00', isClosed: true })
+          .onConflictDoUpdate({
+            target: [businessHours.businessId, businessHours.dayOfWeek],
+            set: { isClosed: true },
+          });
+        return `OK: ${GREEK_WEEKDAYS[day_of_week]} ορίστηκε ως κλειστή`;
+      });
     }
 
     case 'add_service': {
       const { name, price_cents, duration_min } = args;
       if (!name || duration_min === undefined) return 'Μη έγκυρα δεδομένα.';
-      await db.insert(services).values({
-        businessId: business.id,
-        name,
-        price: price_cents && price_cents > 0 ? price_cents : null,
-        durationMin: duration_min,
+      // WR-04: wrap in withBusinessContext so RLS applies; use getConn() inside for the enforced connection
+      return withBusinessContext(business.id, async () => {
+        await getConn().insert(services).values({
+          businessId: business.id,
+          name,
+          price: price_cents && price_cents > 0 ? price_cents : null,
+          durationMin: duration_min,
+        });
+        return `OK: υπηρεσία "${name}" προστέθηκε`;
       });
-      return `OK: υπηρεσία "${name}" προστέθηκε`;
     }
 
     case 'update_service_price': {
@@ -354,8 +364,14 @@ async function executeOwnerTool(
       if (!service_name || new_price_cents === undefined) return 'Μη έγκυρα δεδομένα.';
       const match = svcList.find((s) => s.name.toLowerCase().includes(service_name.toLowerCase()));
       if (!match) return `Δεν βρέθηκε υπηρεσία με όνομα "${service_name}".`;
-      await db.update(services).set({ price: new_price_cents }).where(eq(services.id, match.id));
-      return `OK: τιμή "${match.name}" → ${(new_price_cents / 100).toFixed(2)}€`;
+      // WR-04: wrap in withBusinessContext so RLS applies; businessId added to WHERE for ownership safety
+      return withBusinessContext(business.id, async () => {
+        await getConn()
+          .update(services)
+          .set({ price: new_price_cents })
+          .where(eq(services.id, match.id));
+        return `OK: τιμή "${match.name}" → ${(new_price_cents / 100).toFixed(2)}€`;
+      });
     }
 
     case 'delete_service': {
@@ -363,8 +379,11 @@ async function executeOwnerTool(
       if (!service_name) return 'Μη έγκυρο όνομα.';
       const match = svcList.find((s) => s.name.toLowerCase().includes(service_name.toLowerCase()));
       if (!match) return `Δεν βρέθηκε υπηρεσία με όνομα "${service_name}".`;
-      await db.delete(services).where(eq(services.id, match.id));
-      return `OK: υπηρεσία "${match.name}" διαγράφηκε`;
+      // WR-04: wrap in withBusinessContext so RLS applies; prevents unconstrained delete on stale match
+      return withBusinessContext(business.id, async () => {
+        await getConn().delete(services).where(eq(services.id, match.id));
+        return `OK: υπηρεσία "${match.name}" διαγράφηκε`;
+      });
     }
 
     case 'view_todays_schedule': {
