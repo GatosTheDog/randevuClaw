@@ -372,7 +372,7 @@ async function executeOwnerTool(
       if (todayBookings.length === 0) return 'Δεν υπάρχουν ραντεβού σήμερα.';
       const lines = await Promise.all(
         todayBookings.map(async (b) => {
-          const svc = await findServiceById(b.serviceId, business.id).catch(() => null);
+          const svc = await findServiceById(business.id, b.serviceId).catch(() => null);
           const svcName = svc?.name ?? `υπηρεσία #${b.serviceId}`;
           const statusLabel = b.bookingStatus === 'confirmed' ? '✅' : '⏳';
           return `${statusLabel} ${b.calendarTime} — ${svcName} (${b.clientPhone})`;
