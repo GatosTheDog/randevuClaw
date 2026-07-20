@@ -63,6 +63,11 @@ export const clientBusinessRelationships = pgTable(
       .notNull()
       .references(() => businesses.id),
     senderPhone: text('sender_phone').notNull(),
+    // Phase 7 (D-04 — nullable: table is non-empty; captured from Telegram
+    // from.first_name on each message and upserted to reflect the latest
+    // display name. Used in the payment flow UI to show client display names
+    // in inline keyboard buttons).
+    clientName: text('client_name'),
     consentGiven: boolean('consent_given').notNull().default(true), // Implied consent (D-10)
     consentTimestamp: timestamp('consent_timestamp').notNull().defaultNow(),
     createdAt: timestamp('created_at').notNull().defaultNow(),
@@ -220,5 +225,97 @@ export const onboardingSessions = pgTable(
     // One active session per business (D-05). Used with onConflictDoUpdate on
     // re-registration (owner re-submits their bot token).
     uniqueIndex('unique_onboarding_session_per_business').on(table.businessId),
+  ]
+);
+
+// --- Phase 7: Billing Configuration & Payment Recording ---
+
+export const billingPackages = pgTable(
+  'billing_packages',
+  {
+    id: serial('id').primaryKey(),
+    businessId: integer('business_id')
+      .notNull()
+      .references(() => businesses.id),
+    name: text('name').notNull(),
+    // Phase 7: price in euro cents (e.g. 8000 = €80.00). Consistent with
+    // services.price cents convention.
+    priceCents: integer('price_cents').notNull(),
+    validDays: integer('valid_days').notNull(),
+    // Phase 7 (D-02): null = unlimited sessions; Gemini maps "απεριόριστες"
+    // keywords to session_count = null.
+    sessionCount: integer('session_count'),
+    // Phase 7 (D-03): false = pending confirmation, true = active on owner
+    // confirmation. Soft-delete flag — deactivated packages never deleted.
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (table) => [
+    // Partial index — WHERE is_active = true allows a new active package to
+    // be created with the same name as a deactivated one.
+    uniqueIndex('unique_active_package_name')
+      .on(table.businessId, table.name)
+      .where(sql`is_active = true`),
+  ]
+);
+
+export const memberships = pgTable(
+  'memberships',
+  {
+    id: serial('id').primaryKey(),
+    businessId: integer('business_id')
+      .notNull()
+      .references(() => businesses.id),
+    // Telegram from.id stringified — consistent with bookings.clientPhone
+    // convention across both WhatsApp and Telegram channel adapters.
+    clientPhone: text('client_phone').notNull(),
+    packageId: integer('package_id')
+      .notNull()
+      .references(() => billingPackages.id),
+    // Phase 7: ISO "YYYY-MM-DD" stored in Europe/Athens local time.
+    purchaseDate: text('purchase_date').notNull(),
+    // Phase 7: TIMESTAMP WITH TIME ZONE for DST-safe rolling expiry window;
+    // calculated via addCalendarDays utility in src/utils/timezone.ts.
+    expiresAt: timestamp('expires_at').notNull(),
+    // Phase 7 (D-02): null = unlimited sessions.
+    sessionsRemaining: integer('sessions_remaining'),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (table) => [
+    // D-10: one active membership per (business_id, client_phone) enforced at
+    // DB level. Partial index — WHERE is_active = true so expired/deactivated
+    // memberships do not block a new membership for the same client.
+    uniqueIndex('unique_active_membership')
+      .on(table.businessId, table.clientPhone)
+      .where(sql`is_active = true`),
+  ]
+);
+
+export const membershipLedger = pgTable(
+  'membership_ledger',
+  {
+    id: serial('id').primaryKey(),
+    membershipId: integer('membership_id')
+      .notNull()
+      .references(() => memberships.id),
+    // Phase 7: 'payment_recorded' | 'session_deducted' | 'credit_restored'
+    operationType: text('operation_type').notNull(),
+    // Phase 7: positive for deductions, negative for credits (e.g. on cancel);
+    // 0 for payment-recorded entries with no session count.
+    sessionsDeducted: integer('sessions_deducted').notNull().default(0),
+    // Phase 8+: nullable — set when the ledger entry is tied to a specific
+    // booking (session deduction on booking confirmation).
+    bookingId: integer('booking_id').references(() => bookings.id),
+    // Nullable: human-readable audit note (e.g. 'Admin adjustment').
+    reason: text('reason'),
+    // Phase 7 (D-11): UNIQUE inline constraint prevents duplicate INSERT on
+    // webhook replay. Ledger is append-only — no UPDATE ever issued.
+    idempotencyKey: text('idempotency_key').notNull().unique(),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (table) => [
+    // Explicit index to complement the inline unique() for query performance.
+    uniqueIndex('unique_ledger_idempotency').on(table.idempotencyKey),
   ]
 );
