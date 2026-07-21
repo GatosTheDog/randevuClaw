@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Billing & Membership System
-current_phase: 08
-current_phase_name: Enforcement & Session Deduction
-status: planning
-stopped_at: Completed 09-03-PLAN.md (expiry sweep poller + DB migration + server registration)
-last_updated: "2026-07-21T14:53:59.196Z"
+current_phase: 07
+current_phase_name: billing-configuration-payment-recording
+status: executing
+stopped_at: Completed 07-06-PLAN.md (G-07-5 + G-07-6 gap closure)
+last_updated: "2026-07-21T16:47:30.160Z"
 last_activity: 2026-07-21
-last_activity_desc: Phase 07 complete, transitioned to Phase 08
+last_activity_desc: Phase 07 execution started
 progress:
   total_phases: 6
-  completed_phases: 3
-  total_plans: 14
-  completed_plans: 14
-  percent: 50
+  completed_phases: 2
+  total_plans: 16
+  completed_plans: 15
+  percent: 33
 ---
 
 # Project State
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-17 after v1.1 milestone close)
 
 **Core value:** A client can book or cancel an appointment with a Greek business entirely through a chat conversation, in Greek, with zero friction — and the owner's calendar updates automatically.
-**Current focus:** Phase 08 — enforcement-session-deduction
+**Current focus:** Phase 07 — billing-configuration-payment-recording
 
 ## Current Position
 
-Phase: 08 — Enforcement & Session Deduction
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-07-21 — Phase 07 complete, transitioned to Phase 08
+Phase: 07 (billing-configuration-payment-recording) — EXECUTING
+Plan: 2 of 2
+Status: Ready to execute
+Last activity: 2026-07-21 — Phase 07 execution started
 
 ## Performance Metrics
 
@@ -92,6 +92,7 @@ Last activity: 2026-07-21 — Phase 07 complete, transitioned to Phase 08
 | Phase 09 P01 | 8 | 2 tasks | 5 files |
 | Phase 09 P02 | 18 | 2 tasks | 4 files |
 | Phase 09 P03 | 51 | 3 tasks | 3 files |
+| Phase 07 P06 | 4 | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -187,6 +188,8 @@ Recent decisions affecting current work:
 - [Phase ?]: Test date anchor noon UTC (T12:00:00Z) avoids Athens midnight crossing in summer DST (UTC+3) for formatExpiryDateGreek assertions
 - [Phase ?]: isRunning guard omitted from membership expiry sweep — 6-hour interval + DB UNIQUE constraint provide sufficient dedup without an application-level mutex
 - [Phase ?]: notificationCount increments separately for client and owner sends — allows accurate per-recipient accounting in the sweep return value
+- [Phase ?]: [07-06]: getAllClientsForBusiness uses getConn() inside withBusinessContext — RLS-scoped, no booking join
+- [Phase ?]: [07-06]: deactivate_package switched to package_name with case-insensitive partial match — eliminates hallucinated-ID problem
 
 ### Pending Todos
 
@@ -233,8 +236,8 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-07-09:
 
 ## Session Continuity
 
-Last session: 2026-07-21T11:01:05.367Z
-Stopped at: Completed 09-03-PLAN.md (expiry sweep poller + DB migration + server registration)
+Last session: 2026-07-21T16:47:30.153Z
+Stopped at: Completed 07-06-PLAN.md (G-07-5 + G-07-6 gap closure)
 Resume file: None
 
 ## Operator Next Steps

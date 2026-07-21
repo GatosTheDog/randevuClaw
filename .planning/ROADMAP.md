@@ -126,7 +126,7 @@ Plans:
   4. Owner deactivates a package via chat; it no longer appears in new payment flows while all existing memberships with that package remain intact.
   5. Owner queries a specific client's membership via chat and receives a Greek reply showing package name, sessions remaining, and membership expiry date.
 
-**Plans**: 7 plans (5 original + 2 gap closure)
+**Plans**: 6/7 plans executed
 Plans:
 **Wave 1**
 
@@ -147,7 +147,7 @@ Plans:
 
 **Gap Closure Wave 1** *(parallel — no shared files)*
 
-- [ ] 07-06-PLAN.md — [GAP G-07-5, G-07-6] Fix deactivate_package name-based lookup + payment flow fallback to all-time clients
+- [x] 07-06-PLAN.md — [GAP G-07-5, G-07-6] Fix deactivate_package name-based lookup + payment flow fallback to all-time clients
 - [ ] 07-07-PLAN.md — [GAP G-07-2] Clear billing keyboard after terminal confirmation taps
 
 ### Phase 8: Enforcement & Session Deduction
@@ -220,6 +220,6 @@ Plans:
 | 4. Per-Bot Foundation | v1.1 | 6/6 | Complete | 2026-07-11 |
 | 5. Owner Self-Serve Onboarding | v1.1 | 7/7 | Complete | 2026-07-17 |
 | 6. GDPR Compliance & Rate-Limit Resilience | v1.3 | 0/TBD | Deferred | - |
-| 7. Billing Configuration & Payment Recording | v1.2 | 5/5 | Complete    | 2026-07-21 |
+| 7. Billing Configuration & Payment Recording | v1.2 | 6/7 | In Progress|  |
 | 8. Enforcement & Session Deduction | v1.2 | 6/6 | In Progress|  |
 | 9. Expiry Notifications & Client Balance | v1.2 | 3/3 | In Progress|  |
