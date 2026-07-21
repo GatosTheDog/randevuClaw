@@ -128,7 +128,10 @@ export async function handleListPackages(businessId: number): Promise<string> {
 // WR-01: businessId added as defense-in-depth ownership guard passed through to deactivatePackage.
 export async function handleDeactivatePackage(businessId: number, packageId: number): Promise<string> {
   try {
-    await deactivatePackage(businessId, packageId);
+    const deactivated = await deactivatePackage(businessId, packageId);
+    if (!deactivated) {
+      return 'Δεν βρέθηκε ενεργό πακέτο με αυτό το ID.';
+    }
     return 'Το πακέτο απενεργοποιήθηκε. Υπάρχουσες συνδρομές δεν επηρεάζονται.';
   } catch (err) {
     logger.error({ err, packageId, businessId }, 'handleDeactivatePackage failed');

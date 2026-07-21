@@ -140,11 +140,13 @@ export async function listPackages(businessId: number): Promise<BillingPackage[]
  * misconfigured. Uses getConn() so it benefits from withBusinessContext RLS when
  * called through the owner tool chain.
  */
-export async function deactivatePackage(businessId: number, packageId: number): Promise<void> {
-  await getConn()
+export async function deactivatePackage(businessId: number, packageId: number): Promise<boolean> {
+  const rows = await getConn()
     .update(billingPackages)
     .set({ isActive: false })
-    .where(and(eq(billingPackages.id, packageId), eq(billingPackages.businessId, businessId)));
+    .where(and(eq(billingPackages.id, packageId), eq(billingPackages.businessId, businessId)))
+    .returning({ id: billingPackages.id });
+  return rows.length > 0;
 }
 
 /**
