@@ -29,3 +29,17 @@ export function addCalendarDays(isoDate: string, days: number): string {
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
 }
+
+// formatExpiryDateGreek: formats a Date as DD/MM/YYYY in the Europe/Athens
+// timezone. Uses 'en-GB' locale which naturally produces DD/MM/YYYY output —
+// no manual string reassembly needed. Consumed by checkMembershipBalanceTool
+// (Plan 02) and the membership-expiry sweep (Plan 03) for human-readable
+// Greek messages (e.g. "Λήγει: 14/08/2026").
+export function formatExpiryDateGreek(date: Date): string {
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/Athens',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  }).format(date);
+}

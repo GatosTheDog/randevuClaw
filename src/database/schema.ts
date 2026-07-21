@@ -325,3 +325,37 @@ export const membershipLedger = pgTable(
     uniqueIndex('unique_ledger_idempotency').on(table.idempotencyKey),
   ]
 );
+
+// --- Phase 9: Membership Expiry Notification Dedup ---
+// membershipExpiryNotifications: dedup table that prevents double-sending
+// 7-day expiry warnings (NOTF-03). One row per (membership, recipient, date).
+
+export const membershipExpiryNotifications = pgTable(
+  'membership_expiry_notifications',
+  {
+    id: serial('id').primaryKey(),
+    membershipId: integer('membership_id')
+      .notNull()
+      .references(() => memberships.id),
+    // Phase 9 (D-05): '7_day_client' or '7_day_owner' — per-recipient dedup
+    // granularity so client and owner notifications succeed/fail independently.
+    notificationType: text('notification_type').notNull(),
+    // Phase 9 (NOTF-03): ISO "YYYY-MM-DD" Athens calendar date produced by
+    // isoDateInAthens(). Stored as text to match memberships.purchaseDate
+    // convention and avoid timezone drift in timestamp comparisons.
+    expiryDate: text('expiry_date').notNull(),
+    sentAt: timestamp('sent_at').notNull().defaultNow(),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (table) => [
+    // NOTF-03: UNIQUE on (membership_id, notification_type, expiry_date)
+    // enforces at-most-one notification per membership per recipient per expiry
+    // event at DB level. No partial WHERE clause — dedup must be absolute
+    // (unlike billingPackages partial index that carves out soft-deleted rows).
+    uniqueIndex('unique_membership_expiry_notification').on(
+      table.membershipId,
+      table.notificationType,
+      table.expiryDate
+    ),
+  ]
+);
