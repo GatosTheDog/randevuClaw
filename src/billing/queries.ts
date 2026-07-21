@@ -279,10 +279,10 @@ export async function getRecentClientsForBusiness(
  * addCalendarDays adds validDays to get the expiry date. The resulting
  * expiresAt timestamp is end-of-day in Athens (+02:00 winter offset).
  *
- * The idempotencyKey `${businessId}:${clientPhone}:payment_recorded:${purchaseDate}`
- * is deterministic — a second call with the same inputs on the same purchase date
- * will fail on the UNIQUE constraint, causing the transaction to roll back the
- * duplicate membership upsert (T-07-04 mitigation).
+ * The idempotencyKey `${businessId}:${clientPhone}:payment_recorded:${purchaseDate}:${memberId}`
+ * prevents double-tap replay (same active membership row → same memberId → same key).
+ * A legitimate renewal after the previous membership was deactivated produces a new
+ * memberId, which generates a distinct key and succeeds (WR-05).
  */
 export async function createMembership(
   businessId: number,
@@ -335,8 +335,12 @@ export async function createMembership(
       .returning({ id: memberships.id });
 
     const memberId = membershipRows[0].id;
-    // Deterministic idempotency key — T-07-04 replay prevention
-    const idempotencyKey = `${businessId}:${clientPhone}:payment_recorded:${purchaseDate}`;
+    // WR-05: include memberId in the idempotency key so that a legitimate
+    // renewal that produces a new membership row (e.g. previous membership
+    // was deactivated before the second payment) gets a different key and
+    // succeeds. Double-tap on the SAME active membership row is still blocked
+    // because onConflictDoUpdate returns the same memberId for both taps.
+    const idempotencyKey = `${businessId}:${clientPhone}:payment_recorded:${purchaseDate}:${memberId}`;
 
     // Insert immutable ledger row (append-only — D-11 / T-07-04)
     await tx.insert(membershipLedger).values({
