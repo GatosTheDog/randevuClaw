@@ -319,11 +319,7 @@ export const membershipLedger = pgTable(
     // webhook replay. Ledger is append-only — no UPDATE ever issued.
     idempotencyKey: text('idempotency_key').notNull().unique(),
     createdAt: timestamp('created_at').notNull().defaultNow(),
-  },
-  (table) => [
-    // Explicit index to complement the inline unique() for query performance.
-    uniqueIndex('unique_ledger_idempotency').on(table.idempotencyKey),
-  ]
+  }
 );
 
 // --- Phase 9: Membership Expiry Notification Dedup ---
