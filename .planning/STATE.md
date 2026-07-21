@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Billing & Membership System
-current_phase: 09
-current_phase_name: expiry-notifications-client-balance
-status: verifying
+current_phase: 08
+current_phase_name: enforcement-session-deduction
+status: executing
 stopped_at: Completed 09-03-PLAN.md (expiry sweep poller + DB migration + server registration)
-last_updated: "2026-07-21T11:01:05.375Z"
+last_updated: "2026-07-21T13:00:46.501Z"
 last_activity: 2026-07-21
-last_activity_desc: Phase 09 execution started
+last_activity_desc: Phase 08 execution started
 progress:
   total_phases: 6
   completed_phases: 2
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-17 after v1.1 milestone close)
 
 **Core value:** A client can book or cancel an appointment with a Greek business entirely through a chat conversation, in Greek, with zero friction — and the owner's calendar updates automatically.
-**Current focus:** Phase 09 — expiry-notifications-client-balance
+**Current focus:** Phase 08 — enforcement-session-deduction
 
 ## Current Position
 
-Phase: 09 (expiry-notifications-client-balance) — EXECUTING
-Plan: 3 of 3
-Status: Phase complete — ready for verification
-Last activity: 2026-07-21 — Phase 09 execution started
+Phase: 08 (enforcement-session-deduction) — EXECUTING
+Plan: 1 of 6
+Status: Executing Phase 08
+Last activity: 2026-07-21 — Phase 08 execution started
 
 ## Performance Metrics
 
