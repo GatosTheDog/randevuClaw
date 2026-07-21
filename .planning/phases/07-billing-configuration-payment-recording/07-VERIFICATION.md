@@ -1,20 +1,38 @@
 ---
 phase: 07-billing-configuration-payment-recording
-verified: 2026-07-21T16:30:00Z
+verified: 2026-07-21T18:00:00Z
 status: passed
-score: 24/24 must-haves verified
+score: 35/35 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0
-re_verification: false
+re_verification:
+  previous_status: passed
+  previous_score: 24/24
+  gaps_closed:
+    - "getAllClientsForBusiness queries clientBusinessRelationships directly with no booking join and no date filter (G-07-6)"
+    - "showClientSelection falls back to getAllClientsForBusiness when getRecentClientsForBusiness returns empty (G-07-6)"
+    - "showClientSelection sends Greek empty-state message when both queries return empty (G-07-6)"
+    - "deactivate_package FunctionDeclaration uses package_name: string not package_id: integer (G-07-5)"
+    - "executeOwnerTool deactivate_package resolves package_name via case-insensitive partial match (G-07-5)"
+    - "handleDeactivatePackage echoes actual package name in success reply when packageName argument is provided (G-07-5)"
+    - "TelegramCallbackQuery interface includes message?: { message_id: number } (G-07-2)"
+    - "billing:pkg_confirm calls editTelegramMessageReplyMarkup to clear keyboard (G-07-2)"
+    - "billing:pkg_cancel calls editTelegramMessageReplyMarkup to clear keyboard (G-07-2)"
+    - "billing:mem_confirm calls editTelegramMessageReplyMarkup to clear keyboard (G-07-2)"
+    - "billing:mem_cancel calls editTelegramMessageReplyMarkup to clear keyboard (G-07-2)"
+  gaps_remaining: []
+  regressions: []
 ---
 
 # Phase 07: Billing Configuration & Payment Recording — Verification Report
 
 **Phase Goal:** Billing configuration and payment recording — packages, memberships, payment tracking
 
-**Verified:** 2026-07-21T16:30:00Z
+**Verified:** 2026-07-21T18:00:00Z
 
-**Status:** PASSED — Phase goal achieved. All 6 requirements (BILL-01..03, PAY-01..03) fully implemented, tested, and wired end-to-end.
+**Status:** PASSED — Phase goal achieved. All 6 requirements (BILL-01..03, PAY-01..03) fully implemented, tested, and wired end-to-end. 11 new truths from gap closure plans 07-06 (G-07-5, G-07-6) and 07-07 (G-07-2) verified in codebase.
+
+**Re-verification:** Yes — after gap closure plans 07-06 and 07-07
 
 ---
 
@@ -36,6 +54,19 @@ re_verification: false
 | 10 | All 8 billing test files pass green with no TODOs (no stubs remain) | ✓ VERIFIED | Test suite run: billing-package-creation.test.ts (5), billing-nlu-parsing.test.ts (7), billing-package-list.test.ts (3), billing-package-deactivate.test.ts (3), billing-payment-flow.test.ts (13), billing-membership-creation.test.ts (5), billing-dst-arithmetic.test.ts (3), billing-view-membership.test.ts (4) = 43 total tests all PASS. Zero TODOs remaining. |
 | 11 | Full test suite (all phases) remains green with no regressions | ✓ VERIFIED | npm test result: 317 passed, 1 skipped, 0 failures. Phase 7 billing tests included in count (43). Pre-existing tests not broken by schema extension or wiring changes. |
 | 12 | TypeScript compilation clean (no type errors) | ✓ VERIFIED | npx tsc --noEmit exits 0. All new modules (src/billing/queries.ts, src/billing/tools.ts, src/telegram/handlers/payment-flow.ts, tests/helpers/billing-fixtures.ts) type-check successfully. |
+| 13 | getAllClientsForBusiness(businessId) queries clientBusinessRelationships directly with no booking join and no date filter, returning all-time clients ordered by createdAt desc (G-07-6) | ✓ VERIFIED | src/billing/queries.ts lines 282–296: query is `.from(clientBusinessRelationships).where(eq(clientBusinessRelationships.businessId, businessId)).orderBy(desc(clientBusinessRelationships.createdAt))` — no join, no date predicate. Returns `AllTimeClient[]`. |
+| 14 | showClientSelection falls back to getAllClientsForBusiness when getRecentClientsForBusiness returns empty; shows those clients as an inline keyboard instead of sending an abort message (G-07-6) | ✓ VERIFIED | src/telegram/handlers/payment-flow.ts lines 54–82: when `clients.length === 0`, calls `getAllClientsForBusiness`, then when `allClients.length > 0` builds `fallbackKeyboard` and calls `sendTelegramMessageWithKeyboard`. No abort path when all-time clients exist. |
+| 15 | When both getRecentClientsForBusiness and getAllClientsForBusiness return empty, showClientSelection sends the Greek empty-state message and returns (G-07-6) | ✓ VERIFIED | src/telegram/handlers/payment-flow.ts lines 60–63: `if (allClients.length === 0) { await sendTelegramMessage(ownerTelegramId, 'Δεν υπάρχουν εγγεγραμμένοι πελάτες.'); return; }`. |
+| 16 | deactivate_package FunctionDeclaration in OWNER_TOOLS uses package_name: string (not package_id: integer) to match the delete_service pattern (G-07-5) | ✓ VERIFIED | src/onboarding/ai-owner-agent.ts lines 162–175: `package_name: { type: 'string', description: "Όνομα πακέτου (partial match OK), π.χ. 'Μηνιαίο'" }` and `required: ['package_name']`. No package_id integer field. |
+| 17 | executeOwnerTool deactivate_package case resolves package_name via case-insensitive partial match against listPackages before calling handleDeactivatePackage with the resolved numeric id and matched package name (G-07-5) | ✓ VERIFIED | src/onboarding/ai-owner-agent.ts lines 439–459: `packageName = String(args.package_name ?? '').trim()`, then `packages.find((p) => p.name.toLowerCase().includes(packageName.toLowerCase()))`, then `handleDeactivatePackage(business.id, match.id, match.name)`. |
+| 18 | handleDeactivatePackage echoes the actual package name in its success reply when the optional packageName argument is provided (G-07-5) | ✓ VERIFIED | src/billing/tools.ts lines 134–148: signature `handleDeactivatePackage(businessId, packageId, packageName?: string)` — when `packageName` is truthy, returns `Το πακέτο "${packageName}" απενεργοποιήθηκε. Υπάρχουσες συνδρομές δεν επηρεάζονται.`. |
+| 19 | TelegramCallbackQuery interface includes message?: { message_id: number } so the keyboard message ID is available in callback handlers (G-07-2) | ✓ VERIFIED | src/webhooks/telegram.ts lines 46–52: `interface TelegramCallbackQuery { id: string; from: TelegramFrom; data?: string; message?: { message_id: number }; }`. |
+| 20 | After billing:pkg_confirm branch, editTelegramMessageReplyMarkup is called to clear the Ναι/Όχι keyboard (G-07-2) | ✓ VERIFIED | src/webhooks/telegram.ts lines 270–275: after `handleConfirmPackage(...)`, `if (callbackQuery.message?.message_id) { await editTelegramMessageReplyMarkup(senderTelegramId, callbackQuery.message.message_id, []); }`. |
+| 21 | After billing:pkg_cancel branch, editTelegramMessageReplyMarkup is called to clear the Ναι/Όχι keyboard (G-07-2) | ✓ VERIFIED | src/webhooks/telegram.ts lines 276–281: after `handleCancelPackage(...)`, `if (callbackQuery.message?.message_id) { await editTelegramMessageReplyMarkup(senderTelegramId, callbackQuery.message.message_id, []); }`. |
+| 22 | After billing:mem_confirm branch, editTelegramMessageReplyMarkup is called to clear the Ναι/Όχι keyboard (G-07-2) | ✓ VERIFIED | src/webhooks/telegram.ts lines 254–263: after `handleConfirmMembership(...)`, `if (callbackQuery.message?.message_id) { await editTelegramMessageReplyMarkup(senderTelegramId, callbackQuery.message.message_id, []); }`. |
+| 23 | After billing:mem_cancel branch, editTelegramMessageReplyMarkup is called to clear the Ναι/Όχι keyboard (G-07-2) | ✓ VERIFIED | src/webhooks/telegram.ts lines 264–269: after `sendTelegramMessage(senderTelegramId, '❌ Ακυρώθηκε η πληρωμή.')`, `if (callbackQuery.message?.message_id) { await editTelegramMessageReplyMarkup(senderTelegramId, callbackQuery.message.message_id, []); }`. |
+
+**Score:** 23/23 truths verified (original 12 + 11 gap-closure truths; prior report counted 24/24 including plan-level artifacts — all prior passing items remain green)
 
 ---
 
@@ -43,9 +74,9 @@ re_verification: false
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| `src/billing/queries.ts` | 8 exported async functions for billing CRUD | ✓ VERIFIED | createPackage, activatePackage, cancelPendingPackage, listPackages, deactivatePackage, getRecentClientsForBusiness, createMembership, getClientActiveMembership — all typed and implemented. |
-| `src/billing/tools.ts` | 4 handler functions + CreatePackageSchema | ✓ VERIFIED | handleCreatePackage, handleListPackages, handleDeactivatePackage, handleViewClientMembership. CreatePackageSchema uses Zod for T-07-02 validation. |
-| `src/telegram/handlers/payment-flow.ts` | 6 handler functions for payment flow | ✓ VERIFIED | showClientSelection, showPackageSelection, showMembershipConfirmation, handleConfirmMembership, handleCancelPackage, handleConfirmPackage. |
+| `src/billing/queries.ts` | 8 exported async functions for billing CRUD + getAllClientsForBusiness (G-07-6) | ✓ VERIFIED | createPackage, activatePackage, cancelPendingPackage, listPackages, deactivatePackage, getRecentClientsForBusiness, getAllClientsForBusiness, createMembership, getClientActiveMembership — all typed and implemented. |
+| `src/billing/tools.ts` | 4 handler functions + CreatePackageSchema; handleDeactivatePackage accepts optional packageName (G-07-5) | ✓ VERIFIED | handleCreatePackage, handleListPackages, handleDeactivatePackage, handleViewClientMembership. CreatePackageSchema uses Zod for T-07-02 validation. handleDeactivatePackage signature includes `packageName?: string`. |
+| `src/telegram/handlers/payment-flow.ts` | 6 handler functions; showClientSelection includes G-07-6 fallback | ✓ VERIFIED | showClientSelection, showPackageSelection, showMembershipConfirmation, handleConfirmMembership, handleCancelPackage, handleConfirmPackage. G-07-6 fallback to getAllClientsForBusiness wired. |
 | `src/database/schema.ts` | billingPackages, memberships, membershipLedger exports; clientName column on clientBusinessRelationships | ✓ VERIFIED | All 3 new tables exported with correct column definitions, partial unique indexes, and constraints. clientName column (nullable text) added to clientBusinessRelationships. |
 | `migrations/0006_billing_schema.sql` | SQL reference artifact with all 5 sections | ✓ VERIFIED | Section 1: ALTER TABLE client_name. Section 2-4: CREATE TABLE idempotent blocks. Section 5: Role grants to randevuclaw_app. Applied to live Neon DB. |
 | `tests/helpers/billing-fixtures.ts` | insertTestPackage, insertTestMembership helpers | ✓ VERIFIED | Two exported async functions for test setup. Bypass D-03 confirmation flow by inserting directly with isActive=true for fixtures. |
@@ -60,11 +91,12 @@ re_verification: false
 | `src/onboarding/ai-owner-agent.ts` | `src/billing/tools.ts` | OWNER_TOOLS + executeOwnerTool switch | ✓ VERIFIED | 5 billing tools (create_package, list_packages, deactivate_package, record_payment, view_client_membership) defined in OWNER_TOOLS; each dispatched by case in executeOwnerTool with proper args and return handling. |
 | `src/onboarding/ai-owner-agent.ts` | `src/telegram/handlers/payment-flow.ts` | executeOwnerTool record_payment case → showClientSelection | ✓ VERIFIED | record_payment case calls showClientSelection(businessId, ownerTelegramId) directly; keyboard message sent, breaks Gemini loop. |
 | `src/billing/tools.ts` | `src/billing/queries.ts` | handleCreatePackage → createPackage, etc. | ✓ VERIFIED | All 4 tool handlers import and call corresponding query functions (createPackage, listPackages, deactivatePackage, getClientActiveMembership). Wrapped in try/catch, return Greek strings on error. |
-| `src/telegram/handlers/payment-flow.ts` | `src/billing/queries.ts` | showClientSelection → getRecentClientsForBusiness, etc. | ✓ VERIFIED | 6 payment-flow handlers import and call billing queries (getRecentClientsForBusiness, listPackages, createMembership, getClientActiveMembership). All calls wrapped in withBusinessContext for RLS enforcement. |
-| `src/webhooks/telegram.ts` | `src/telegram/handlers/payment-flow.ts` | parseCallbackData → billing callback dispatch | ✓ VERIFIED | 6 billing callback actions (billing:client, billing:package, billing:mem_confirm, billing:mem_cancel, billing:pkg_confirm, billing:pkg_cancel) routed to appropriate payment-flow handlers in handleCallbackQuery. |
+| `src/telegram/handlers/payment-flow.ts` | `src/billing/queries.ts` | showClientSelection → getRecentClientsForBusiness + getAllClientsForBusiness fallback (G-07-6) | ✓ VERIFIED | 6 payment-flow handlers import and call billing queries. showClientSelection now also imports and calls getAllClientsForBusiness. All calls wrapped in withBusinessContext for RLS enforcement. |
+| `src/webhooks/telegram.ts` | `src/telegram/handlers/payment-flow.ts` | parseCallbackData → billing callback dispatch + editTelegramMessageReplyMarkup (G-07-2) | ✓ VERIFIED | 6 billing callback actions routed to payment-flow handlers. After each of the 4 confirm/cancel branches (billing:mem_confirm, billing:mem_cancel, billing:pkg_confirm, billing:pkg_cancel), editTelegramMessageReplyMarkup called to clear keyboard using callbackQuery.message?.message_id. |
 | `src/webhooks/telegram.ts` | `src/database/queries.ts` | insertClientBusinessRelationship with from.first_name as clientName | ✓ VERIFIED | Client message handling calls insertClientBusinessRelationship(businessId, senderPhone, from.first_name). Owner messages excluded. Uses onConflictDoUpdate to upsert clientName on every incoming message (D-04). |
 | `src/database/queries.ts` | `src/database/schema.ts` | clientName column upsert via onConflictDoUpdate | ✓ VERIFIED | insertClientBusinessRelationship updated to accept clientName parameter; upserts via onConflictDoUpdate targeting (businessId, senderPhone) unique index. clientName column present in schema.ts. |
 | `src/billing/queries.ts` → createMembership | `src/database/schema.ts` → membershipLedger | db.transaction() → insert membership + ledger row atomically | ✓ VERIFIED | createMembership runs both inserts in single db.transaction() block. Ledger row includes idempotencyKey for replay protection (T-07-04). On conflict, UNIQUE constraint on idempotencyKey prevents duplicate ledger rows. |
+| `src/onboarding/ai-owner-agent.ts` deactivate_package case | `src/billing/queries.ts` listPackages + `src/billing/tools.ts` handleDeactivatePackage | case-insensitive partial match → call with match.id and match.name (G-07-5) | ✓ VERIFIED | executeOwnerTool lines 439–459: `listPackages(business.id)` → `packages.find((p) => p.name.toLowerCase().includes(packageName.toLowerCase()))` → `handleDeactivatePackage(business.id, match.id, match.name)`. |
 
 ---
 
@@ -74,7 +106,7 @@ re_verification: false
 |-----------|---------------|--------|-------------------|--------|
 | `handleCreatePackage` | `CreatePackageResult` (confirmationText, pendingPackageId) | Zod-validated args + db.insert | Yes — insertedId is fresh package.id from DB; confirmationText built from validated args | ✓ VERIFIED |
 | `handleListPackages` | `BillingPackage[]` | listPackages query from schema.ts | Yes — queries billing_packages table WHERE is_active=true; returns real rows | ✓ VERIFIED |
-| `showClientSelection` | RecentClient keyboard buttons | getRecentClientsForBusiness query JOIN bookings/services | Yes — queries real client data from past 30 days of bookings; clientName fallback uses real service name | ✓ VERIFIED |
+| `showClientSelection` | RecentClient keyboard buttons (primary) / AllTimeClient keyboard buttons (G-07-6 fallback) | getRecentClientsForBusiness query (primary) / getAllClientsForBusiness (fallback) | Yes — primary: queries real client data from past 30 days; fallback: queries all clientBusinessRelationships rows; label uses clientName or senderPhone | ✓ VERIFIED |
 | `showPackageSelection` | Package keyboard buttons | listPackages query | Yes — queries active packages; button text includes real priceCents from DB (not hardcoded) | ✓ VERIFIED |
 | `handleConfirmMembership` | Membership result | createMembership → membership insert + ledger append | Yes — db.transaction() inserts real membership row with computed expiresAt; ledger row with idempotencyKey | ✓ VERIFIED |
 | `handleViewClientMembership` | Membership details reply | getClientActiveMembership query | Yes — queries real active membership; returns packageName, sessionsRemaining, expiresAt from DB (null if no active membership) | ✓ VERIFIED |
@@ -102,8 +134,8 @@ re_verification: false
 |-------------|-------|-------------|--------|----------|
 | BILL-01 | Phase 7 | Owner can create a billing package via chat | ✓ VERIFIED | handleCreatePackage + create_package tool in ai-owner-agent.ts. Creates pending package (isActive=false). Gemini parses Greek NLU input (create_package tool description in OWNER_TOOLS). Tests: billing-package-creation.test.ts (5), billing-nlu-parsing.test.ts (7) — all green. |
 | BILL-02 | Phase 7 | Owner can view all active packages via chat | ✓ VERIFIED | handleListPackages + list_packages tool. Returns Greek-formatted list of active packages. Query: listPackages uses getConn() for RLS scope. Tests: billing-package-list.test.ts (3) — all green. |
-| BILL-03 | Phase 7 | Owner can deactivate a package via chat | ✓ VERIFIED | handleDeactivatePackage + deactivate_package tool. Soft-deletes (isActive=false). Existing memberships unaffected. Tests: billing-package-deactivate.test.ts (3) — all green. |
-| PAY-01 | Phase 7 | Owner can record payment via keyboard flow + Greek confirmation | ✓ VERIFIED | record_payment tool → showClientSelection → showPackageSelection → showMembershipConfirmation → handleConfirmMembership. Inline keyboards for client/package selection. Greek confirmation before membership creation. Tests: billing-payment-flow.test.ts (13) — all green. Ownership validated (T-07-01). Price never in callback_data (T-07-05). |
+| BILL-03 | Phase 7 | Owner can deactivate a package via chat | ✓ VERIFIED | handleDeactivatePackage + deactivate_package tool using package_name string + case-insensitive partial match (G-07-5). Soft-deletes (isActive=false). Existing memberships unaffected. Tests: billing-package-deactivate.test.ts (3) — all green. |
+| PAY-01 | Phase 7 | Owner can record payment via keyboard flow + Greek confirmation | ✓ VERIFIED | record_payment tool → showClientSelection (with G-07-6 all-time fallback) → showPackageSelection → showMembershipConfirmation → handleConfirmMembership. Inline keyboards for client/package selection. Greek confirmation before membership creation. Keyboards cleared after confirm/cancel via editTelegramMessageReplyMarkup (G-07-2). Tests: billing-payment-flow.test.ts (13) — all green. Ownership validated (T-07-01). Price never in callback_data (T-07-05). |
 | PAY-02 | Phase 7 | Bot creates membership with expires_at = purchase_date + valid_days in Athens TZ | ✓ VERIFIED | createMembership in src/billing/queries.ts uses isoDateInAthens + addCalendarDays. Stored as TIMESTAMP WITH TIME ZONE. db.transaction() ensures atomic membership + ledger insert. idempotencyKey UNIQUE prevents replay duplicates. Tests: billing-membership-creation.test.ts (5) + billing-dst-arithmetic.test.ts (3) — all green. DST edge cases validated. |
 | PAY-03 | Phase 7 | Owner can view client's active membership and remaining sessions via chat | ✓ VERIFIED | handleViewClientMembership + view_client_membership tool. Returns package name, sessions remaining, expiry date in Greek. Unlimited memberships show "Απεριόριστες". Tests: billing-view-membership.test.ts (4) — all green. |
 
@@ -111,15 +143,15 @@ re_verification: false
 
 ## Anti-Patterns & Threat Flags
 
-### Scanned Files (Phase 7 artifacts)
+### Scanned Files (Phase 7 artifacts + gap-closure additions)
 
 | File | Scan Result | Status |
 |------|-------------|--------|
-| `src/billing/queries.ts` | No TBD, FIXME, XXX; no hardcoded empty returns; db.transaction() used for atomic operations | ✓ CLEAN |
-| `src/billing/tools.ts` | No TBD, FIXME, XXX; Zod validation before all DB writes; Greek error strings on failure | ✓ CLEAN |
-| `src/telegram/handlers/payment-flow.ts` | No TBD, FIXME, XXX; ownership validation before all mutations; callback_data format enforced | ✓ CLEAN |
-| `src/onboarding/ai-owner-agent.ts` (billing section) | No TBD, FIXME, XXX; tool definitions complete; all 5 cases in executeOwnerTool | ✓ CLEAN |
-| `src/webhooks/telegram.ts` (billing section) | No TBD, FIXME, XXX; parseCallbackData regex handles 6 billing actions; routing dispatch complete | ✓ CLEAN |
+| `src/billing/queries.ts` | No TBD, FIXME, XXX; getAllClientsForBusiness has no empty returns; db.transaction() used for atomic operations | ✓ CLEAN |
+| `src/billing/tools.ts` | No TBD, FIXME, XXX; handleDeactivatePackage packageName echo is non-empty branch; Zod validation before all DB writes | ✓ CLEAN |
+| `src/telegram/handlers/payment-flow.ts` | No TBD, FIXME, XXX; G-07-6 fallback branch fully implemented with keyboard send; empty-state message is real Greek string | ✓ CLEAN |
+| `src/onboarding/ai-owner-agent.ts` (billing section) | No TBD, FIXME, XXX; deactivate_package case uses package_name string; partial match logic complete | ✓ CLEAN |
+| `src/webhooks/telegram.ts` (billing section) | No TBD, FIXME, XXX; all 4 confirm/cancel branches call editTelegramMessageReplyMarkup with optional-chaining guard on message_id | ✓ CLEAN |
 | `tests/billing-*.test.ts` | All tests green (43/43); no unresolved stubs; no `xit.todo()` remaining | ✓ CLEAN |
 
 ### Security Threat Checks (STRIDE Register from PLAN)
@@ -132,6 +164,8 @@ re_verification: false
 | T-07-04 | Tampering | Double membership on webhook replay | HIGH | MITIGATED | membershipLedger.idempotencyKey has UNIQUE constraint + uniqueIndex. Deterministic format prevents duplicates. Tested in billing-membership-creation.test.ts. ✓ VERIFIED |
 | T-07-05 | Tampering | Price tampering in callback_data | MEDIUM | MITIGATED | showPackageSelection encodes only IDs in callback_data ("billing:package:{clientRelId}:{packageId}"); priceCents only in button text. handleConfirmMembership fetches fresh price from DB. ✓ VERIFIED |
 | T-07-06 | Information Disclosure | Multi-tenant data leak | HIGH | MITIGATED | All 3 new tables have business_id FK. getConn() for RLS in reads. withBusinessContext wrapping for mutations. businessId always passed explicitly and validated against senderTelegramId. ✓ VERIFIED |
+| T-07-GC-01 | Elevation | getAllClientsForBusiness cross-tenant access | HIGH | MITIGATED | getAllClientsForBusiness uses getConn() inside withBusinessContext call in showClientSelection (payment-flow.ts line 57). businessId scoped in WHERE clause. ✓ VERIFIED |
+| T-07-GC-03 | Elevation | deactivate_package cross-tenant via partial match | HIGH | MITIGATED | executeOwnerTool deactivate_package case wraps in withBusinessContext(business.id, ...) and passes business.id to listPackages so only packages for the authenticated business are visible to the match. ✓ VERIFIED |
 
 ---
 
@@ -143,11 +177,12 @@ re_verification: false
 
 **Result:** ✓ FULLY ACHIEVED
 
-All 6 phase requirements implemented and fully tested:
+All 6 phase requirements implemented and fully tested. Gap closure plans 07-06 and 07-07 delivered and verified:
+
 - **BILL-01**: Package creation with Greek NLU parsing and pending-confirmation flow
 - **BILL-02**: Package listing with Greek formatting
-- **BILL-03**: Package deactivation (soft-delete, memberships unaffected)
-- **PAY-01**: Multi-step payment recording via keyboard flow with Greek confirmation
+- **BILL-03**: Package deactivation — now uses package_name string with case-insensitive partial match (G-07-5); success reply echoes matched package name
+- **PAY-01**: Multi-step payment recording via keyboard flow with Greek confirmation; showClientSelection falls back to all-time clients when no recent bookings (G-07-6); keyboards cleared after confirm/cancel (G-07-2)
 - **PAY-02**: Membership creation with DST-safe rolling expiry and idempotency-enforced replay protection
 - **PAY-03**: Membership balance inquiry with Greek reply
 
@@ -173,10 +208,10 @@ All 6 phase requirements implemented and fully tested:
 - TypeScript compilation: ✓ CLEAN (npx tsc --noEmit exits 0)
 - No debt markers (TBD, FIXME, XXX) in Phase 7 code
 - All security threats mitigated per STRIDE register
-- All must-haves from 5 plans verified and satisfied
+- All must-haves from 5 original plans + 2 gap closure plans verified and satisfied
 
 ---
 
 **Verified:** 2026-07-21 by Claude (gsd-verifier)
 
-**Verifier conclusion:** Phase 7 goal achieved. All requirements verified in codebase. Ready for next phase.
+**Verifier conclusion:** Phase 7 goal achieved. All requirements verified in codebase. Gap closure plans 07-06 (G-07-5, G-07-6) and 07-07 (G-07-2) confirmed effective. Ready for next phase.
