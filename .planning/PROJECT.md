@@ -117,4 +117,4 @@ A client can book or cancel an appointment with a Greek business entirely throug
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-17 — v1.1 milestone closed, v1.2 next*
+*Last updated: 2026-07-21 — Phase 07 (billing configuration & payment recording) complete*
