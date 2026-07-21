@@ -73,28 +73,33 @@ export async function runMembershipExpirySweep(): Promise<number> {
             notificationCount += 1;
           }
 
-          // Owner notification (NOTF-02) — '7_day_owner' dedup key
-          const ownerNotified = await insertMembershipExpiryNotification(
-            membership.id,
-            '7_day_owner',
-            expiryDate
-          );
-          if (ownerNotified) {
-            const clientName =
-              (await getClientName(businessId, membership.clientPhone)) ??
-              membership.clientPhone;
-            const sessionsOwnerText =
-              membership.sessionsRemaining !== null
-                ? ` Εναπομείναντα μαθήματα: ${membership.sessionsRemaining}.`
-                : ' Απεριόριστη συνδρομή.';
-            const ownerMsg =
-              `Πελάτης με λήγουσα συνδρομή: ${clientName}. Λήγει στις ${formattedDate}.${sessionsOwnerText}`;
-            await botTokenStore.run(business.botToken, async () => {
-              if (business.ownerTelegramId) {
-                await sendTelegramMessage(business.ownerTelegramId, ownerMsg);
-              }
-            });
-            notificationCount += 1;
+          // Owner notification (NOTF-02) — guard before dedup insert, not just before send.
+          // If ownerTelegramId is null (valid intermediate onboarding state when botToken is
+          // already set), the dedup row must NOT be committed — otherwise a '7_day_owner'
+          // UNIQUE row would permanently suppress the owner notification after the ID is later
+          // configured (CR-01).
+          if (business.ownerTelegramId) {
+            const ownerNotified = await insertMembershipExpiryNotification(
+              membership.id,
+              '7_day_owner',
+              expiryDate
+            );
+            if (ownerNotified) {
+              const clientName =
+                (await getClientName(businessId, membership.clientPhone)) ??
+                membership.clientPhone;
+              const sessionsOwnerText =
+                membership.sessionsRemaining !== null
+                  ? ` Εναπομείναντα μαθήματα: ${membership.sessionsRemaining}.`
+                  : ' Απεριόριστη συνδρομή.';
+              const ownerMsg =
+                `Πελάτης με λήγουσα συνδρομή: ${clientName}. Λήγει στις ${formattedDate}.${sessionsOwnerText}`;
+              await botTokenStore.run(business.botToken, async () => {
+                // ownerTelegramId is guaranteed non-null by the outer guard above.
+                await sendTelegramMessage(business.ownerTelegramId!, ownerMsg);
+              });
+              notificationCount += 1;
+            }
           }
         } catch (err) {
           logger.error(

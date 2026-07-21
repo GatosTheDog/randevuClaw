@@ -162,6 +162,35 @@ describe('runMembershipExpirySweep', () => {
     expect(clientCalls.length).toBeGreaterThan(0);
   });
 
+  it('does NOT call insertMembershipExpiryNotification for owner or sendTelegramMessage to owner when ownerTelegramId is null (CR-01)', async () => {
+    mockedFindBusinessById.mockResolvedValue({
+      ...mockBusiness,
+      ownerTelegramId: null,
+    });
+
+    await runMembershipExpirySweep();
+
+    // insertMembershipExpiryNotification must NOT be called with '7_day_owner' — the dedup
+    // row must not be committed when ownerTelegramId is null, otherwise the owner notification
+    // is permanently suppressed even after ownerTelegramId is later configured (CR-01).
+    const ownerDedupCalls = mockedInsertMembershipExpiryNotification.mock.calls.filter(
+      ([, type]) => type === '7_day_owner'
+    );
+    expect(ownerDedupCalls.length).toBe(0);
+
+    // sendTelegramMessage must not be called with any owner chatId
+    const ownerTelegramCalls = mockedSendTelegramMessage.mock.calls.filter(
+      ([chatId]) => chatId === OWNER_TELEGRAM_ID
+    );
+    expect(ownerTelegramCalls.length).toBe(0);
+
+    // Client notification (NOTF-01) must still be sent even when ownerTelegramId is null
+    const clientCalls = mockedSendTelegramMessage.mock.calls.filter(
+      ([chatId]) => chatId === CLIENT_PHONE
+    );
+    expect(clientCalls.length).toBe(1);
+  });
+
   it('uses clientPhone as fallback when clientName is null in owner notification (Pitfall 5)', async () => {
     mockedGetClientName.mockResolvedValue(null);
 
