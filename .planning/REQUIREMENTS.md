@@ -22,16 +22,16 @@
 
 ### SESS — Session Tracking
 
-- [ ] **SESS-01**: On confirmed booking, bot atomically deducts 1 session from client's active membership in the same transaction as the booking insert
-- [ ] **SESS-02**: On booking cancellation where the booking was created within membership validity, bot restores 1 session credit atomically
-- [ ] **SESS-03**: On cancellation where membership has expired at time of cancellation, no credit is restored (sessions forfeited)
-- [ ] **SESS-04**: For unlimited-session memberships, no session count is decremented — only expiry date is checked
+- [x] **SESS-01**: On confirmed booking, bot atomically deducts 1 session from client's active membership in the same transaction as the booking insert
+- [x] **SESS-02**: On booking cancellation where the booking was created within membership validity, bot restores 1 session credit atomically
+- [x] **SESS-03**: On cancellation where membership has expired at time of cancellation, no credit is restored (sessions forfeited)
+- [x] **SESS-04**: For unlimited-session memberships, no session count is decremented — only expiry date is checked
 
 ### ENFC — Enforcement
 
-- [ ] **ENFC-01**: Owner can set booking enforcement policy per business via chat: "block if no valid membership" or "allow and flag"
-- [ ] **ENFC-02**: When policy is "block": bot refuses booking if client has no active membership and notifies client in Greek
-- [ ] **ENFC-03**: When policy is "flag": bot allows booking but sends owner a Greek alert about the unpaid client
+- [x] **ENFC-01**: Owner can set booking enforcement policy per business via chat: "block if no valid membership" or "allow and flag"
+- [x] **ENFC-02**: When policy is "block": bot refuses booking if client has no active membership and notifies client in Greek
+- [x] **ENFC-03**: When policy is "flag": bot allows booking but sends owner a Greek alert about the unpaid client
 
 ### NOTF — Billing Notifications
 
@@ -87,13 +87,13 @@
 | PAY-01 | Phase 7 | Complete | TBD |
 | PAY-02 | Phase 7 | Complete | TBD |
 | PAY-03 | Phase 7 | Complete | TBD |
-| SESS-01 | Phase 8 | Pending | TBD |
-| SESS-02 | Phase 8 | Pending | TBD |
-| SESS-03 | Phase 8 | Pending | TBD |
-| SESS-04 | Phase 8 | Pending | TBD |
-| ENFC-01 | Phase 8 | Pending | TBD |
-| ENFC-02 | Phase 8 | Pending | TBD |
-| ENFC-03 | Phase 8 | Pending | TBD |
+| SESS-01 | Phase 8 | Complete | TBD |
+| SESS-02 | Phase 8 | Complete | TBD |
+| SESS-03 | Phase 8 | Complete | TBD |
+| SESS-04 | Phase 8 | Complete | TBD |
+| ENFC-01 | Phase 8 | Complete | TBD |
+| ENFC-02 | Phase 8 | Complete | TBD |
+| ENFC-03 | Phase 8 | Complete | TBD |
 | NOTF-01 | Phase 9 | Pending | TBD |
 | NOTF-02 | Phase 9 | Pending | TBD |
 | NOTF-03 | Phase 9 | Pending | TBD |

@@ -4,17 +4,17 @@ milestone: v1.2
 milestone_name: Billing & Membership System
 current_phase: 07
 current_phase_name: billing-configuration-payment-recording
-status: executing
+status: verifying
 stopped_at: Completed 07-04-PLAN.md (billing tools.ts, payment-flow.ts, BILL-02/03/PAY-01 all green)
-last_updated: "2026-07-20T10:15:28.391Z"
+last_updated: "2026-07-21T07:17:03.008Z"
 last_activity: 2026-07-20
 last_activity_desc: Phase 07 execution started
 progress:
   total_phases: 6
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 5
-  completed_plans: 4
-  percent: 0
+  completed_plans: 6
+  percent: 17
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-07-17 after v1.1 milestone close)
 
 Phase: 07 (billing-configuration-payment-recording) — EXECUTING
 Plan: 5 of 5
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-20 — Phase 07 execution started
 
 ## Performance Metrics
@@ -82,6 +82,7 @@ Last activity: 2026-07-20 — Phase 07 execution started
 | Phase 07 P02 | 5 | 2 tasks | 2 files |
 | Phase 07 P03 | 12 | 3 tasks | 8 files |
 | Phase 07 P04 | 3 | 2 tasks | 7 files |
+| Phase 08 P01 | 6 | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -157,6 +158,7 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 07-03]: billing integration tests follow jest.resetModules() + require() pattern from booking-queries.test.ts
 - [Phase ?]: [Phase 07-04]: handleCreatePackage inserts isActive:false pending before owner confirmation (D-03)
 - [Phase ?]: [Phase 07-04]: callback_data contains only IDs (billing:package:{clientRelId}:{packageId}) — price in button text only (T-07-05)
+- [Phase ?]: enforcement-nlu.test.ts uses jest.resetModules() instead of top-level import to avoid ts-jest resolving @google/genai in worktree context
 
 ### Pending Todos
 
@@ -203,7 +205,7 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-07-09:
 
 ## Session Continuity
 
-Last session: 2026-07-20T10:15:28.380Z
+Last session: 2026-07-21T07:16:59.906Z
 Stopped at: Completed 07-04-PLAN.md (billing tools.ts, payment-flow.ts, BILL-02/03/PAY-01 all green)
 Resume file: None
 
