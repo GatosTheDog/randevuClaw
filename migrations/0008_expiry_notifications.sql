@@ -1,7 +1,8 @@
 -- Migration: 0008_expiry_notifications.sql
 -- Purpose: Add membership_expiry_notifications table — Phase 9 NOTF-03 dedup.
---   Tracks which (membership, notification_type, expiry_date) triples have
---   already fired so the expiry sweep never double-sends a 7-day warning.
+--   Tracks which (membership, notification_type, expiry_date) triples have been
+--   *attempted* (dedup row committed before send — at-most-once delivery, WR-02)
+--   so the expiry sweep never double-sends a 7-day warning on concurrent sweeps.
 --   UNIQUE INDEX enforces the dedup constraint at DB level atomically alongside
 --   the onConflictDoNothing() call in the sweep (Plan 02).
 --

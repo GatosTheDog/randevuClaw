@@ -54,7 +54,16 @@ export async function runMembershipExpirySweep(): Promise<number> {
           const expiryDate = isoDateInAthens(membership.expiresAt);
           const formattedDate = formatExpiryDateGreek(membership.expiresAt);
 
-          // Client notification (NOTF-01) — '7_day_client' dedup key
+          // Client notification (NOTF-01) — '7_day_client' dedup key.
+          // At-most-once delivery tradeoff: the dedup row is inserted BEFORE sending the
+          // Telegram message. If sendTelegramMessage throws (Telegram down, rate limit,
+          // network error), the dedup row is already committed and this client will be
+          // skipped on all future sweeps for this membership+expiry-date combination.
+          // This is an intentional PoC tradeoff: at-most-once delivery to prevent duplicate
+          // sends on concurrent sweeps (6-hour interval makes Telegram failures rare enough
+          // to be acceptable). A production system would insert the dedup row only after
+          // confirmed delivery (WR-02). The dedup table therefore tracks which notifications
+          // were *attempted*, not necessarily delivered.
           const clientNotified = await insertMembershipExpiryNotification(
             membership.id,
             '7_day_client',
