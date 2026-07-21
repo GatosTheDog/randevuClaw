@@ -452,6 +452,32 @@ export async function deductSession(
 }
 
 /**
+ * CR-02: inserts a link-only ledger row (sessionsDeducted=0) for a rescheduled
+ * booking so that findMembershipByBooking can locate the membership when the
+ * rescheduled appointment is later cancelled and credit restore runs.
+ *
+ * The session counter is NOT decremented — it was already decremented when the
+ * original booking was created. This call only establishes the booking→membership
+ * association needed for the cancel-restore path.
+ */
+export async function linkRescheduledBooking(
+  membershipId: number,
+  newBookingId: number
+): Promise<void> {
+  await getConn()
+    .insert(membershipLedger)
+    .values({
+      membershipId,
+      operationType: 'session_deducted',
+      sessionsDeducted: 0,
+      bookingId: newBookingId,
+      idempotencyKey: 'booking:' + newBookingId + ':deduction',
+      reason: 'Reschedule link — counter unchanged from original booking',
+    })
+    .onConflictDoNothing();
+}
+
+/**
  * Restores 1 session credit when a booking is cancelled, subject to:
  * - SESS-04: Skip if sessionsRemaining IS NULL (unlimited membership — null check FIRST)
  * - SESS-03: Skip if membership.expiresAt < nowAthens (expired at cancel time)

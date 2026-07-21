@@ -15,7 +15,7 @@ import { checkAvailability } from '../business/availability';
 import { sendTelegramMessage, sendTelegramMessageWithKeyboard } from '../telegram/client';
 import { deleteBookingFromCalendar } from '../calendar/sync';
 import { logger } from '../utils/logger';
-import { getClientActiveMembership, deductSession, getClientName, findMembershipByBooking, restoreCredit } from '../billing/queries';
+import { getClientActiveMembership, deductSession, getClientName, findMembershipByBooking, restoreCredit, linkRescheduledBooking } from '../billing/queries';
 import { checkEnforcementAndGetMembership } from '../billing/enforcement';
 import { formatExpiryDateGreek } from '../utils/timezone';
 
@@ -322,6 +322,14 @@ async function rescheduleAppointmentTool(
   });
 
   if (newBooking) {
+    // CR-02: propagate the original booking's membership ledger link to the new
+    // booking row so that cancel-restore works correctly after a reschedule.
+    // Counter unchanged — only the link is needed for findMembershipByBooking.
+    const originalMembershipId = await findMembershipByBooking(original.id);
+    if (originalMembershipId !== null) {
+      await linkRescheduledBooking(originalMembershipId, newBooking.id);
+    }
+
     // CR-03b: the reschedule's DB mutation above has already committed — an
     // owner-alert send failure must never be reported back as an error, or
     // the client will be told the reschedule failed when it actually
