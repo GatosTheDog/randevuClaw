@@ -20,20 +20,30 @@ import { isoDateInAthens, addCalendarDays } from '../utils/timezone';
 import { logger } from '../utils/logger';
 
 /**
- * WR-06: Returns end-of-day (23:59:59) in the Europe/Athens timezone as a UTC Date,
- * using the DST-aware offset for the given date rather than hardcoding +02:00 (winter only).
+ * CR-02: Returns end-of-day (23:59:59) in the Europe/Athens timezone as a UTC Date.
+ * Uses Intl.DateTimeFormat (server-timezone-independent) to compute the DST-aware
+ * offset for the given date. The previous toLocaleString approach produced wrong
+ * results on non-UTC server timezones (e.g. developer machines in Athens itself).
+ *
+ * Approach: use noon UTC as an anchor — guaranteed to land on isoDate in Athens
+ * regardless of whether the offset is UTC+2 or UTC+3, avoiding day-boundary
+ * ambiguity. Read the Athens wall-clock hour at that anchor to derive the offset.
  */
-function athensEndOfDay(isoDate: string): Date {
-  // Build 23:59:59 in local Athens time. toLocaleString with timeZone gives the
-  // Athens wall-clock representation; the offset is computed by comparing it to UTC.
-  const utcMidnight = new Date(`${isoDate}T00:00:00Z`);
-  const athensWallClock = new Date(
-    utcMidnight.toLocaleString('en-US', { timeZone: 'Europe/Athens' })
-  );
-  const offsetMs = utcMidnight.getTime() - athensWallClock.getTime();
-  // 23h 59m 59s in ms
-  const endOfDayLocalMs = new Date(`${isoDate}T23:59:59Z`).getTime();
-  return new Date(endOfDayLocalMs + offsetMs);
+export function athensEndOfDay(isoDate: string): Date {
+  // Noon UTC is always within isoDate in Athens (UTC+2 or UTC+3).
+  const noonUTC = new Date(`${isoDate}T12:00:00Z`);
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Europe/Athens',
+    hour: '2-digit',
+    hour12: false,
+  }).formatToParts(noonUTC);
+  // athensHour at noonUTC = 12 + offsetHours (14 for UTC+2, 15 for UTC+3)
+  const athensHour = Number(parts.find((p) => p.type === 'hour')?.value ?? '14');
+  const offsetHours = athensHour - 12;
+  // 23:59:59 Athens = (23:59:59 UTC) − offsetHours
+  const endOfDayUTCMs =
+    new Date(`${isoDate}T23:59:59Z`).getTime() - offsetHours * 3_600_000;
+  return new Date(endOfDayUTCMs);
 }
 
 // ---------------------------------------------------------------------------
