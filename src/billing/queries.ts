@@ -168,10 +168,20 @@ export async function listPackages(businessId: number): Promise<BillingPackage[]
  * called through the owner tool chain.
  */
 export async function deactivatePackage(businessId: number, packageId: number): Promise<boolean> {
+  // WR-03: include isActive=true so the UPDATE only matches a currently active
+  // package. Without this guard, Postgres returns the row even when is_active was
+  // already false (the row is still "touched"), causing a false-positive true return
+  // and a misleading Greek success message to the owner.
   const rows = await getConn()
     .update(billingPackages)
     .set({ isActive: false })
-    .where(and(eq(billingPackages.id, packageId), eq(billingPackages.businessId, businessId)))
+    .where(
+      and(
+        eq(billingPackages.id, packageId),
+        eq(billingPackages.businessId, businessId),
+        eq(billingPackages.isActive, true)
+      )
+    )
     .returning({ id: billingPackages.id });
   return rows.length > 0;
 }
