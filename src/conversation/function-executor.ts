@@ -15,11 +15,12 @@ import { checkAvailability } from '../business/availability';
 import { sendTelegramMessage, sendTelegramMessageWithKeyboard } from '../telegram/client';
 import { deleteBookingFromCalendar } from '../calendar/sync';
 import { logger } from '../utils/logger';
-import { getActiveMembershipForDeduction, getClientActiveMembership, deductSession, getClientName, findMembershipByBooking, restoreCredit, ActiveMembershipForDeduction } from '../billing/queries';
+import { getClientActiveMembership, deductSession, getClientName, findMembershipByBooking, restoreCredit } from '../billing/queries';
+import { checkEnforcementAndGetMembership } from '../billing/enforcement';
 import { formatExpiryDateGreek } from '../utils/timezone';
 
 export interface ToolContext {
-  business: { id: number; name: string; ownerTelegramId: string | null; enforcementPolicy?: string };
+  business: { id: number; name: string; ownerTelegramId: string | null; enforcementPolicy: string };
   clientPhone: string;
   // Turn-constant identifier, stable across every tool call within the same
   // conversation turn — used for logging/tracing only.
@@ -161,11 +162,6 @@ async function resolveConflictOrTaken(
   return { success: false, error: 'slot_taken' };
 }
 
-// CR-04: true when a membership has remaining capacity (unlimited = null, or > 0 sessions left).
-// Used to guard both enforcement checks and session deduction against exhausted packs.
-const hasCapacity = (m: ActiveMembershipForDeduction): boolean =>
-  m.sessionsRemaining === null || m.sessionsRemaining > 0;
-
 async function bookAppointmentTool(
   args: Record<string, unknown>,
   context: ToolContext
@@ -175,25 +171,17 @@ async function bookAppointmentTool(
   const service = await findServiceById(context.business.id, parsed.service_id);
   if (!service) return { success: false, error: 'service_not_found' };
 
-  // Phase 8: enforcement pre-check (D-10 — must precede insertBooking)
-  const enforcementPolicy = context.business.enforcementPolicy ?? 'allow';
-  const membership = await getActiveMembershipForDeduction(context.business.id, context.clientPhone);
-
-  // CR-04: exhausted packs (sessionsRemaining === 0) must trigger enforcement same as no membership.
-  // noValidMembership = true when the client has no membership OR has a fully exhausted pack.
-  const noValidMembership = membership === null || !hasCapacity(membership);
-
-  // ENFC-02: block policy + no valid membership → refuse before insertBooking (no booking row created)
-  if (enforcementPolicy === 'block' && noValidMembership) {
+  // Phase 8: enforcement pre-check (D-10 — must precede insertBooking).
+  // CR-01: use checkEnforcementAndGetMembership so booking-enforcement tests cover production path.
+  const enfResult = await checkEnforcementAndGetMembership(context.business.id, context.clientPhone);
+  if (!enfResult.allowed) {
     return {
       success: false,
       error: 'no_membership',
-      message:
-        'Για να κάνετε κράτηση, χρειάζεστε ενεργή συνδρομή. Επικοινωνήστε με ' +
-        context.business.name +
-        ' για ανανέωση.',
+      message: enfResult.message ?? 'Για να κάνετε κράτηση, χρειάζεστε ενεργή συνδρομή. Επικοινωνήστε με ' + context.business.name + ' για ανανέωση.',
     };
   }
+  const membership = enfResult.membership;
 
   const expiresAt = new Date(Date.now() + PENDING_BOOKING_TTL_MS);
   const booking = await insertBooking({
@@ -207,12 +195,11 @@ async function bookAppointmentTool(
   });
 
   if (booking) {
-    // Phase 8, step 4: look up client name for flag alert (D-11 — unconditional, before if-flag block)
-    const clientName = await getClientName(context.business.id, context.clientPhone);
-
-    // Phase 8: flag alert (ENFC-03, D-11) — BEFORE alertOwnerNewBooking, NOT in try/catch (critical)
-    // CR-04: use noValidMembership to also flag exhausted packs (sessionsRemaining === 0)
-    if (enforcementPolicy === 'flag' && noValidMembership && context.business.ownerTelegramId) {
+    // Phase 8: flag alert (ENFC-03, D-11) — BEFORE alertOwnerNewBooking.
+    // WR-01: wrapped in try/catch — flag alert is a notification, not a gate;
+    // a Telegram failure must not orphan a committed booking row.
+    if (enfResult.shouldAlert && context.business.ownerTelegramId) {
+      const clientName = await getClientName(context.business.id, context.clientPhone);
       const flagText =
         '⚠️ Νέα κράτηση από πελάτη χωρίς ενεργή συνδρομή: ' +
         (clientName ?? context.clientPhone) +
@@ -223,7 +210,11 @@ async function bookAppointmentTool(
         ' ' +
         booking.calendarTime +
         '.';
-      await sendTelegramMessage(context.business.ownerTelegramId, flagText);
+      try {
+        await sendTelegramMessage(context.business.ownerTelegramId, flagText);
+      } catch (err) {
+        logger.error({ err, bookingId: booking.id }, 'Flag alert failed (best-effort); booking committed');
+      }
     }
 
     // Phase 8: session deduction (SESS-01, D-02) — only for finite memberships with remaining sessions (D-06)
