@@ -5,15 +5,15 @@ milestone_name: Billing & Membership System
 current_phase: 09
 current_phase_name: expiry-notifications-client-balance
 status: executing
-stopped_at: Completed 09-01-PLAN.md (schema foundation + test scaffolding)
-last_updated: "2026-07-21T09:08:42.864Z"
+stopped_at: Completed 09-02-PLAN.md (billing query layer + check_membership_balance tool)
+last_updated: "2026-07-21T10:02:27.618Z"
 last_activity: 2026-07-21
 last_activity_desc: Phase 09 execution started
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 14
-  completed_plans: 11
+  completed_plans: 12
   percent: 17
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-17 after v1.1 milestone close)
 ## Current Position
 
 Phase: 09 (expiry-notifications-client-balance) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-07-21 — Phase 09 execution started
 
@@ -89,6 +89,7 @@ Last activity: 2026-07-21 — Phase 09 execution started
 | Phase 08 P04 | 5 | 3 tasks | 5 files |
 | Phase 08 P05 | 8 | 2 tasks | 3 files |
 | Phase 09 P01 | 8 | 2 tasks | 5 files |
+| Phase 09 P02 | 18 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -179,6 +180,9 @@ Recent decisions affecting current work:
 - [Phase ?]: D-04: UNIQUE INDEX on (membership_id, notification_type, expiry_date) — unconditional dedup, no partial WHERE
 - [Phase ?]: D-05: notification_type stores '7_day_client' or '7_day_owner' for per-recipient dedup granularity
 - [Phase ?]: D-09: formatExpiryDateGreek uses Intl.DateTimeFormat en-GB / Europe/Athens for DD/MM/YYYY output
+- [Phase ?]: findMembershipsExpiringIn7Days uses db (not getConn()) — sweep outside withBusinessContext, businessId WHERE provides isolation
+- [Phase ?]: checkMembershipBalanceTool: no client_phone param, always reads context.clientPhone — prevents cross-client balance inspection (T-09-05)
+- [Phase ?]: Test date anchor noon UTC (T12:00:00Z) avoids Athens midnight crossing in summer DST (UTC+3) for formatExpiryDateGreek assertions
 
 ### Pending Todos
 
@@ -225,9 +229,9 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-07-09:
 
 ## Session Continuity
 
-Last session: 2026-07-21T09:08:42.856Z
-Stopped at: Completed 09-01-PLAN.md (schema foundation + test scaffolding)
-Resume file: .planning/phases/09-expiry-notifications-client-balance/09-02-PLAN.md
+Last session: 2026-07-21T10:02:27.611Z
+Stopped at: Completed 09-02-PLAN.md (billing query layer + check_membership_balance tool)
+Resume file: .planning/phases/09-expiry-notifications-client-balance/09-03-PLAN.md
 
 ## Operator Next Steps
 

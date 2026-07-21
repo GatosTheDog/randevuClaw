@@ -188,7 +188,7 @@ Plans:
   2. Expiry notifications are sent at most once per membership per notification trigger regardless of how many times the expiry sweep runs — duplicate notifications never reach clients or owners.
   3. A client sends a Greek balance query (e.g. "πόσα μαθήματα μου έχουν απομείνει;") and receives an accurate Greek reply with sessions remaining and the membership expiry date for their active membership.
 
-**Plans**: 1/3 plans executed
+**Plans**: 2/3 plans executed
 Plans:
 **Wave 1**
 
@@ -196,7 +196,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 09-02-PLAN.md — Wave 1: Billing query layer (findMembershipsExpiringIn7Days + insertMembershipExpiryNotification) + check_membership_balance Gemini tool (ai-agent.ts + function-executor.ts + 4 tests)
+- [x] 09-02-PLAN.md — Wave 1: Billing query layer (findMembershipsExpiringIn7Days + insertMembershipExpiryNotification) + check_membership_balance Gemini tool (ai-agent.ts + function-executor.ts + 4 tests)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -214,4 +214,4 @@ Plans:
 | 6. GDPR Compliance & Rate-Limit Resilience | v1.3 | 0/TBD | Deferred | - |
 | 7. Billing Configuration & Payment Recording | v1.2 | 5/5 | In Progress|  |
 | 8. Enforcement & Session Deduction | v1.2 | 5/5 | Complete    | 2026-07-20 |
-| 9. Expiry Notifications & Client Balance | v1.2 | 1/3 | In Progress|  |
+| 9. Expiry Notifications & Client Balance | v1.2 | 2/3 | In Progress|  |
