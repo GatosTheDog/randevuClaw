@@ -4,17 +4,17 @@ milestone: v1.2
 milestone_name: Billing & Membership System
 current_phase: 09
 current_phase_name: expiry-notifications-client-balance
-status: executing
-stopped_at: Completed 09-02-PLAN.md (billing query layer + check_membership_balance tool)
-last_updated: "2026-07-21T10:02:27.618Z"
+status: verifying
+stopped_at: Completed 09-03-PLAN.md (expiry sweep poller + DB migration + server registration)
+last_updated: "2026-07-21T11:01:05.375Z"
 last_activity: 2026-07-21
 last_activity_desc: Phase 09 execution started
 progress:
   total_phases: 6
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 14
-  completed_plans: 12
-  percent: 17
+  completed_plans: 13
+  percent: 33
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-07-17 after v1.1 milestone close)
 
 Phase: 09 (expiry-notifications-client-balance) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-21 — Phase 09 execution started
 
 ## Performance Metrics
@@ -90,6 +90,7 @@ Last activity: 2026-07-21 — Phase 09 execution started
 | Phase 08 P05 | 8 | 2 tasks | 3 files |
 | Phase 09 P01 | 8 | 2 tasks | 5 files |
 | Phase 09 P02 | 18 | 2 tasks | 4 files |
+| Phase 09 P03 | 51 | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -183,6 +184,8 @@ Recent decisions affecting current work:
 - [Phase ?]: findMembershipsExpiringIn7Days uses db (not getConn()) — sweep outside withBusinessContext, businessId WHERE provides isolation
 - [Phase ?]: checkMembershipBalanceTool: no client_phone param, always reads context.clientPhone — prevents cross-client balance inspection (T-09-05)
 - [Phase ?]: Test date anchor noon UTC (T12:00:00Z) avoids Athens midnight crossing in summer DST (UTC+3) for formatExpiryDateGreek assertions
+- [Phase ?]: isRunning guard omitted from membership expiry sweep — 6-hour interval + DB UNIQUE constraint provide sufficient dedup without an application-level mutex
+- [Phase ?]: notificationCount increments separately for client and owner sends — allows accurate per-recipient accounting in the sweep return value
 
 ### Pending Todos
 
@@ -229,9 +232,9 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-07-09:
 
 ## Session Continuity
 
-Last session: 2026-07-21T10:02:27.611Z
-Stopped at: Completed 09-02-PLAN.md (billing query layer + check_membership_balance tool)
-Resume file: .planning/phases/09-expiry-notifications-client-balance/09-03-PLAN.md
+Last session: 2026-07-21T11:01:05.367Z
+Stopped at: Completed 09-03-PLAN.md (expiry sweep poller + DB migration + server registration)
+Resume file: None
 
 ## Operator Next Steps
 
