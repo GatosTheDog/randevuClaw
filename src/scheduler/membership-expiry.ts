@@ -38,7 +38,8 @@ export async function runMembershipExpirySweep(): Promise<number> {
 
   for (const businessId of businessIds) {
     try {
-      const memberships = await findMembershipsExpiringIn7Days(businessId);
+      // WR-03: check business existence and botToken BEFORE fetching memberships so
+      // unconfigured or partially-onboarded businesses do not pay a wasted DB query.
       const business = await findBusinessById(businessId);
 
       if (!business || !business.botToken) {
@@ -48,6 +49,8 @@ export async function runMembershipExpirySweep(): Promise<number> {
         );
         continue;
       }
+
+      const memberships = await findMembershipsExpiringIn7Days(businessId);
 
       for (const membership of memberships) {
         try {
