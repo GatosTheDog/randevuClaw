@@ -11,7 +11,7 @@ Phase 7 billing commands extend the existing Gemini NLU tool system in ai-owner-
 | sendMessage | INTEGRATE | Billing confirmations and all replies to owner (package creation echo, payment confirmation, membership query result, error replies) |
 | sendMessage with reply_markup InlineKeyboardMarkup | INTEGRATE | Client selection buttons (D-05) and package selection buttons (D-06) in the payment recording flow; keyboard rendered after Gemini detects record_payment intent (D-08) |
 | answerCallbackQuery | INTEGRATE | Acknowledge button taps immediately before any DB operation to dismiss Telegram spinner; prevents "loading" state from persisting if DB write is slow |
-| editMessageReplyMarkup | OPT-OUT | Not needed — replace the keyboard message with a new message on each step of the payment flow; avoids stale keyboard state edge cases |
+| editMessageReplyMarkup | INTEGRATE | Applied to billing terminal confirmation steps only (billing:pkg_confirm, billing:pkg_cancel, billing:mem_confirm, billing:mem_cancel) — clears the Ναι/Όχι keyboard after owner taps either button so stale buttons do not linger. Intermediate steps (client selection, package selection) continue to send new messages. G-07-2. |
 
 ---
 

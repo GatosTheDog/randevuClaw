@@ -47,6 +47,8 @@ interface TelegramCallbackQuery {
   id: string;
   from: TelegramFrom;
   data?: string;
+  /** The message the button was attached to. Optional per Telegram spec (absent for inline-mode callbacks). */
+  message?: { message_id: number };
 }
 
 interface TelegramUpdate {
@@ -256,15 +258,27 @@ async function handleCallbackQuery(
         return;
       }
       await handleConfirmMembership(businessId, firstId, optionalSecondId, senderTelegramId, callbackQuery.id);
+      if (callbackQuery.message?.message_id) {
+        await editTelegramMessageReplyMarkup(senderTelegramId, callbackQuery.message.message_id, []);
+      }
     } else if (parsed.action === 'billing:mem_cancel') {
       // Owner cancelled payment flow
       await sendTelegramMessage(senderTelegramId, '❌ Ακυρώθηκε η πληρωμή.');
+      if (callbackQuery.message?.message_id) {
+        await editTelegramMessageReplyMarkup(senderTelegramId, callbackQuery.message.message_id, []);
+      }
     } else if (parsed.action === 'billing:pkg_confirm') {
       // Owner confirmed package creation → activate pending package
       await handleConfirmPackage(firstId, businessId, senderTelegramId, callbackQuery.id);
+      if (callbackQuery.message?.message_id) {
+        await editTelegramMessageReplyMarkup(senderTelegramId, callbackQuery.message.message_id, []);
+      }
     } else if (parsed.action === 'billing:pkg_cancel') {
       // Owner cancelled package creation → delete pending package
       await handleCancelPackage(firstId, businessId, senderTelegramId, callbackQuery.id);
+      if (callbackQuery.message?.message_id) {
+        await editTelegramMessageReplyMarkup(senderTelegramId, callbackQuery.message.message_id, []);
+      }
     }
     return;
   }
