@@ -17,6 +17,7 @@ import {
 import { findBusinessByOwnerTelegramId } from '../../onboarding/queries';
 import {
   getRecentClientsForBusiness,
+  getAllClientsForBusiness,
   listPackages,
   createMembership,
   activatePackage,
@@ -51,9 +52,31 @@ export async function showClientSelection(
   );
 
   if (clients.length === 0) {
-    await sendTelegramMessage(
+    // G-07-6 fallback: try all-time clients from clientBusinessRelationships
+    // when no bookings exist in the last 30 days.
+    const allClients = await withBusinessContext(businessId, () =>
+      getAllClientsForBusiness(businessId)
+    );
+    if (allClients.length === 0) {
+      await sendTelegramMessage(ownerTelegramId, 'Δεν υπάρχουν εγγεγραμμένοι πελάτες.');
+      return;
+    }
+    const fallbackKeyboard: InlineKeyboard = allClients.map((client) => {
+      const callbackData = `billing:client:${client.clientBusinessRelationshipId}`;
+      if (Buffer.byteLength(callbackData, 'utf8') > 64) {
+        logger.warn(
+          { callbackData, id: client.clientBusinessRelationshipId },
+          'billing:client callback_data exceeds 64 bytes — ID too long'
+        );
+      }
+      // senderPhone as label fallback since all-time clients may have no name
+      const label = client.clientName ?? client.senderPhone;
+      return [{ text: label, callback_data: callbackData }];
+    });
+    await sendTelegramMessageWithKeyboard(
       ownerTelegramId,
-      'Δεν υπάρχουν πελάτες με ραντεβού τις τελευταίες 30 ημέρες.'
+      '👤 Ποιος πελάτης έκανε πληρωμή;',
+      fallbackKeyboard
     );
     return;
   }

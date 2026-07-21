@@ -263,6 +263,38 @@ export async function getRecentClientsForBusiness(
   return result;
 }
 
+/** Result type for getAllClientsForBusiness (G-07-6 fallback). */
+export type AllTimeClient = {
+  clientBusinessRelationshipId: number;
+  clientName: string | null;
+  senderPhone: string;
+};
+
+/**
+ * Returns all clients registered with a business (all-time, no date filter).
+ * Used as a fallback in showClientSelection when the 30-day recent-bookings
+ * query returns empty (G-07-6: businesses without recent bookings cannot
+ * otherwise reach the payment recording flow).
+ *
+ * Uses getConn() inside withBusinessContext for RLS enforcement (T-07-GC-01).
+ * Ordered by createdAt desc (most recently registered client first).
+ */
+export async function getAllClientsForBusiness(
+  businessId: number
+): Promise<AllTimeClient[]> {
+  const rows = await getConn()
+    .select({
+      clientBusinessRelationshipId: clientBusinessRelationships.id,
+      clientName: clientBusinessRelationships.clientName,
+      senderPhone: clientBusinessRelationships.senderPhone,
+    })
+    .from(clientBusinessRelationships)
+    .where(eq(clientBusinessRelationships.businessId, businessId))
+    .orderBy(desc(clientBusinessRelationships.createdAt));
+
+  return rows;
+}
+
 // ---------------------------------------------------------------------------
 // Membership lifecycle
 // ---------------------------------------------------------------------------

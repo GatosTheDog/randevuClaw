@@ -6,7 +6,7 @@
 //   T-07-05: callback_data contains only IDs, never prices
 //   T-07-01: handleConfirmMembership validates senderTelegramId before any mutation
 
-import type { RecentClient } from '../src/billing/queries';
+import type { RecentClient, AllTimeClient } from '../src/billing/queries';
 
 // ---------------------------------------------------------------------------
 // Module mocks — all Telegram and DB interactions are mocked for unit testing
@@ -20,6 +20,7 @@ jest.mock('../src/telegram/client', () => ({
 
 jest.mock('../src/billing/queries', () => ({
   getRecentClientsForBusiness: jest.fn(),
+  getAllClientsForBusiness: jest.fn(),
   listPackages: jest.fn(),
   getPackageById: jest.fn(),
   createMembership: jest.fn(),
@@ -62,6 +63,7 @@ const mockSendKeyboard = telegramClient.sendTelegramMessageWithKeyboard as jest.
 const mockSendMessage = telegramClient.sendTelegramMessage as jest.Mock;
 const mockAnswerCallback = telegramClient.answerCallbackQuery as jest.Mock;
 const mockGetRecentClients = billingQueries.getRecentClientsForBusiness as jest.Mock;
+const mockGetAllClients = billingQueries.getAllClientsForBusiness as jest.Mock;
 const mockListPackages = billingQueries.listPackages as jest.Mock;
 const mockGetPackageById = billingQueries.getPackageById as jest.Mock;
 const mockCreateMembership = billingQueries.createMembership as jest.Mock;
@@ -145,16 +147,32 @@ describe('payment recording flow', () => {
       expect(Buffer.byteLength(callbackData, 'utf8')).toBeLessThanOrEqual(64);
     });
 
-    it('sends Greek empty-state message when no recent clients', async () => {
+    it('sends Greek empty-state message when no recent clients and no all-time clients', async () => {
       mockGetRecentClients.mockResolvedValue([]);
+      mockGetAllClients.mockResolvedValue([]);
 
       await showClientSelection(BUSINESS_ID, OWNER_TELEGRAM_ID);
 
       expect(mockSendKeyboard).not.toHaveBeenCalled();
       expect(mockSendMessage).toHaveBeenCalledWith(
         OWNER_TELEGRAM_ID,
-        'Δεν υπάρχουν πελάτες με ραντεβού τις τελευταίες 30 ημέρες.'
+        'Δεν υπάρχουν εγγεγραμμένοι πελάτες.'
       );
+    });
+
+    it('falls back to all-time clients keyboard when no recent bookings', async () => {
+      mockGetRecentClients.mockResolvedValue([]);
+      const allTimeClients: AllTimeClient[] = [
+        { clientBusinessRelationshipId: 300, clientName: 'Χρήστος', senderPhone: '+306900000099' },
+      ];
+      mockGetAllClients.mockResolvedValue(allTimeClients);
+
+      await showClientSelection(BUSINESS_ID, OWNER_TELEGRAM_ID);
+
+      expect(mockSendKeyboard).toHaveBeenCalledTimes(1);
+      const keyboard = mockSendKeyboard.mock.calls[0][2];
+      expect(keyboard[0][0].callback_data).toBe('billing:client:300');
+      expect(keyboard[0][0].text).toBe('Χρήστος');
     });
   });
 
