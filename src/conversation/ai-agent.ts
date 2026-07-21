@@ -106,6 +106,18 @@ const BOOKING_TOOLS = [
       required: ['business_id'],
     },
   },
+  {
+    type: 'function' as const,
+    name: 'check_membership_balance',
+    description: 'Ελέγχει το υπόλοιπο συνδρομής του πελάτη — αριθμός εναπομεινάντων μαθημάτων και ημερομηνία λήξης.',
+    parameters: {
+      type: 'object',
+      properties: {
+        business_id: { type: 'integer', description: 'Το αναγνωριστικό της επιχείρησης' },
+      },
+      required: ['business_id'],
+    },
+  },
 ];
 
 const GREEK_WEEKDAYS = [

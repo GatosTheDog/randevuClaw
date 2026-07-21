@@ -16,6 +16,7 @@ import { sendTelegramMessage, sendTelegramMessageWithKeyboard } from '../telegra
 import { deleteBookingFromCalendar } from '../calendar/sync';
 import { logger } from '../utils/logger';
 import { getActiveMembershipForDeduction, deductSession, getClientName, findMembershipByBooking, restoreCredit, ActiveMembershipForDeduction } from '../billing/queries';
+import { formatExpiryDateGreek } from '../utils/timezone';
 
 export interface ToolContext {
   business: { id: number; name: string; ownerTelegramId: string | null; enforcementPolicy?: string };
@@ -63,6 +64,10 @@ const RescheduleAppointmentArgsSchema = z.object({
   calendar_time: z.string(),
 });
 
+const CheckMembershipBalanceArgsSchema = z.object({
+  business_id: z.number().int(),
+});
+
 export async function executeTool(
   name: string,
   args: Record<string, unknown>,
@@ -90,6 +95,8 @@ export async function executeTool(
         return await rescheduleAppointmentTool(args, context);
       case 'list_client_bookings':
         return await listClientBookingsTool(context);
+      case 'check_membership_balance':
+        return await checkMembershipBalanceTool(args, context);
       default:
         return { error: `Tool '${name}' not found` };
     }
@@ -351,5 +358,36 @@ async function listClientBookingsTool(
       calendar_time: b.calendarTime,
       status: b.bookingStatus,
     })),
+  };
+}
+
+// NOTF-04: check_membership_balance — returns client's membership state in Greek.
+// clientPhone is always sourced from context (Telegram from.id) — never from
+// Gemini args — preventing cross-client balance inspection (T-09-05).
+async function checkMembershipBalanceTool(
+  args: Record<string, unknown>,
+  context: ToolContext
+): Promise<Record<string, unknown>> {
+  CheckMembershipBalanceArgsSchema.parse(args);
+
+  const membership = await getActiveMembershipForDeduction(context.business.id, context.clientPhone);
+
+  if (membership === null) {
+    return {
+      success: true,
+      message: 'Δεν βρέθηκε ενεργή συνδρομή. Επικοινωνήστε με ' + context.business.name + ' για ανανέωση.',
+    };
+  }
+
+  if (membership.sessionsRemaining === null) {
+    return {
+      success: true,
+      message: 'Η συνδρομή σας είναι απεριόριστων μαθημάτων και λήγει στις ' + formatExpiryDateGreek(membership.expiresAt) + '.',
+    };
+  }
+
+  return {
+    success: true,
+    message: 'Έχετε ' + membership.sessionsRemaining + ' μαθήματα απομείνει. Η συνδρομή σας λήγει στις ' + formatExpiryDateGreek(membership.expiresAt) + '.',
   };
 }
