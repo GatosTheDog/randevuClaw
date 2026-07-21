@@ -124,13 +124,25 @@ export async function handleListPackages(businessId: number): Promise<string> {
  * Soft-deactivates a billing package (isActive → false).
  * Existing memberships referencing this packageId are NOT affected — they
  * retain their session counts and expiry dates after the package is deactivated.
+ *
+ * @param packageName Optional — when provided, the success reply echoes the
+ *   matched package name so Gemini can confirm the correct package was
+ *   deactivated (G-07-5). When absent (backward-compatible direct calls),
+ *   the generic success string is returned unchanged.
  */
 // WR-01: businessId added as defense-in-depth ownership guard passed through to deactivatePackage.
-export async function handleDeactivatePackage(businessId: number, packageId: number): Promise<string> {
+export async function handleDeactivatePackage(
+  businessId: number,
+  packageId: number,
+  packageName?: string
+): Promise<string> {
   try {
     const deactivated = await deactivatePackage(businessId, packageId);
     if (!deactivated) {
       return 'Δεν βρέθηκε ενεργό πακέτο με αυτό το ID.';
+    }
+    if (packageName) {
+      return `Το πακέτο "${packageName}" απενεργοποιήθηκε. Υπάρχουσες συνδρομές δεν επηρεάζονται.`;
     }
     return 'Το πακέτο απενεργοποιήθηκε. Υπάρχουσες συνδρομές δεν επηρεάζονται.';
   } catch (err) {

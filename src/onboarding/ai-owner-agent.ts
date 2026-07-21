@@ -16,6 +16,7 @@ import {
   getConn,
 } from '../database/queries';
 import { logger } from '../utils/logger';
+import { listPackages } from '../billing/queries';
 import {
   handleCreatePackage,
   handleListPackages,
@@ -164,12 +165,12 @@ export const OWNER_TOOLS = [
     parameters: {
       type: 'object',
       properties: {
-        package_id: {
-          type: 'integer',
-          description: 'ID του πακέτου που θα απενεργοποιηθεί',
+        package_name: {
+          type: 'string',
+          description: "Όνομα πακέτου (partial match OK), π.χ. 'Μηνιαίο'",
         },
       },
-      required: ['package_id'],
+      required: ['package_name'],
     },
   },
   {
@@ -285,7 +286,7 @@ interface ToolArgs {
   // Phase 7: billing fields (D-07)
   valid_days?: number;
   session_count?: number | null;
-  package_id?: number;
+  package_name?: string;
   client_phone?: string;
   // Phase 8: enforcement policy (ENFC-01)
   policy?: string;
@@ -436,19 +437,25 @@ async function executeOwnerTool(
     }
 
     case 'deactivate_package': {
-      // WR-06: validate package_id before calling handleDeactivatePackage.
-      // Number(undefined) = NaN, which Drizzle serialises as a malformed literal,
-      // producing a confusing DB error rather than a user-visible message.
-      const DeactivatePackageSchema = z.object({ package_id: z.number().int().positive() });
-      const parsedDeactivate = DeactivatePackageSchema.safeParse(args);
-      if (!parsedDeactivate.success) {
-        return 'Μη έγκυρο ID πακέτου. Παρακαλώ δώσε τον αριθμό ID του πακέτου.';
+      // G-07-5: resolve package_name (string) to an ID via case-insensitive partial
+      // match against active packages for this business — eliminates the hallucinated-ID
+      // problem that arose when Gemini was given a package_id (integer) field.
+      const packageName = String(args.package_name ?? '').trim();
+      if (!packageName) {
+        return 'Δεν δόθηκε όνομα πακέτου.';
       }
-      // WR-01: wrap in withBusinessContext so RLS enforcement prevents cross-tenant
-      // deactivation — mirrors the pattern used by list_packages and view_client_membership
-      return withBusinessContext(business.id, () =>
-        handleDeactivatePackage(business.id, parsedDeactivate.data.package_id)
-      );
+      // WR-01/T-07-GC-03: wrap in withBusinessContext so RLS enforcement prevents
+      // cross-tenant deactivation. listPackages scoped to business.id.
+      return withBusinessContext(business.id, async () => {
+        const packages = await listPackages(business.id);
+        const match = packages.find((p) =>
+          p.name.toLowerCase().includes(packageName.toLowerCase())
+        );
+        if (!match) {
+          return `Δεν βρέθηκε ενεργό πακέτο με όνομα "${packageName}".`;
+        }
+        return handleDeactivatePackage(business.id, match.id, match.name);
+      });
     }
 
     case 'record_payment': {
