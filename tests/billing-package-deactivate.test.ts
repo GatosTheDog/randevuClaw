@@ -45,7 +45,7 @@ describe('deactivate package', () => {
       isActive: true,
     });
 
-    const reply = await handleDeactivatePackage(pkg.id);
+    const reply = await handleDeactivatePackage(businessId, pkg.id);
 
     expect(reply).toBe('Το πακέτο απενεργοποιήθηκε. Υπάρχουσες συνδρομές δεν επηρεάζονται.');
 
@@ -70,7 +70,7 @@ describe('deactivate package', () => {
     });
 
     // Deactivate the package
-    await handleDeactivatePackage(pkg.id);
+    await handleDeactivatePackage(businessId, pkg.id);
 
     // Package is now inactive
     const pkgRows = await db.select().from(billingPackages).where(eq(billingPackages.id, pkg.id));
@@ -97,7 +97,7 @@ describe('deactivate package', () => {
     });
 
     // Deactivate the package
-    await handleDeactivatePackage(pkg.id);
+    await handleDeactivatePackage(businessId, pkg.id);
 
     // handleListPackages (which powers the package selection) should not include it
     const result = await withBizCtx(businessId, () => handleListPackages(businessId));
