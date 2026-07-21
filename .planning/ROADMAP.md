@@ -221,5 +221,5 @@ Plans:
 | 5. Owner Self-Serve Onboarding | v1.1 | 7/7 | Complete | 2026-07-17 |
 | 6. GDPR Compliance & Rate-Limit Resilience | v1.3 | 0/TBD | Deferred | - |
 | 7. Billing Configuration & Payment Recording | v1.2 | 7/7 | In Progress|  |
-| 8. Enforcement & Session Deduction | v1.2 | 6/6 | In Progress|  |
+| 8. Enforcement & Session Deduction | v1.2 | 6/6 | Complete    | 2026-07-21 |
 | 9. Expiry Notifications & Client Balance | v1.2 | 3/3 | In Progress|  |
