@@ -510,3 +510,12 @@ describe('Phase 8: enforcement + session deduction', () => {
     expect(mockedRestoreCredit.mock.calls.length).toBe(0);
   });
 });
+
+// Phase 9: check_membership_balance tool stubs — NOTF-04
+// These stubs will be implemented in Plan 02 when checkMembershipBalanceTool is built.
+describe('check_membership_balance tool — NOTF-04', () => {
+  it.todo('returns no-membership Greek message when getActiveMembershipForDeduction returns null (D-08 scenario 1)');
+  it.todo('returns unlimited-sessions Greek message when sessionsRemaining is null (D-08 scenario 2)');
+  it.todo('returns counted-sessions Greek message with N remaining when sessionsRemaining is a number (D-08 scenario 3)');
+  it.todo('returns cross_tenant_denied when args.business_id differs from context.business.id');
+});
