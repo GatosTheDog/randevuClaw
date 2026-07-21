@@ -125,7 +125,7 @@ export async function showMembershipConfirmation(
 ): Promise<void> {
   const [clientRel, pkg] = await withBusinessContext(businessId, async () => {
     const relRow = await findClientBusinessRelationshipById(clientRelId);
-    const pkgRow = await getPackageById(packageId);
+    const pkgRow = await getPackageById(packageId, businessId);
     return [relRow, pkgRow] as const;
   });
 
@@ -194,10 +194,11 @@ export async function handleConfirmMembership(
   }
   const clientPhone = clientRel.senderPhone;
 
-  // Fetch package for success message details
-  const pkg = await getPackageById(packageId);
+  // Fetch package for success message details — WR-01: pass businessId as
+  // ownership guard so a crafted foreign packageId is rejected here.
+  const pkg = await getPackageById(packageId, businessId);
   if (!pkg) {
-    logger.warn({ packageId }, 'handleConfirmMembership: package not found');
+    logger.warn({ packageId, businessId }, 'handleConfirmMembership: package not found or not owned by business');
     await sendTelegramMessage(senderTelegramId, 'Σφάλμα: δεν βρέθηκε το πακέτο.');
     return;
   }

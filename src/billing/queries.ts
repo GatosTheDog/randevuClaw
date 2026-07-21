@@ -177,16 +177,16 @@ export async function deactivatePackage(businessId: number, packageId: number): 
 }
 
 /**
- * Returns a single billing package by ID, or null if not found.
- * Used by payment-flow.ts handlers to fetch package details for confirmation
- * messages and success replies without re-running the full list query.
+ * Returns a single billing package by ID for a specific business, or null if
+ * not found. The businessId ownership guard prevents cross-tenant package
+ * access — a crafted packageId for a foreign business returns null (WR-01).
  * Uses getConn() for RLS enforcement (T-07-03).
  */
-export async function getPackageById(packageId: number): Promise<BillingPackage | null> {
+export async function getPackageById(packageId: number, businessId: number): Promise<BillingPackage | null> {
   const rows = await getConn()
     .select()
     .from(billingPackages)
-    .where(eq(billingPackages.id, packageId))
+    .where(and(eq(billingPackages.id, packageId), eq(billingPackages.businessId, businessId)))
     .limit(1);
   return rows[0] ?? null;
 }
@@ -280,15 +280,17 @@ export async function createMembership(
   packageId: number
 ): Promise<{ memberId: number; expiresAtDate: string; sessionsRemaining: number | null }> {
   return db.transaction(async (tx) => {
-    // Fetch the billing package
+    // Fetch the billing package — WR-01: include businessId ownership guard so a
+    // crafted callback_data referencing a foreign package resolves to null and
+    // fails fast inside the transaction before any membership row is written.
     const pkgRows = await tx
       .select()
       .from(billingPackages)
-      .where(eq(billingPackages.id, packageId))
+      .where(and(eq(billingPackages.id, packageId), eq(billingPackages.businessId, businessId)))
       .limit(1);
 
     const pkg = pkgRows[0];
-    if (!pkg) throw new Error(`Package ${packageId} not found`);
+    if (!pkg) throw new Error(`Package ${packageId} not found for business ${businessId}`);
 
     // Compute purchase date and expiry in Europe/Athens timezone (DST-safe)
     const purchaseDate = isoDateInAthens(new Date());
