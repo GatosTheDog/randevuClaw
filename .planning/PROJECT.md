@@ -43,15 +43,15 @@ A client can book or cancel an appointment with a Greek business entirely throug
 - ✓ Owner completes full business setup (hours, services, prices) through a guided Telegram chat — v1.1 (ONB-01, ONB-02)
 - ✓ Owner can resume a dropped setup session and update config post-onboarding — v1.1 (ONB-03)
 - ✓ Hardcoded seed fixtures removed; every business is the result of real owner onboarding — v1.1 (ONB-04)
+- ✓ Owner configures billing packages for their business via chat — Phase 7 (BILL-01, BILL-02)
+- ✓ Owner records client payment via chat; bot creates membership with expiry — Phase 7 (PAY-01, PAY-02)
+- ✓ Bot enforces membership validity on booking (block or flag per business policy) — Phase 8 (ENFC-01, ENFC-02, ENFC-03)
+- ✓ Session credits deducted/restored correctly across cancel/reschedule edge cases — Phase 8 (SESS-01 through SESS-04)
 
 ### Active
 
 - [ ] Bot resolves which business a client means from a single shared number via deep link (PLAT-01) — code complete; blocked on Meta Business Verification
 - [ ] Client shown data-consent notice on first contact (COMP-01) — code complete; not yet observed by a real user
-- [ ] Owner configures billing packages for their business via chat — Phase 7 (BILL-01, BILL-02)
-- [ ] Owner records client payment via chat; bot creates membership with expiry — Phase 7 (PAY-01, PAY-02)
-- [ ] Bot enforces membership validity on booking (block or flag per business policy) — Phase 8 (ENFC-01, ENFC-02, ENFC-03)
-- [ ] Session credits deducted/restored correctly across cancel/reschedule edge cases — Phase 8 (SESS-01 through SESS-04)
 - [ ] Client and owner both notified before membership expires; client can query balance — Phase 9 (NOTF-BILL-01 through NOTF-BILL-04)
 
 ### Out of Scope
@@ -101,6 +101,10 @@ A client can book or cancel an appointment with a Greek business entirely throug
 | AsyncLocalStorage for RLS context (not request locals or function params) | Thread-safe context propagation across async Drizzle calls without modifying every function signature | ✓ Good — zero cross-contamination in tests |
 | UUID webhook IDs (not bot token in URL) | Bot token must never appear in logs or URL paths; UUID-keyed lookup is opaque | ✓ Good — BOT-04 security requirement met |
 | 25-step Telegram onboarding state machine (DB-backed, resumable) | No session storage needed; owner can drop off and resume; chat is the only interface | ✓ Good — ONB-03 resume confirmed |
+| getConn() exclusively for Phase 8 writes (not db.transaction()) | db.transaction() opens a separate connection breaking atomicity with withBusinessContext | ✓ Good — no cross-tenant leaks in billing writes |
+| Flag alert (sendTelegramMessage) NOT wrapped in try/catch in bookAppointmentTool | D-11: alert is critical; failure must surface immediately, not be silently swallowed | ✓ Good — ENFC-03 ordering test confirms pre-keyboard delivery |
+| SELECT FOR UPDATE via Drizzle .for('update') for getActiveMembershipForDeduction | Serializes concurrent deductions at DB level; prevents sessionsRemaining going negative | ✓ Good — race guard test proves exactly-1-success with sessionsRemaining=1 |
+| src/billing/enforcement.ts extracted from bookAppointmentTool | Enables unit testing of checkEnforcementAndGetMembership without wiring full booking context | ✓ Good — booking-enforcement.test.ts 3 isolated unit tests |
 
 ## Evolution
 
@@ -117,4 +121,4 @@ A client can book or cancel an appointment with a Greek business entirely throug
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-21 — Phase 07 (billing configuration & payment recording) complete*
+*Last updated: 2026-07-21 — Phase 08 (enforcement & session deduction) complete*

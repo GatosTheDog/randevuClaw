@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Billing & Membership System
-current_phase: 07
-current_phase_name: billing-configuration-payment-recording
-status: verifying
+current_phase: 09
+current_phase_name: Expiry Notifications & Client Balance
+status: planning
 stopped_at: Completed 07-07-PLAN.md (G-07-2 gap closure — billing keyboard clear)
-last_updated: "2026-07-21T16:51:05.977Z"
+last_updated: "2026-07-21T17:26:56.181Z"
 last_activity: 2026-07-21
-last_activity_desc: Phase 07 execution started
+last_activity_desc: Phase 08 complete, transitioned to Phase 09
 progress:
   total_phases: 6
   completed_phases: 3
@@ -24,20 +24,20 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-17 after v1.1 milestone close)
 
 **Core value:** A client can book or cancel an appointment with a Greek business entirely through a chat conversation, in Greek, with zero friction — and the owner's calendar updates automatically.
-**Current focus:** Phase 07 — billing-configuration-payment-recording
+**Current focus:** Phase 09 — expiry-notifications-client-balance
 
 ## Current Position
 
-Phase: 07 (billing-configuration-payment-recording) — EXECUTING
-Plan: 2 of 2
-Status: Phase complete — ready for verification
-Last activity: 2026-07-21 — Phase 07 execution started
+Phase: 09 — Expiry Notifications & Client Balance
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-07-21 — Phase 08 complete, transitioned to Phase 09
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 25
+- Total plans completed: 26
 - Average duration: - min
 - Total execution time: 0 hours
 
@@ -47,7 +47,7 @@ Last activity: 2026-07-21 — Phase 07 execution started
 |-------|-------|-------|----------|
 | 02 | 9 | - | - |
 | 04 | 6 | - | - |
-| 08 | 5 | - | - |
+| 08 | 6 | - | - |
 | 07 | 5 | - | - |
 
 **Recent Trend:**
@@ -215,8 +215,7 @@ None yet.
 - [Phase 4]: Telegraf migration must keep all 208 tests green — run full suite before marking Phase 4 complete.
 - [Phase 5]: deleteWebhook must be called before setWebhook on any re-registration to prevent "another webhook is active" conflicts.
 - [Phase 6]: GDPR cascade must cover ALL tables holding user data — document full cascade chain before implementing.
-- [Phase 8]: Concurrent session deduction race (two simultaneous bookings both deducting from same membership) — must use SELECT FOR UPDATE inside db.transaction().
-- [Phase 8]: Cancel-after-expiry credit leak — bookings.membership_id FK required so cancellation handler knows which membership window to check.
+- [Phase 9]: findMembershipByBooking returns null for pre-Phase-8 bookings — credit restore correctly no-ops (Pitfall 4 from 08-03).
 - [Phase 9]: Expiry sweep isRunning guard required (same pattern as v1.0 reminder poller) to prevent overlapping sweep executions.
 
 ## Deferred Items
@@ -238,8 +237,8 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-07-09:
 
 ## Session Continuity
 
-Last session: 2026-07-21T16:51:05.969Z
-Stopped at: Completed 07-07-PLAN.md (G-07-2 gap closure — billing keyboard clear)
+Last session: 2026-07-21
+Stopped at: Phase 08 complete, UAT 11/11 passed, ready to plan Phase 09
 Resume file: None
 
 ## Operator Next Steps
