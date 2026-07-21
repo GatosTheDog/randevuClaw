@@ -13,10 +13,12 @@ jest.mock('../src/calendar/sync');
 jest.mock('../src/billing/queries', () => ({
   getActiveMembershipForDeduction: jest.fn(),
   getClientActiveMembership: jest.fn(),
+  getBusinessEnforcementPolicy: jest.fn(),
   findMembershipByBooking: jest.fn(),
   deductSession: jest.fn(),
   restoreCredit: jest.fn(),
   getClientName: jest.fn(),
+  linkRescheduledBooking: jest.fn(),
 }));
 
 const mockedFindServiceById = queries.findServiceById as jest.MockedFunction<typeof queries.findServiceById>;
@@ -60,12 +62,18 @@ const mockedRestoreCredit = billingQueries.restoreCredit as jest.MockedFunction<
 const mockedGetClientName = billingQueries.getClientName as jest.MockedFunction<
   typeof billingQueries.getClientName
 >;
+const mockedGetBusinessEnforcementPolicy = billingQueries.getBusinessEnforcementPolicy as jest.MockedFunction<
+  typeof billingQueries.getBusinessEnforcementPolicy
+>;
+const mockedLinkRescheduledBooking = billingQueries.linkRescheduledBooking as jest.MockedFunction<
+  typeof billingQueries.linkRescheduledBooking
+>;
 // WR-01: getClientActiveMembership is used by checkMembershipBalanceTool (no FOR UPDATE lock)
 const mockedGetClientActiveMembership = billingQueries.getClientActiveMembership as jest.MockedFunction<
   typeof billingQueries.getClientActiveMembership
 >;
 
-const BUSINESS: ToolContext['business'] = { id: 1, name: 'Pilates Athens', ownerTelegramId: '999' };
+const BUSINESS: ToolContext['business'] = { id: 1, name: 'Pilates Athens', ownerTelegramId: '999', enforcementPolicy: 'allow' };
 const CONTEXT: ToolContext = { business: BUSINESS, clientPhone: 'c1', requestId: 'r1', idempotencyKey: 'ik1' };
 
 const SERVICE = {
@@ -106,10 +114,12 @@ describe('executeTool', () => {
     // Phase 8: safe defaults — no membership exists; no deduction row; client name not registered
     mockedGetActiveMembership.mockResolvedValue(null);
     mockedGetClientActiveMembership.mockResolvedValue(null);
+    mockedGetBusinessEnforcementPolicy.mockResolvedValue('allow');
     mockedFindMembershipByBooking.mockResolvedValue(null);
     mockedDeductSession.mockResolvedValue(undefined);
     mockedRestoreCredit.mockResolvedValue(undefined);
     mockedGetClientName.mockResolvedValue(null);
+    mockedLinkRescheduledBooking.mockResolvedValue(undefined);
   });
 
   it('Test 1: check_availability delegates to checkAvailability unchanged', async () => {
@@ -393,14 +403,17 @@ describe('Phase 8: enforcement + session deduction', () => {
     // Phase 8: safe defaults — same as parent describe
     mockedGetActiveMembership.mockResolvedValue(null);
     mockedGetClientActiveMembership.mockResolvedValue(null);
+    mockedGetBusinessEnforcementPolicy.mockResolvedValue('allow');
     mockedFindMembershipByBooking.mockResolvedValue(null);
     mockedDeductSession.mockResolvedValue(undefined);
     mockedRestoreCredit.mockResolvedValue(undefined);
     mockedGetClientName.mockResolvedValue(null);
+    mockedLinkRescheduledBooking.mockResolvedValue(undefined);
   });
 
   it('block policy: executeTool(book_appointment) returns Greek refusal and does NOT call insertBooking when client has no active membership', async () => {
     mockedFindServiceById.mockResolvedValue(SERVICE);
+    mockedGetBusinessEnforcementPolicy.mockResolvedValue('block');
     // getActiveMembership returns null (no membership) — default from beforeEach
     // insertBooking is mocked to confirm it is NOT called
     mockedInsertBooking.mockResolvedValue(makeBooking());
@@ -424,6 +437,7 @@ describe('Phase 8: enforcement + session deduction', () => {
       ...PHASE8_CONTEXT,
       business: { ...PHASE8_BUSINESS, enforcementPolicy: 'flag' },
     };
+    mockedGetBusinessEnforcementPolicy.mockResolvedValue('flag');
     mockedFindServiceById.mockResolvedValue(SERVICE);
     // getActiveMembership returns null (no membership) — default from beforeEach
     mockedInsertBooking.mockResolvedValue(makeBooking());
