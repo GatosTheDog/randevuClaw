@@ -24,10 +24,10 @@ files_reviewed_list:
   - tests/consent.test.ts
   - tests/helpers/billing-fixtures.ts
 findings:
-  critical: 2
-  warning: 4
-  info: 4
-  total: 10
+  critical: 3
+  warning: 6
+  info: 3
+  total: 12
 status: issues_found
 ---
 
@@ -40,83 +40,194 @@ status: issues_found
 
 ## Summary
 
-Phase 7 adds billing packages, memberships, and a multi-step payment-recording keyboard flow. The core data model is sound and the D-03 pending-confirmation pattern is implemented consistently. However, two blockers were found:
+Phase 7 adds billing packages, memberships, the membership ledger, and a multi-step payment-recording inline-keyboard flow. The schema design is solid (partial indexes for soft-delete, idempotency key on the ledger, Zod validation at the tool boundary, ownership guards on most write paths), and the D-03 pending-confirmation pattern is implemented consistently.
 
-1. Migration `0006_billing_schema.sql` creates all three billing tables without enabling Row Level Security. Every existing table in the database has RLS enabled via migration `0003_phase4_per_bot.sql`, but `billing_packages`, `memberships`, and `membership_ledger` have no `ENABLE ROW LEVEL SECURITY` and no `CREATE POLICY` statements. Code throughout the billing layer is annotated "Uses getConn() for RLS enforcement (T-07-03)" — that assertion is false for these tables today.
+Three blockers require fixes before this code ships. The migration creates billing tables without RLS policies, making all "Uses getConn() for RLS enforcement (T-07-03)" comments in the billing layer factually false. The `athensEndOfDay` DST-fix relies on `new Date(toLocaleString(...))`, which produces wrong expiry timestamps on any non-UTC server — including developer machines. And `handleConfirmMembership` has no error handling around `createMembership`, so when that call throws (a confirmed code path on same-day replay), the owner receives no success or error message — the Telegram spinner disappears and nothing happens.
 
-2. `getPackageById` contains no `businessId` filter. With RLS absent on `billing_packages`, a registered owner can send a hand-crafted `billing:mem_confirm` callback referencing any `packageId` across the system, extract a foreign package's configuration data, and create a membership for their own client using that configuration. The `createMembership` function compounds this by re-fetching the package via the admin `db.transaction()` (which bypasses RLS even when it is eventually added).
+Six warnings cover a cross-tenant package-lookup gap in `createMembership`, double-calling `answerCallbackQuery`, a misleading `deactivatePackage` return value, the owner agent passing UTC date as "today", an idempotency key design that blocks legitimate same-day renewals, and unguarded `Number(args.package_id)` conversion.
 
 ---
 
 ## Critical Issues
 
-### CR-01: Billing tables created without RLS — `getPackageById` has no businessId filter, enabling cross-tenant package access
+### CR-01: Migration 0006 creates billing tables without RLS — all T-07-03 "RLS enforcement" claims are false
 
-**Files:**
-- `migrations/0006_billing_schema.sql` (entire Section 2–4)
-- `src/billing/queries.ts:175-182` (`getPackageById`)
-- `src/billing/queries.ts:277-281` (`createMembership` package fetch)
+**Files:** `migrations/0006_billing_schema.sql` (Sections 2–4), `src/billing/queries.ts:142,205,352,600`
 
-**Issue:**
+**Issue:** Migration `0006_billing_schema.sql` creates `billing_packages`, `memberships`, and `membership_ledger` using only `CREATE TABLE` and `GRANT` statements. There is no `ALTER TABLE ... ENABLE ROW LEVEL SECURITY` and no `CREATE POLICY` for any of the three tables. The application's existing RLS isolation model (established in earlier migrations) sets `app.current_business_id` via `set_config()` in every `withBusinessContext` call, but that session variable has no effect on tables that lack an RLS policy.
 
-Migration `0003_phase4_per_bot.sql` enables RLS and creates isolation policies on every previously-existing table (`businesses`, `bookings`, `services`, `business_hours`, `client_business_relationships`, `conversation_turns`, `messages`). Migration `0006_billing_schema.sql` creates `billing_packages`, `memberships`, and `membership_ledger` with `GRANT` statements only — no `ALTER TABLE ... ENABLE ROW LEVEL SECURITY` and no `CREATE POLICY` for any of the three tables.
+At least five functions in `src/billing/queries.ts` are annotated with `// Uses getConn() for RLS enforcement (T-07-03)`:
+- `listPackages` (line 142)
+- `getRecentClientsForBusiness` (line 205)
+- `getActiveMembershipForDeduction` (line 352)
+- `getPackageById` (line 174)
+- `getClientActiveMembership` (line 600)
 
-Because RLS is absent, `getConn()` queries against these tables see all rows regardless of the `app.current_business_id` set by `withBusinessContext`. The application-level WHERE clauses in most functions supply adequate isolation (`listPackages`, `deactivatePackage`, `getClientActiveMembership` all include `eq(...businessId, businessId)`). The exception is `getPackageById`:
+These comments are currently incorrect. All isolation for billing tables relies on application-level `WHERE businessId = ...` clauses. The functions that include such clauses (`listPackages`, `deactivatePackage`, `getClientActiveMembership`, etc.) are protected at the application level. The function that does not — `getPackageById` — is the exploitable gap (see WR-01).
 
-```typescript
-// src/billing/queries.ts:175
-export async function getPackageById(packageId: number): Promise<BillingPackage | null> {
-  const rows = await getConn()
-    .select()
-    .from(billingPackages)
-    .where(eq(billingPackages.id, packageId))   // ← no businessId filter
-    .limit(1);
-  return rows[0] ?? null;
-}
-```
+**Fix:** Add a follow-up migration (e.g., `0009_billing_rls.sql`) with RLS DDL mirroring the pattern used for other tables:
 
-`getPackageById` is called from `handleConfirmMembership` (payment-flow.ts:198) and from `showMembershipConfirmation` (payment-flow.ts:127). Neither call site supplies a businessId to validate ownership.
-
-**Attack path (registered owner required):**
-1. Attacker owns business A. They want to learn business B's package configuration.
-2. They craft a Telegram callback: `billing:mem_confirm:{theirClientRelId}:{victimPackageId}`.
-3. `handleCallbackQuery` resolves `businessId = A` from their `senderTelegramId` (legitimate check).
-4. `handleConfirmMembership(A, theirClientRelId, victimPackageId, ...)` is called.
-5. `getPackageById(victimPackageId)` returns business B's package (no RLS, no businessId WHERE) — package name, priceCents, sessionCount, validDays are now in-scope.
-6. `createMembership(A, clientPhone, victimPackageId)` is called:
-   ```typescript
-   // src/billing/queries.ts:272
-   return db.transaction(async (tx) => {         // admin tx — bypasses RLS
-     const pkgRows = await tx
-       .select()
-       .from(billingPackages)
-       .where(eq(billingPackages.id, packageId)) // ← still no businessId filter
-       .limit(1);
-   ```
-   `db` is the admin Drizzle client; its transaction does not participate in the outer `withBusinessContext` and would bypass RLS even after policies are added.
-7. A membership row is inserted for business A with `packageId` pointing to business B's package. The attacker's client receives sessions/validity from B's package.
-
-**Fix — three independent changes required:**
-
-A) Add RLS to all three billing tables in a follow-up migration:
 ```sql
 ALTER TABLE billing_packages ENABLE ROW LEVEL SECURITY;
 CREATE POLICY billing_packages_isolation ON billing_packages
-  USING (business_id::text = current_setting('app.current_business_id', true));
+  USING (
+    business_id::text = current_setting('app.current_business_id', true)
+    OR current_setting('app.current_business_id', true) = ''
+  );
 
 ALTER TABLE memberships ENABLE ROW LEVEL SECURITY;
 CREATE POLICY memberships_isolation ON memberships
-  USING (business_id::text = current_setting('app.current_business_id', true));
+  USING (
+    business_id::text = current_setting('app.current_business_id', true)
+    OR current_setting('app.current_business_id', true) = ''
+  );
 
--- membership_ledger has no business_id; isolate via membership join or bypass RLS for admin ops
+-- membership_ledger has no business_id column; allow all for now.
+ALTER TABLE membership_ledger ENABLE ROW LEVEL SECURITY;
+CREATE POLICY membership_ledger_open ON membership_ledger USING (true);
 ```
 
-B) Add businessId filter to `getPackageById`:
+---
+
+### CR-02: `athensEndOfDay` produces wrong expiry timestamps on non-UTC servers
+
+**File:** `src/billing/queries.ts:27–37`
+
+**Issue:** The function computes the Europe/Athens UTC offset via:
+
 ```typescript
-export async function getPackageById(
-  packageId: number,
-  businessId: number
-): Promise<BillingPackage | null> {
+const utcMidnight = new Date(`${isoDate}T00:00:00Z`);
+const athensWallClock = new Date(
+  utcMidnight.toLocaleString('en-US', { timeZone: 'Europe/Athens' })
+);
+const offsetMs = utcMidnight.getTime() - athensWallClock.getTime();
+const endOfDayLocalMs = new Date(`${isoDate}T23:59:59Z`).getTime();
+return new Date(endOfDayLocalMs + offsetMs);
+```
+
+`toLocaleString` with `timeZone: 'Europe/Athens'` returns a string such as `"7/1/2024, 3:00:00 AM"`. That string is then passed to `new Date(...)`, which parses it in the **JavaScript engine's local (server) timezone**:
+
+| Server TZ | `athensWallClock` value | `offsetMs` | computed expiry |
+|---|---|---|---|
+| UTC (fly.io default) | 2024-07-01T03:00:00Z | −3h | 2024-07-01T20:59:59Z ✓ |
+| UTC+3 (Athens itself) | 2024-07-01T00:00:00Z | 0 | 2024-07-01T23:59:59Z ✗ (+3h late) |
+| UTC+2 (other European) | 2024-07-01T01:00:00Z | −1h | 2024-07-01T22:59:59Z ✗ (+2h late) |
+
+On fly.io (UTC) the result is correct. On every other server timezone — including developer machines in Europe/Athens — memberships receive an expiry timestamp hours later than intended, causing clients to have valid memberships longer than purchased. The `billing-dst-arithmetic.test.ts` suite tests `addCalendarDays` but contains no assertions on `athensEndOfDay`, leaving the bug undetected by the test suite.
+
+This function is called in both `createMembership` (membership expiry) and `findMembershipsExpiringIn7Days` (sweep window boundary), making both incorrect on non-UTC servers.
+
+**Fix:** Derive the offset using `Intl.DateTimeFormat`, which is server-timezone-independent:
+
+```typescript
+function athensEndOfDay(isoDate: string): Date {
+  // Use noon UTC as anchor — guaranteed to land on isoDate in Athens timezone
+  // regardless of offset (+2 or +3), avoiding day-boundary ambiguity.
+  const noonUTC = new Date(`${isoDate}T12:00:00Z`);
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Europe/Athens',
+    hour: '2-digit',
+    hour12: false,
+  }).formatToParts(noonUTC);
+  // athensHour at noonUTC = 12 + offsetHours (14 for UTC+2, 15 for UTC+3)
+  const athensHour = Number(parts.find((p) => p.type === 'hour')?.value ?? '14');
+  const offsetHours = athensHour - 12;
+  // 23:59:59 Athens = (23:59:59 UTC) − offsetHours
+  const endOfDayUTCMs =
+    new Date(`${isoDate}T23:59:59Z`).getTime() - offsetHours * 3_600_000;
+  return new Date(endOfDayUTCMs);
+}
+```
+
+Also add assertions to `billing-dst-arithmetic.test.ts`:
+```typescript
+it('summer date: athensEndOfDay returns UTC hour 20 (UTC+3 offset)', () => {
+  const d = athensEndOfDay('2024-07-01');
+  expect(d.getUTCHours()).toBe(20);
+  expect(d.getUTCMinutes()).toBe(59);
+});
+it('winter date: athensEndOfDay returns UTC hour 21 (UTC+2 offset)', () => {
+  const d = athensEndOfDay('2024-12-01');
+  expect(d.getUTCHours()).toBe(21);
+  expect(d.getUTCMinutes()).toBe(59);
+});
+```
+
+---
+
+### CR-03: `handleConfirmMembership` has no error handling around `createMembership` — owner receives no feedback on failure
+
+**File:** `src/telegram/handlers/payment-flow.ts:206–219`
+
+**Issue:** After the ownership check and package lookup, `createMembership` is called bare:
+
+```typescript
+const result = await withBusinessContext(businessId, () =>
+  createMembership(businessId, clientPhone, packageId)
+);
+
+const clientLabel = clientRel.clientName ?? clientPhone;
+await sendTelegramMessage(senderTelegramId, [ ... ].join('\n'));
+```
+
+`createMembership` is documented to throw when the idempotency key is already present (same-day replay). `billing-membership-creation.test.ts:116–120` explicitly confirms this:
+
+```typescript
+await expect(
+  withBusinessContext(businessId, () =>
+    createMembership(businessId, uniqueClient, packageId)
+  )
+).rejects.toThrow();
+```
+
+When `createMembership` throws, the exception propagates through `handleCallbackQuery` to the outer try/catch in `handleTelegramWebhookPost`, which logs the error and returns 200 to Telegram — but sends nothing to the owner. The Telegram spinner was already dismissed by the earlier `answerCallbackQuery` call. The owner sees the spinner disappear and nothing else. They cannot distinguish success from failure. Retapping the button produces the same silent error. This failure is reliably triggered by a double-tap or by any same-day re-recording attempt.
+
+**Fix:**
+
+```typescript
+let result: { memberId: number; expiresAtDate: string; sessionsRemaining: number | null };
+try {
+  result = await withBusinessContext(businessId, () =>
+    createMembership(businessId, clientPhone, packageId)
+  );
+} catch (err) {
+  logger.error({ err, businessId, clientRelId, packageId }, 'handleConfirmMembership: createMembership failed');
+  await sendTelegramMessage(
+    senderTelegramId,
+    'Σφάλμα κατά την καταγραφή πληρωμής. Ελέγξτε αν η συνδρομή ήδη υπάρχει και δοκιμάστε ξανά.'
+  );
+  return;
+}
+
+const clientLabel = clientRel.clientName ?? clientPhone;
+await sendTelegramMessage(senderTelegramId, [ ... ].join('\n'));
+```
+
+---
+
+## Warnings
+
+### WR-01: `createMembership` and `getPackageById` — package lookup has no `businessId` filter; foreign package data accepted
+
+**File:** `src/billing/queries.ts:175–182` (`getPackageById`), `src/billing/queries.ts:276–285` (`createMembership`)
+
+**Issue:** `getPackageById` queries `WHERE id = packageId` with no `businessId` constraint and relies on RLS (which is currently absent — see CR-01). `createMembership` independently re-fetches the package inside a `db.transaction()` (admin connection, bypasses RLS regardless of whether it is added):
+
+```typescript
+const pkgRows = await tx
+  .select()
+  .from(billingPackages)
+  .where(eq(billingPackages.id, packageId))   // no businessId filter
+  .limit(1);
+```
+
+A registered business owner can craft a `billing:mem_confirm:{clientRelId}:{foreignPkgId}` callback. `handleCallbackQuery` resolves `businessId` from their Telegram identity (correct), but passes the untrusted `packageId` directly to `handleConfirmMembership` and then `createMembership`. The package fetched belongs to a different business; its `validDays` and `sessionCount` are used to create the membership. Every other write-path function (`deactivatePackage`, `activatePackage`, `cancelPendingPackage`) includes `eq(billingPackages.businessId, businessId)` as an explicit ownership guard; these two functions are the inconsistent outliers.
+
+**Fix:** Add `businessId` parameter to `getPackageById` and add an ownership guard to the `createMembership` package fetch:
+
+```typescript
+// getPackageById — add businessId
+export async function getPackageById(packageId: number, businessId: number): Promise<BillingPackage | null> {
   const rows = await getConn()
     .select()
     .from(billingPackages)
@@ -124,191 +235,65 @@ export async function getPackageById(
     .limit(1);
   return rows[0] ?? null;
 }
-```
-Update all call sites to pass `businessId`.
 
-C) Add businessId filter to the package fetch inside `createMembership`, and switch from `db.transaction()` to `appDb.transaction()` (RLS-enforced) or add an explicit ownership check:
-```typescript
+// createMembership — add ownership guard to package fetch
 const pkgRows = await tx
   .select()
   .from(billingPackages)
   .where(and(eq(billingPackages.id, packageId), eq(billingPackages.businessId, businessId)))
   .limit(1);
+const pkg = pkgRows[0];
+if (!pkg) throw new Error(`Package ${packageId} not found for business ${businessId}`);
 ```
 
 ---
 
-### CR-02: `athensEndOfDay` has implicit server-UTC dependency — produces wrong expiry timestamps on non-UTC hosts
+### WR-02: `answerCallbackQuery` double-called for three billing callback actions
 
-**File:** `src/billing/queries.ts:26-37`
+**Files:** `src/webhooks/telegram.ts:207`, `src/telegram/handlers/payment-flow.ts:176,232,258`
 
-**Issue:**
+**Issue:** `handleCallbackQuery` calls `answerCallbackQuery(callbackQuery.id)` unconditionally at line 207 before dispatching to any handler. Then `handleConfirmMembership` (line 176), `handleCancelPackage` (line 232), and `handleConfirmPackage` (line 258) each call it again with the same callback query ID. For these three paths, Telegram receives two `answerCallbackQuery` calls for the same ID. The second call returns a Telegram API error. The Telegram client in tests is mocked so the double-call is undetected. In production, every confirmation or cancellation of a package logs a spurious Telegram API error.
 
-The WR-06 fix replaced a hardcoded `+02:00` winter offset with a dynamic offset computation. The new implementation:
-
-```typescript
-function athensEndOfDay(isoDate: string): Date {
-  const utcMidnight = new Date(`${isoDate}T00:00:00Z`);
-  const athensWallClock = new Date(
-    utcMidnight.toLocaleString('en-US', { timeZone: 'Europe/Athens' })
-  );
-  const offsetMs = utcMidnight.getTime() - athensWallClock.getTime();
-  const endOfDayLocalMs = new Date(`${isoDate}T23:59:59Z`).getTime();
-  return new Date(endOfDayLocalMs + offsetMs);
-}
-```
-
-`toLocaleString` with `timeZone: 'Europe/Athens'` returns a locale string such as `"7/1/2024, 3:00:00 AM"`. This string is then passed to `new Date(...)`, which parses it **in the JavaScript engine's local timezone** (the server's `TZ` environment variable).
-
-- On a UTC server (fly.io default): `new Date("7/1/2024, 3:00:00 AM")` → `2024-07-01T03:00:00Z`. `offsetMs` = `0 − 3h = −3h`. `endOfDayLocalMs + (−3h)` → `2024-07-01T20:59:59Z` ✓ (correct for UTC+3).
-- On a server at `TZ=Europe/Athens` (UTC+3 in summer): `new Date("7/1/2024, 3:00:00 AM")` → `2024-07-01T00:00:00Z` (parsed as UTC+3 → subtracts 3h). `offsetMs` = `0 − 0 = 0`. Result: `2024-07-01T23:59:59Z` — a timestamp **3 hours too late**, meaning memberships expire 3 hours after they should.
-
-Developer machines running in any non-UTC timezone will silently compute wrong expiry dates. This affects `createMembership` (membership expiry) and `findMembershipsExpiringIn7Days` (sweep window boundary), making both incorrect in development. The problem is masked in production only because fly.io defaults to UTC.
-
-The `billing-dst-arithmetic.test.ts` file tests `addCalendarDays` but not `athensEndOfDay`, so the timezone-dependency bug has no test coverage.
-
-**Fix:** Use `Intl.DateTimeFormat` to derive the UTC offset without parsing a locale string:
+**Fix:** Remove the internal `answerCallbackQuery` call from the three handlers — the outer `handleCallbackQuery` already dismisses the spinner. Document the contract in each handler's JSDoc:
 
 ```typescript
-function athensEndOfDay(isoDate: string): Date {
-  // Derive Athens UTC offset for the given date without server-timezone dependency.
-  // Strategy: compute what UTC instant corresponds to noon Athens time on isoDate,
-  // then use that to find the offset.
-  const noonUTC = new Date(`${isoDate}T12:00:00Z`);
-  const athensParts = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Europe/Athens',
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit',
-    hour12: false,
-  }).formatToParts(noonUTC);
-
-  const get = (type: string) =>
-    Number(athensParts.find((p) => p.type === type)?.value ?? '0');
-  // Athens wall-clock at noon UTC: HH:MM:SS on isoDate
-  const athensHour = get('hour');  // e.g. 15 for UTC+3
-  // Offset (in hours) = athensHour - 12 (noon UTC)
-  const offsetHours = athensHour - 12;
-  // 23:59:59 Athens = (23:59:59 - offsetHours) UTC
-  const endOfDayUTCMs =
-    new Date(`${isoDate}T23:59:59Z`).getTime() - offsetHours * 3600 * 1000;
-  return new Date(endOfDayUTCMs);
-}
-```
-
-Also add a test in `billing-dst-arithmetic.test.ts` that asserts `athensEndOfDay('2024-07-01')` returns a Date whose UTC hours equal 20 (UTC+3 summer), and `athensEndOfDay('2024-12-01')` returns hours equal to 21 (UTC+2 winter).
-
----
-
-## Warnings
-
-### WR-01: Double `answerCallbackQuery` call for billing confirm/cancel handlers
-
-**Files:** `src/webhooks/telegram.ts:207`, `src/telegram/handlers/payment-flow.ts:176, 232, 260`
-
-**Issue:**
-
-`handleCallbackQuery` answers the Telegram callback spinner unconditionally for every callback before routing:
-
-```typescript
-// telegram.ts:207
-await answerCallbackQuery(callbackQuery.id);
-```
-
-Then `handleConfirmMembership` (line 176), `handleCancelPackage` (line 232), and `handleConfirmPackage` (line 260) each call `answerCallbackQuery` again as their first action. For these three callback paths, the Telegram Bot API receives two `answerCallbackQuery` calls for the same `callbackQueryId`. Telegram returns an error for the second call ("query is too old and response timeout expired" or "Bad Request: query ID is invalid"). The Telegram client mock in tests suppresses this, so no test currently catches it.
-
-**Fix:** Remove the `answerCallbackQuery` call from the three payment-flow handlers — the outer `handleCallbackQuery` already covers it. Add a comment to each handler noting that the caller is responsible for spinner dismissal:
-
-```typescript
-// handleConfirmMembership: caller (handleCallbackQuery) has already answered
-// the callback query. Do not call answerCallbackQuery here.
+/**
+ * NOTE: caller (handleCallbackQuery) has already called answerCallbackQuery.
+ * Do NOT call it again here.
+ */
 export async function handleConfirmMembership(...): Promise<void> {
-  // Removed: await answerCallbackQuery(callbackQueryId);
+  // removed: await answerCallbackQuery(callbackQueryId);
   ...
 }
 ```
 
 ---
 
-### WR-02: `deactivate_package` tool passes `Number(args.package_id)` — NaN on missing arg, silently no-ops
+### WR-03: `deactivatePackage` WHERE clause lacks `isActive = true` — returns `true` for already-inactive packages
 
-**File:** `src/onboarding/ai-owner-agent.ts:441`
+**File:** `src/billing/queries.ts:160–167`
 
-**Issue:**
+**Issue:** The UPDATE predicate is `WHERE id = packageId AND business_id = businessId` with no `AND is_active = true`. In Postgres, `UPDATE ... SET is_active = false ... RETURNING id` returns the row even when the value was already `false` (the row is still touched). `rows.length > 0` then evaluates to `true`, and `handleDeactivatePackage` emits the Greek success message "Το πακέτο απενεργοποιήθηκε. Υπάρχουσες συνδρομές δεν επηρεάζονται." An owner asking to deactivate an already-inactive or pending package receives a false confirmation.
 
+**Fix:**
 ```typescript
-case 'deactivate_package': {
-  return withBusinessContext(business.id, () =>
-    handleDeactivatePackage(business.id, Number(args.package_id))
-  );
-}
-```
-
-If Gemini omits `package_id` from the tool call, `args.package_id` is `undefined`. `Number(undefined)` is `NaN`. `handleDeactivatePackage(businessId, NaN)` calls `deactivatePackage(businessId, NaN)`, which runs:
-
-```typescript
-.where(and(eq(billingPackages.id, NaN), eq(billingPackages.businessId, businessId)))
-```
-
-PostgreSQL cannot compare an integer column to NaN; the WHERE clause matches zero rows. `deactivatePackage` returns `false` (`rows.length === 0`), so `handleDeactivatePackage` returns the Greek error string "Δεν βρέθηκε ενεργό πακέτο με αυτό το ID." The owner receives this message but no package was ever found. There is no Zod validation protecting this path, unlike `create_package` which validates through `CreatePackageSchema`.
-
-**Fix:** Add a Zod schema and apply it in the tool handler:
-
-```typescript
-const DeactivatePackageSchema = z.object({
-  package_id: z.number().int().positive(),
-});
-
-case 'deactivate_package': {
-  const parsed = DeactivatePackageSchema.safeParse(args);
-  if (!parsed.success) return 'Μη έγκυρο ID πακέτου.';
-  return withBusinessContext(business.id, () =>
-    handleDeactivatePackage(business.id, parsed.data.package_id)
-  );
-}
+const rows = await getConn()
+  .update(billingPackages)
+  .set({ isActive: false })
+  .where(
+    and(
+      eq(billingPackages.id, packageId),
+      eq(billingPackages.businessId, businessId),
+      eq(billingPackages.isActive, true)    // only match currently active packages
+    )
+  )
+  .returning({ id: billingPackages.id });
+return rows.length > 0;
 ```
 
 ---
 
-### WR-03: Migration 0006 omits RLS on billing tables — code comments claiming RLS enforcement are false
-
-**File:** `migrations/0006_billing_schema.sql` (Sections 2–4)
-
-**Issue:**
-
-Migration `0003_phase4_per_bot.sql` enables RLS and creates business-isolation policies on all seven existing tables. Migration `0006_billing_schema.sql` creates `billing_packages`, `memberships`, and `membership_ledger` with `GRANT` statements but no `ALTER TABLE ... ENABLE ROW LEVEL SECURITY` and no `CREATE POLICY` statements.
-
-Code across the billing layer is annotated with "Uses getConn() for RLS enforcement (T-07-03)" (e.g., `listPackages`, `getClientActiveMembership`, `getActiveMembershipForDeduction`). These comments are currently false: `getConn()` inside `withBusinessContext` supplies a connection with `app.current_business_id` set, but without an RLS policy to enforce it, the setting has no effect. Isolation for `billing_packages` and `memberships` relies entirely on the `eq(...businessId, businessId)` application-level WHERE clauses — which are present in most functions but absent in `getPackageById` (see CR-01).
-
-This is separately tracked from CR-01 because adding businessId filters to query functions and adding RLS DDL are independent remediation tasks — both are required for defense-in-depth.
-
-**Fix:** Add a migration (e.g., `0009_billing_rls.sql`) with RLS DDL for all three billing tables. Pattern mirrors migration 0003:
-
-```sql
-ALTER TABLE billing_packages ENABLE ROW LEVEL SECURITY;
-CREATE POLICY billing_packages_isolation ON billing_packages
-  USING (
-    business_id::text = current_setting('app.current_business_id', true)
-    OR current_setting('app.current_business_id', true) = ''
-  );
-
-ALTER TABLE memberships ENABLE ROW LEVEL SECURITY;
-CREATE POLICY memberships_isolation ON memberships
-  USING (
-    business_id::text = current_setting('app.current_business_id', true)
-    OR current_setting('app.current_business_id', true) = ''
-  );
-
--- membership_ledger has no business_id column; protect via membership FK or
--- grant bypass to randevuclaw_app only for sweep-context reads.
-ALTER TABLE membership_ledger ENABLE ROW LEVEL SECURITY;
-ALTER TABLE membership_ledger FORCE ROW LEVEL SECURITY;
-CREATE POLICY membership_ledger_isolation ON membership_ledger
-  USING (true); -- allow all for now; revisit if ledger-level isolation needed
-```
-
----
-
-### WR-04: Owner-agent `today` is UTC, not Europe/Athens — wrong date shown 1–3 hours after Athens midnight
+### WR-04: Owner agent system prompt receives UTC date — "today" is wrong 1–3 hours after Athens midnight
 
 **File:** `src/webhooks/telegram.ts:68`
 
@@ -318,66 +303,106 @@ CREATE POLICY membership_ledger_isolation ON membership_ledger
 const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD UTC; close enough for schedule view
 ```
 
-The comment acknowledges this is UTC. The value is passed to `aiOwnerAgent` → `buildOwnerSystemPrompt` → system prompt: `"Σημερινή ημερομηνία: ${today}"`. Between midnight and 02:00–03:00 Athens local time (the UTC+2/UTC+3 offset), the AI is told "today" is still yesterday. An owner sending a message at 01:30 Athens asking "show me today's schedule" sees bookings for the wrong day.
-
-This is a correctness issue for the schedule-view tool and any time-sensitive queries the AI generates.
+The comment acknowledges this is UTC. `today` is injected into the owner AI system prompt as "Σημερινή ημερομηνία: ${today}". Between midnight and 02:00–03:00 Athens local time (the UTC+2 / UTC+3 offset window), the AI is told "today" is still yesterday. During those hours, `view_todays_schedule` shows the wrong day's bookings, and any NLU that reasons about "today's bookings" or "today's packages" uses the wrong date. `isoDateInAthens` is already available and used throughout the billing layer.
 
 **Fix:**
-
 ```typescript
 import { isoDateInAthens } from '../utils/timezone';
+// …
 const today = isoDateInAthens(new Date());
 ```
 
-`isoDateInAthens` is already used throughout the billing layer for exactly this purpose.
+---
+
+### WR-05: Idempotency key blocks legitimate same-day payment renewal for the same client
+
+**File:** `src/billing/queries.ts:317`
+
+**Issue:** The ledger idempotency key is:
+```typescript
+const idempotencyKey = `${businessId}:${clientPhone}:payment_recorded:${purchaseDate}`;
+```
+where `purchaseDate` is the Athens calendar date. This is correct for replay prevention. However, if the owner legitimately records a second payment for the same client on the same calendar day (client bought in the morning, used all sessions, owner records a renewal the same afternoon), the ledger INSERT hits the UNIQUE constraint and rolls back the entire transaction — including the membership upsert. The second payment is silently lost (and, combined with CR-03, the owner receives no error message). `billing-membership-creation.test.ts:104–133` confirms and accepts this failure mode under "T-07-04 mitigation" but does not surface the same-day renewal regression.
+
+**Fix:** Append a discriminator that makes each new payment unique even within the same day. The membership row's ID is stable across upserts and is available from the RETURNING clause:
+
+```typescript
+// After the membership upsert returns memberId:
+const idempotencyKey = `${businessId}:${clientPhone}:payment_recorded:${purchaseDate}:${memberId}`;
+```
+
+Because `onConflictDoUpdate` preserves the row's primary key, the memberId is the same for renewals on the same row. To distinguish two payments for the same client that produce two different rows (the second creating a fresh membership), a `Date.now()` suffix or a UUID can be used instead.
+
+---
+
+### WR-06: `deactivate_package` passes `Number(args.package_id)` without validation — `NaN` silently no-ops
+
+**File:** `src/onboarding/ai-owner-agent.ts:441`
+
+**Issue:**
+```typescript
+case 'deactivate_package': {
+  return withBusinessContext(business.id, () =>
+    handleDeactivatePackage(business.id, Number(args.package_id))
+  );
+}
+```
+If Gemini omits `package_id`, `args.package_id` is `undefined`; `Number(undefined)` is `NaN`. Drizzle generates `WHERE id = NaN`, which the Postgres driver may serialize as a malformed literal, producing an unexpected error caught by the try/catch in `handleDeactivatePackage`. The owner receives the generic "Δεν βρέθηκε ενεργό πακέτο" message with no indication of the real problem. Unlike `create_package`, which validates all args through `CreatePackageSchema`, `deactivate_package` has no Zod guard.
+
+**Fix:**
+```typescript
+const DeactivatePackageSchema = z.object({ package_id: z.number().int().positive() });
+
+case 'deactivate_package': {
+  const parsed = DeactivatePackageSchema.safeParse(args);
+  if (!parsed.success) return 'Μη έγκυρο ID πακέτου. Παρακαλώ δώσε τον αριθμό ID του πακέτου.';
+  return withBusinessContext(business.id, () =>
+    handleDeactivatePackage(business.id, parsed.data.package_id)
+  );
+}
+```
 
 ---
 
 ## Info
 
-### IN-01: Migration 0006 comment claims TIMESTAMP WITH TIME ZONE but DDL is TIMESTAMP (no TZ)
+### IN-01: Migration comment says `TIMESTAMP WITH TIME ZONE` but column DDL is `TIMESTAMP` (without time zone)
 
-**File:** `migrations/0006_billing_schema.sql:67`
+**File:** `migrations/0006_billing_schema.sql:67`, `src/database/schema.ts:285`
 
-```sql
-expires_at         TIMESTAMP NOT NULL,    -- TIMESTAMP WITH TIME ZONE (DST-safe)
-```
+**Issue:** The migration comment reads `-- TIMESTAMP WITH TIME ZONE (DST-safe)` and the schema.ts comment reads `// Phase 7: TIMESTAMP WITH TIME ZONE for DST-safe rolling expiry window`. Both are wrong: the DDL is `TIMESTAMP NOT NULL` (without time zone) and the Drizzle definition is `timestamp('expires_at').notNull()`, which also maps to `TIMESTAMP WITHOUT TIME ZONE`. On a UTC-configured Neon instance there is no functional difference because all values are stored as UTC. But the misleading comment will confuse any DBA or future developer working against the schema directly.
 
-The DDL uses `TIMESTAMP` (without time zone). The inline comment says "TIMESTAMP WITH TIME ZONE (DST-safe)". These are different Postgres types. In practice the application stores UTC values in this `TIMESTAMP WITHOUT TIME ZONE` column and always compares with `new Date()` (UTC), so behavior is correct — but the comment is wrong and will mislead any DBA or future developer working directly against the schema.
-
-**Fix:** Change the comment to match the DDL:
-```sql
-expires_at         TIMESTAMP NOT NULL,    -- stored in UTC; computed by athensEndOfDay()
-```
+**Fix:** Update both comments: `-- stored in UTC (without time zone); athensEndOfDay() handles offset before insert`.
 
 ---
 
-### IN-02: `billingPackages.isActive` schema default is `true` but production flow always inserts `false`
+### IN-02: `billingPackages.isActive` schema default is `true` — contradicts D-03 pending-confirmation flow
 
 **File:** `src/database/schema.ts:256`
 
+**Issue:**
 ```typescript
 isActive: boolean('is_active').notNull().default(true),
 ```
+`createPackage()` always explicitly sets `isActive: false` to enforce the D-03 pending flow. The schema default of `true` means any INSERT that omits `isActive` (test helpers, admin scripts, future tool handlers) creates an immediately-active package, bypassing confirmation. `billing-fixtures.ts` explicitly sets `isActive: true` in test setup, so it would not be affected by a default change.
 
-`createPackage()` always sets `isActive: false` for the D-03 pending-confirmation flow. The schema-level `default(true)` means any direct INSERT that omits `isActive` (e.g., in a test helper or admin script) creates an immediately-active package, bypassing the confirmation flow. This contradicts D-03.
-
-**Fix:** Change the schema default to `false` to match the intended pending state:
+**Fix:** Change to `default(false)` to make the safe state the default:
 ```typescript
 isActive: boolean('is_active').notNull().default(false),
 ```
-Update `billing-fixtures.ts` helper to pass `isActive: true` explicitly (it already does this via the `overrides?.isActive !== undefined ? overrides.isActive : true` pattern, which would continue to work correctly).
 
 ---
 
-### IN-03: `athensEndOfDay` is not covered by any test
+### IN-03: `athensEndOfDay` has no test coverage in `billing-dst-arithmetic.test.ts`
 
 **File:** `tests/billing-dst-arithmetic.test.ts`
 
-`billing-dst-arithmetic.test.ts` tests `addCalendarDays` across DST boundaries. The `athensEndOfDay` function introduced in this phase (as the WR-06 fix replacing the hardcoded +02:00 offset) has no tests. Given that the function has a server-timezone dependency (CR-02), a test that pins the expected UTC hour value would catch regressions and also document the intended behavior.
+**Issue:** The DST arithmetic test suite covers `addCalendarDays` across the 2024-10-27 Athens DST boundary but contains no assertions for `athensEndOfDay`, which was introduced in this phase as the WR-06 fix replacing hardcoded `+02:00`. Given that `athensEndOfDay` has a server-timezone dependency (CR-02), a test pinning the expected UTC hour value would both catch regressions and document the intended behavior.
 
-**Fix:** Add to `billing-dst-arithmetic.test.ts`:
+**Fix:**
 ```typescript
+import { athensEndOfDay } from '../src/billing/queries'; // or extract to utils/timezone
+
 describe('athensEndOfDay UTC hour assertions', () => {
   it('summer date (UTC+3): end-of-day is 20:59:59 UTC', () => {
     const result = athensEndOfDay('2024-07-01');
@@ -390,23 +415,6 @@ describe('athensEndOfDay UTC hour assertions', () => {
     expect(result.getUTCMinutes()).toBe(59);
   });
 });
-```
-
----
-
-### IN-04: `linkRescheduledBooking` idempotency key uses string concatenation, inconsistent with template-literal pattern
-
-**File:** `src/billing/queries.ts:497`
-
-```typescript
-idempotencyKey: 'booking:' + newBookingId + ':deduction',
-```
-
-All other idempotency keys in the same file use template literals (e.g., `` `${businessId}:${clientPhone}:payment_recorded:${purchaseDate}` ``, `` `booking:${booking.id}:credit` ``). Minor style inconsistency.
-
-**Fix:**
-```typescript
-idempotencyKey: `booking:${newBookingId}:deduction`,
 ```
 
 ---
