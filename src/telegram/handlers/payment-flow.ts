@@ -202,10 +202,26 @@ export async function handleConfirmMembership(
     return;
   }
 
-  // T-07-03: Wrap createMembership in withBusinessContext for RLS enforcement
-  const result = await withBusinessContext(businessId, () =>
-    createMembership(businessId, clientPhone, packageId)
-  );
+  // T-07-03: Wrap createMembership in withBusinessContext for RLS enforcement.
+  // CR-03: catch errors from createMembership (e.g. idempotency key conflict on
+  // same-day replay or double-tap) and send an error message to the owner so
+  // they receive feedback instead of a silent spinner disappearance.
+  let result: { memberId: number; expiresAtDate: string; sessionsRemaining: number | null };
+  try {
+    result = await withBusinessContext(businessId, () =>
+      createMembership(businessId, clientPhone, packageId)
+    );
+  } catch (err) {
+    logger.error(
+      { err, businessId, clientRelId, packageId },
+      'handleConfirmMembership: createMembership failed'
+    );
+    await sendTelegramMessage(
+      senderTelegramId,
+      'Σφάλμα κατά την καταγραφή πληρωμής. Ελέγξτε αν η συνδρομή ήδη υπάρχει και δοκιμάστε ξανά.'
+    );
+    return;
+  }
 
   const clientLabel = clientRel.clientName ?? clientPhone;
   await sendTelegramMessage(
