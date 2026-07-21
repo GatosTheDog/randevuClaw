@@ -19,6 +19,23 @@ import { getConn } from '../database/queries';
 import { isoDateInAthens, addCalendarDays } from '../utils/timezone';
 import { logger } from '../utils/logger';
 
+/**
+ * WR-06: Returns end-of-day (23:59:59) in the Europe/Athens timezone as a UTC Date,
+ * using the DST-aware offset for the given date rather than hardcoding +02:00 (winter only).
+ */
+function athensEndOfDay(isoDate: string): Date {
+  // Build 23:59:59 in local Athens time. toLocaleString with timeZone gives the
+  // Athens wall-clock representation; the offset is computed by comparing it to UTC.
+  const utcMidnight = new Date(`${isoDate}T00:00:00Z`);
+  const athensWallClock = new Date(
+    utcMidnight.toLocaleString('en-US', { timeZone: 'Europe/Athens' })
+  );
+  const offsetMs = utcMidnight.getTime() - athensWallClock.getTime();
+  // 23h 59m 59s in ms
+  const endOfDayLocalMs = new Date(`${isoDate}T23:59:59Z`).getTime();
+  return new Date(endOfDayLocalMs + offsetMs);
+}
+
 // ---------------------------------------------------------------------------
 // Exported TypeScript interfaces
 // ---------------------------------------------------------------------------
@@ -266,10 +283,8 @@ export async function createMembership(
     // Compute purchase date and expiry in Europe/Athens timezone (DST-safe)
     const purchaseDate = isoDateInAthens(new Date());
     const expiresAtDate = addCalendarDays(purchaseDate, pkg.validDays);
-    // End-of-day in Athens. +02:00 is the Athens winter offset (UTC+2).
-    // During Greek DST summer (UTC+3), this means the stored UTC timestamp is
-    // 1 hour later than strict end-of-day, which is acceptable for an expiry field.
-    const expiresAt = new Date(`${expiresAtDate}T23:59:59+02:00`);
+    // WR-06: DST-aware end-of-day in Europe/Athens (replaces hardcoded +02:00).
+    const expiresAt = athensEndOfDay(expiresAtDate);
 
     // Upsert membership — onConflictDoUpdate targets the partial unique index
     // unique_active_membership (business_id, client_phone) WHERE is_active = true (D-10)
@@ -643,9 +658,8 @@ export async function findMembershipsExpiringIn7Days(
   const now = new Date();
   const nowIso = isoDateInAthens(now);
   const sevenDaysFromNowIso = addCalendarDays(nowIso, 7);
-  // End-of-day in Athens (T23:59:59+02:00 matches the +02:00 offset used in
-  // createMembership to keep the window boundary stable during DST changes).
-  const windowEnd = new Date(`${sevenDaysFromNowIso}T23:59:59+02:00`);
+  // WR-06: DST-aware end-of-day in Europe/Athens (replaces hardcoded +02:00).
+  const windowEnd = athensEndOfDay(sevenDaysFromNowIso);
 
   return db
     .select({
