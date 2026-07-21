@@ -442,11 +442,13 @@ export async function deductSession(
   // Step 2: Idempotency guard — skip counter update if already deducted (D-12)
   if (inserted.length === 0) return;
 
-  // Step 3: Decrement counter only when a new ledger row was inserted
+  // Step 3: Decrement counter only when a new ledger row was inserted.
+  // WR-03: DB-level guard prevents counter going below zero if a future caller
+  // skips the capacity check that the current call chain enforces.
   await getConn()
     .update(memberships)
     .set({ sessionsRemaining: sql`${memberships.sessionsRemaining} - 1` })
-    .where(eq(memberships.id, membershipId));
+    .where(and(eq(memberships.id, membershipId), gt(memberships.sessionsRemaining, 0)));
 
   logger.info({ membershipId, bookingId, idempotencyKey }, 'Session deducted');
 }
