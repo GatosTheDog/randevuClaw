@@ -29,6 +29,7 @@ jest.mock('../src/billing/tools', () => ({
   handleListPackages: jest.fn().mockResolvedValue(''),
   handleDeactivatePackage: jest.fn().mockResolvedValue(''),
   handleViewClientMembership: jest.fn().mockResolvedValue(''),
+  handleSetEnforcementPolicy: jest.fn().mockResolvedValue(''),
 }));
 
 // Payment-flow handler — mock showClientSelection (record_payment case)
