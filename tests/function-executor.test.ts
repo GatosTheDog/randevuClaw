@@ -12,6 +12,7 @@ jest.mock('../src/calendar/sync');
 // Phase 8: mock billing queries so enforcement/deduction/restore functions do not reach real DB
 jest.mock('../src/billing/queries', () => ({
   getActiveMembershipForDeduction: jest.fn(),
+  getClientActiveMembership: jest.fn(),
   findMembershipByBooking: jest.fn(),
   deductSession: jest.fn(),
   restoreCredit: jest.fn(),
@@ -59,6 +60,10 @@ const mockedRestoreCredit = billingQueries.restoreCredit as jest.MockedFunction<
 const mockedGetClientName = billingQueries.getClientName as jest.MockedFunction<
   typeof billingQueries.getClientName
 >;
+// WR-01: getClientActiveMembership is used by checkMembershipBalanceTool (no FOR UPDATE lock)
+const mockedGetClientActiveMembership = billingQueries.getClientActiveMembership as jest.MockedFunction<
+  typeof billingQueries.getClientActiveMembership
+>;
 
 const BUSINESS: ToolContext['business'] = { id: 1, name: 'Pilates Athens', ownerTelegramId: '999' };
 const CONTEXT: ToolContext = { business: BUSINESS, clientPhone: 'c1', requestId: 'r1', idempotencyKey: 'ik1' };
@@ -100,6 +105,7 @@ describe('executeTool', () => {
     jest.clearAllMocks();
     // Phase 8: safe defaults — no membership exists; no deduction row; client name not registered
     mockedGetActiveMembership.mockResolvedValue(null);
+    mockedGetClientActiveMembership.mockResolvedValue(null);
     mockedFindMembershipByBooking.mockResolvedValue(null);
     mockedDeductSession.mockResolvedValue(undefined);
     mockedRestoreCredit.mockResolvedValue(undefined);
@@ -386,6 +392,7 @@ describe('Phase 8: enforcement + session deduction', () => {
     jest.clearAllMocks();
     // Phase 8: safe defaults — same as parent describe
     mockedGetActiveMembership.mockResolvedValue(null);
+    mockedGetClientActiveMembership.mockResolvedValue(null);
     mockedFindMembershipByBooking.mockResolvedValue(null);
     mockedDeductSession.mockResolvedValue(undefined);
     mockedRestoreCredit.mockResolvedValue(undefined);
@@ -513,13 +520,15 @@ describe('Phase 8: enforcement + session deduction', () => {
 
 // Phase 9: check_membership_balance tool — NOTF-04
 describe('check_membership_balance tool — NOTF-04', () => {
-  // Reset mock state between tests to prevent leakage
+  // Reset mock state between tests to prevent leakage.
+  // WR-01: uses mockedGetClientActiveMembership (no FOR UPDATE lock) instead of
+  // mockedGetActiveMembership — balance inquiry must not block concurrent booking requests.
   beforeEach(() => {
-    mockedGetActiveMembership.mockReset();
+    mockedGetClientActiveMembership.mockReset();
   });
 
-  it('returns no-membership Greek message when getActiveMembershipForDeduction returns null (D-08 scenario 1)', async () => {
-    mockedGetActiveMembership.mockResolvedValue(null);
+  it('returns no-membership Greek message when getClientActiveMembership returns null (D-08 scenario 1)', async () => {
+    mockedGetClientActiveMembership.mockResolvedValue(null);
 
     const result = await executeTool(
       'check_membership_balance',
@@ -533,13 +542,14 @@ describe('check_membership_balance tool — NOTF-04', () => {
     expect(result.message as string).toContain(BUSINESS.name);
   });
 
-  it('returns unlimited-sessions Greek message when sessionsRemaining is null (D-08 scenario 2)', async () => {
+  it('returns unlimited-sessions Greek message when isUnlimited is true (D-08 scenario 2)', async () => {
     // Noon UTC on 14/08/2026 = 15:00 Athens (UTC+3 DST) — unambiguously the same Athens calendar day.
     // Using 22:00 UTC would cross midnight in Athens (01:00 +03:00 = 15/08), producing '15/08/2026'.
-    mockedGetActiveMembership.mockResolvedValue({
-      id: 1,
+    mockedGetClientActiveMembership.mockResolvedValue({
+      packageName: 'Απεριόριστο Πακέτο',
       sessionsRemaining: null,
       expiresAt: new Date('2026-08-14T12:00:00Z'),
+      isUnlimited: true,
     });
 
     const result = await executeTool(
@@ -555,10 +565,11 @@ describe('check_membership_balance tool — NOTF-04', () => {
 
   it('returns counted-sessions Greek message with N remaining when sessionsRemaining is a number (D-08 scenario 3)', async () => {
     // Noon UTC — same DST-safe anchor as Test 2 (avoids midnight-in-Athens ambiguity).
-    mockedGetActiveMembership.mockResolvedValue({
-      id: 2,
+    mockedGetClientActiveMembership.mockResolvedValue({
+      packageName: 'Πακέτο 10 Μαθημάτων',
       sessionsRemaining: 5,
       expiresAt: new Date('2026-08-14T12:00:00Z'),
+      isUnlimited: false,
     });
 
     const result = await executeTool(

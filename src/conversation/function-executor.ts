@@ -15,7 +15,7 @@ import { checkAvailability } from '../business/availability';
 import { sendTelegramMessage, sendTelegramMessageWithKeyboard } from '../telegram/client';
 import { deleteBookingFromCalendar } from '../calendar/sync';
 import { logger } from '../utils/logger';
-import { getActiveMembershipForDeduction, deductSession, getClientName, findMembershipByBooking, restoreCredit, ActiveMembershipForDeduction } from '../billing/queries';
+import { getActiveMembershipForDeduction, getClientActiveMembership, deductSession, getClientName, findMembershipByBooking, restoreCredit, ActiveMembershipForDeduction } from '../billing/queries';
 import { formatExpiryDateGreek } from '../utils/timezone';
 
 export interface ToolContext {
@@ -364,13 +364,17 @@ async function listClientBookingsTool(
 // NOTF-04: check_membership_balance — returns client's membership state in Greek.
 // clientPhone is always sourced from context (Telegram from.id) — never from
 // Gemini args — preventing cross-client balance inspection (T-09-05).
+//
+// WR-01: uses getClientActiveMembership (plain SELECT, no FOR UPDATE lock) instead of
+// getActiveMembershipForDeduction — balance inquiry has no mutation to serialize and must
+// not acquire an exclusive row-level lock that would block concurrent booking requests.
 async function checkMembershipBalanceTool(
   args: Record<string, unknown>,
   context: ToolContext
 ): Promise<Record<string, unknown>> {
   CheckMembershipBalanceArgsSchema.parse(args);
 
-  const membership = await getActiveMembershipForDeduction(context.business.id, context.clientPhone);
+  const membership = await getClientActiveMembership(context.business.id, context.clientPhone);
 
   if (membership === null) {
     return {
@@ -379,7 +383,7 @@ async function checkMembershipBalanceTool(
     };
   }
 
-  if (membership.sessionsRemaining === null) {
+  if (membership.isUnlimited) {
     return {
       success: true,
       message: 'Η συνδρομή σας είναι απεριόριστων μαθημάτων και λήγει στις ' + formatExpiryDateGreek(membership.expiresAt) + '.',
