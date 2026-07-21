@@ -241,7 +241,7 @@ export async function handleCancelPackage(
     return;
   }
 
-  await cancelPendingPackage(pendingPackageId);
+  await cancelPendingPackage(businessId, pendingPackageId);
   await sendTelegramMessage(senderTelegramId, '❌ Ακυρώθηκε η δημιουργία πακέτου.');
 }
 
@@ -267,6 +267,6 @@ export async function handleConfirmPackage(
     return;
   }
 
-  await withBusinessContext(businessId, () => activatePackage(pendingPackageId));
+  await withBusinessContext(businessId, () => activatePackage(businessId, pendingPackageId));
   await sendTelegramMessage(senderTelegramId, '✅ Πακέτο ενεργοποιήθηκε επιτυχώς!');
 }

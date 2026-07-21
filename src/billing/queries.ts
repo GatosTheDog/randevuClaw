@@ -94,12 +94,14 @@ export async function createPackage(
 /**
  * Activates a pending (isActive=false) package. Returns true if a row was
  * updated, false if the package was already active or does not exist.
+ *
+ * WR-04: businessId required as ownership guard — matches deactivatePackage pattern.
  */
-export async function activatePackage(packageId: number): Promise<boolean> {
-  const rows = await db
+export async function activatePackage(businessId: number, packageId: number): Promise<boolean> {
+  const rows = await getConn()
     .update(billingPackages)
     .set({ isActive: true })
-    .where(and(eq(billingPackages.id, packageId), eq(billingPackages.isActive, false)))
+    .where(and(eq(billingPackages.id, packageId), eq(billingPackages.businessId, businessId), eq(billingPackages.isActive, false)))
     .returning({ id: billingPackages.id });
   return rows.length > 0;
 }
@@ -107,11 +109,13 @@ export async function activatePackage(packageId: number): Promise<boolean> {
 /**
  * Deletes a pending (isActive=false) package. No-op if the package is already
  * active or does not exist. Used in the D-03 cancel-confirmation path.
+ *
+ * WR-04: businessId required as ownership guard — matches deactivatePackage pattern.
  */
-export async function cancelPendingPackage(packageId: number): Promise<void> {
-  await db
+export async function cancelPendingPackage(businessId: number, packageId: number): Promise<void> {
+  await getConn()
     .delete(billingPackages)
-    .where(and(eq(billingPackages.id, packageId), eq(billingPackages.isActive, false)));
+    .where(and(eq(billingPackages.id, packageId), eq(billingPackages.businessId, businessId), eq(billingPackages.isActive, false)));
 }
 
 /**
