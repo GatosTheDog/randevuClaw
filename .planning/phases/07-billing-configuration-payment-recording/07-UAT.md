@@ -1,9 +1,9 @@
 ---
-status: diagnosed
+status: resolved
 phase: 07-billing-configuration-payment-recording
 source: [07-01-SUMMARY.md, 07-02-SUMMARY.md, 07-03-SUMMARY.md, 07-04-SUMMARY.md, 07-05-SUMMARY.md]
 started: 2026-07-21T15:41:25Z
-updated: 2026-07-21T16:06:00Z
+updated: 2026-07-21T18:30:00Z
 ---
 
 ## Current Test
@@ -80,7 +80,7 @@ blocked: 0
 
 - gap_id: G-07-6
   truth: "record_payment flow shows client selection keyboard even when no bookings exist in last 30 days (or shows a useful fallback)"
-  status: failed
+  status: resolved
   reason: "User reported: bot replied no clients with appointments in last 30 days and flow aborted — no client keyboard, no fallback path. getRecentClientsForBusiness returned empty."
   severity: major
   test: 6
@@ -96,7 +96,7 @@ blocked: 0
 
 - gap_id: G-07-5
   truth: "deactivate_package deactivates the package the owner named, not a different one"
-  status: failed
+  status: resolved
   reason: "User reported: bot confirmed Test Package 10 Sessions deactivated but that package still appeared in list; Paketo 10 synedrion (different package) was removed instead"
   severity: major
   test: 5
@@ -113,7 +113,7 @@ blocked: 0
 
 - gap_id: G-07-2
   truth: "Ναι/Όχι keyboard is dismissed from the confirmation message after owner taps either button"
-  status: failed
+  status: resolved
   reason: "User reported: package was created successfully but the yes no button did not go away — keyboard remains on the confirmation message after action"
   severity: major
   test: 2
