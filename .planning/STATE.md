@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Billing & Membership System
-current_phase: 9
-current_phase_name: Expiry Notifications & Client Balance
-status: planning
-stopped_at: Phase 9 context gathered
-last_updated: "2026-07-21T08:12:10.799Z"
-last_activity: 2026-07-20
-last_activity_desc: Phase 08 complete, transitioned to Phase 9
+current_phase: 09
+current_phase_name: expiry-notifications-client-balance
+status: executing
+stopped_at: Completed 09-01-PLAN.md (schema foundation + test scaffolding)
+last_updated: "2026-07-21T09:08:42.864Z"
+last_activity: 2026-07-21
+last_activity_desc: Phase 09 execution started
 progress:
   total_phases: 6
   completed_phases: 1
-  total_plans: 11
-  completed_plans: 10
+  total_plans: 14
+  completed_plans: 11
   percent: 17
 ---
 
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-17 after v1.1 milestone close)
 
 **Core value:** A client can book or cancel an appointment with a Greek business entirely through a chat conversation, in Greek, with zero friction — and the owner's calendar updates automatically.
-**Current focus:** Phase 08 — enforcement-session-deduction
+**Current focus:** Phase 09 — expiry-notifications-client-balance
 
 ## Current Position
 
-Phase: 9 — Expiry Notifications & Client Balance
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-07-20 — Phase 08 complete, transitioned to Phase 9
+Phase: 09 (expiry-notifications-client-balance) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
+Last activity: 2026-07-21 — Phase 09 execution started
 
 ## Performance Metrics
 
@@ -88,6 +88,7 @@ Last activity: 2026-07-20 — Phase 08 complete, transitioned to Phase 9
 | Phase 08 P03 | 7 | 3 tasks | 2 files |
 | Phase 08 P04 | 5 | 3 tasks | 5 files |
 | Phase 08 P05 | 8 | 2 tasks | 3 files |
+| Phase 09 P01 | 8 | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -175,6 +176,9 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 08-04]: jest.mock factory used for billing/queries in tests — guarantees invocationCallOrder is available for ENFC-03 ordering assertion
 - [Phase ?]: [Phase 08-05]: handleSetEnforcementPolicy returns plain string — no confirmation keyboard needed, policy update is idempotent
 - [Phase ?]: [Phase 08-05]: set_enforcement_policy case wrapped in withBusinessContext for RLS tenant isolation (T-08-12)
+- [Phase ?]: D-04: UNIQUE INDEX on (membership_id, notification_type, expiry_date) — unconditional dedup, no partial WHERE
+- [Phase ?]: D-05: notification_type stores '7_day_client' or '7_day_owner' for per-recipient dedup granularity
+- [Phase ?]: D-09: formatExpiryDateGreek uses Intl.DateTimeFormat en-GB / Europe/Athens for DD/MM/YYYY output
 
 ### Pending Todos
 
@@ -221,9 +225,9 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-07-09:
 
 ## Session Continuity
 
-Last session: 2026-07-21T08:12:10.791Z
-Stopped at: Phase 9 context gathered
-Resume file: .planning/phases/09-expiry-notifications-client-balance/09-CONTEXT.md
+Last session: 2026-07-21T09:08:42.856Z
+Stopped at: Completed 09-01-PLAN.md (schema foundation + test scaffolding)
+Resume file: .planning/phases/09-expiry-notifications-client-balance/09-02-PLAN.md
 
 ## Operator Next Steps
 

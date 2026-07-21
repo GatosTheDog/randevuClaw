@@ -35,10 +35,10 @@
 
 ### NOTF — Billing Notifications
 
-- [ ] **NOTF-01**: Bot notifies client in Greek 7 days before their membership expires
-- [ ] **NOTF-02**: Bot notifies owner 7 days before any client's membership expires
-- [ ] **NOTF-03**: Expiry notifications are sent at most once per membership (dedup via notification log with UNIQUE constraint)
-- [ ] **NOTF-04**: Client can query their own balance via chat ("πόσα μαθήματα μου έχουν απομείνει;") and receive a Greek reply with sessions remaining and expiry date
+- [x] **NOTF-01**: Bot notifies client in Greek 7 days before their membership expires
+- [x] **NOTF-02**: Bot notifies owner 7 days before any client's membership expires
+- [x] **NOTF-03**: Expiry notifications are sent at most once per membership (dedup via notification log with UNIQUE constraint)
+- [x] **NOTF-04**: Client can query their own balance via chat ("πόσα μαθήματα μου έχουν απομείνει;") and receive a Greek reply with sessions remaining and expiry date
 
 ---
 
@@ -94,10 +94,10 @@
 | ENFC-01 | Phase 8 | Complete | TBD |
 | ENFC-02 | Phase 8 | Complete | TBD |
 | ENFC-03 | Phase 8 | Complete | TBD |
-| NOTF-01 | Phase 9 | Pending | TBD |
-| NOTF-02 | Phase 9 | Pending | TBD |
-| NOTF-03 | Phase 9 | Pending | TBD |
-| NOTF-04 | Phase 9 | Pending | TBD |
+| NOTF-01 | Phase 9 | Complete | TBD |
+| NOTF-02 | Phase 9 | Complete | TBD |
+| NOTF-03 | Phase 9 | Complete | TBD |
+| NOTF-04 | Phase 9 | Complete | TBD |
 
 **Coverage:**
 

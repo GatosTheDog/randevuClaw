@@ -188,11 +188,11 @@ Plans:
   2. Expiry notifications are sent at most once per membership per notification trigger regardless of how many times the expiry sweep runs — duplicate notifications never reach clients or owners.
   3. A client sends a Greek balance query (e.g. "πόσα μαθήματα μου έχουν απομείνει;") and receives an accurate Greek reply with sessions remaining and the membership expiry date for their active membership.
 
-**Plans**: 3 plans
+**Plans**: 1/3 plans executed
 Plans:
 **Wave 1**
 
-- [ ] 09-01-PLAN.md — Wave 0: Schema (membershipExpiryNotifications table), migration SQL, formatExpiryDateGreek utility, test scaffolding (10 it.todo stubs)
+- [x] 09-01-PLAN.md — Wave 0: Schema (membershipExpiryNotifications table), migration SQL, formatExpiryDateGreek utility, test scaffolding (10 it.todo stubs)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -214,4 +214,4 @@ Plans:
 | 6. GDPR Compliance & Rate-Limit Resilience | v1.3 | 0/TBD | Deferred | - |
 | 7. Billing Configuration & Payment Recording | v1.2 | 5/5 | In Progress|  |
 | 8. Enforcement & Session Deduction | v1.2 | 5/5 | Complete    | 2026-07-20 |
-| 9. Expiry Notifications & Client Balance | v1.2 | 0/TBD | Not started | - |
+| 9. Expiry Notifications & Client Balance | v1.2 | 1/3 | In Progress|  |
