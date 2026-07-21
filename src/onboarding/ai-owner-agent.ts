@@ -1,4 +1,5 @@
 import { eq } from 'drizzle-orm';
+import { z } from 'zod';
 import { GoogleGenAI } from '@google/genai';
 import { config } from '../config';
 import { db } from '../database/db';
@@ -435,10 +436,18 @@ async function executeOwnerTool(
     }
 
     case 'deactivate_package': {
+      // WR-06: validate package_id before calling handleDeactivatePackage.
+      // Number(undefined) = NaN, which Drizzle serialises as a malformed literal,
+      // producing a confusing DB error rather than a user-visible message.
+      const DeactivatePackageSchema = z.object({ package_id: z.number().int().positive() });
+      const parsedDeactivate = DeactivatePackageSchema.safeParse(args);
+      if (!parsedDeactivate.success) {
+        return 'Μη έγκυρο ID πακέτου. Παρακαλώ δώσε τον αριθμό ID του πακέτου.';
+      }
       // WR-01: wrap in withBusinessContext so RLS enforcement prevents cross-tenant
       // deactivation — mirrors the pattern used by list_packages and view_client_membership
       return withBusinessContext(business.id, () =>
-        handleDeactivatePackage(business.id, Number(args.package_id))
+        handleDeactivatePackage(business.id, parsedDeactivate.data.package_id)
       );
     }
 
