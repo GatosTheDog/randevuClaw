@@ -295,9 +295,10 @@ describe('payment recording flow', () => {
         'cb-query-id-1'
       );
 
-      // answerCallbackQuery should still fire (spinner dismiss)
-      expect(mockAnswerCallback).toHaveBeenCalledWith('cb-query-id-1');
-      // But NO membership was created — ownership mismatch prevented mutation
+      // WR-02: answerCallbackQuery is now called by the outer handleCallbackQuery
+      // dispatcher (telegram.ts), NOT by these handlers. Handlers must NOT call it.
+      expect(mockAnswerCallback).not.toHaveBeenCalled();
+      // NO membership was created — ownership mismatch prevented mutation
       expect(mockCreateMembership).not.toHaveBeenCalled();
       // And NO success message was sent
       expect(mockSendMessage).not.toHaveBeenCalled();
@@ -309,7 +310,8 @@ describe('payment recording flow', () => {
 
       await handleConfirmMembership(BUSINESS_ID, 10, 5, 'unknown-sender', 'cb-query-id-2');
 
-      expect(mockAnswerCallback).toHaveBeenCalledWith('cb-query-id-2');
+      // WR-02: answerCallbackQuery is called by the outer dispatcher, not here.
+      expect(mockAnswerCallback).not.toHaveBeenCalled();
       expect(mockCreateMembership).not.toHaveBeenCalled();
     });
 
@@ -346,7 +348,8 @@ describe('payment recording flow', () => {
 
       await handleConfirmMembership(BUSINESS_ID, 10, 5, OWNER_TELEGRAM_ID, 'cb-query-id-3');
 
-      expect(mockAnswerCallback).toHaveBeenCalledWith('cb-query-id-3');
+      // WR-02: answerCallbackQuery is called by the outer dispatcher, not here.
+      expect(mockAnswerCallback).not.toHaveBeenCalled();
       expect(mockCreateMembership).toHaveBeenCalledWith(BUSINESS_ID, '+306900000001', 5);
       expect(mockSendMessage).toHaveBeenCalledWith(
         OWNER_TELEGRAM_ID,
@@ -368,7 +371,9 @@ describe('payment recording flow', () => {
 
       await handleCancelPackage(77, BUSINESS_ID, 'non-owner', 'cb-cancel-1');
 
-      expect(mockAnswerCallback).toHaveBeenCalledWith('cb-cancel-1');
+      // WR-02: answerCallbackQuery is called by the outer dispatcher (telegram.ts),
+      // not by these handlers. Verify it is NOT called from within the handler.
+      expect(mockAnswerCallback).not.toHaveBeenCalled();
       const mockCancelPending = billingQueries.cancelPendingPackage as jest.Mock;
       expect(mockCancelPending).not.toHaveBeenCalled();
     });

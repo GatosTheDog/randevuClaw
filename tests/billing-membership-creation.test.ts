@@ -97,38 +97,37 @@ describe('membership creation with rolling expiry', () => {
     expect(ledgerRows[0].reason).toBe('Payment recorded by owner');
 
     const expectedPurchaseDate = isoDateInAthens(new Date());
-    const expectedIdempotencyKey = `${businessId}:${client}:payment_recorded:${expectedPurchaseDate}`;
+    // WR-05: idempotency key now includes memberId to allow same-day renewals
+    // that produce a new membership row (different memberId = different key).
+    const expectedIdempotencyKey = `${businessId}:${client}:payment_recorded:${expectedPurchaseDate}:${result.memberId}`;
     expect(ledgerRows[0].idempotencyKey).toBe(expectedIdempotencyKey);
   });
 
   it('idempotency_key prevents duplicate membership_ledger rows on replay', async () => {
     const uniqueClient = `idempotency-test-${Date.now()}`;
 
-    // First call succeeds
-    await withBusinessContext(businessId, () =>
+    // First call succeeds — capture memberId for key lookup below
+    const firstResult = await withBusinessContext(businessId, () =>
       createMembership(businessId, uniqueClient, packageId)
     );
 
     // Second call on the same day hits the UNIQUE constraint on idempotencyKey.
-    // The membership is upserted (onConflictDoUpdate on the membership row),
-    // but the ledger INSERT fails on the UNIQUE idempotencyKey constraint,
-    // causing the entire transaction to roll back (T-07-04).
+    // onConflictDoUpdate returns the SAME memberId (row is updated in-place),
+    // so the key `...:${purchaseDate}:${memberId}` is identical and the ledger
+    // INSERT fails — the entire transaction rolls back (T-07-04, WR-05).
     await expect(
       withBusinessContext(businessId, () =>
         createMembership(businessId, uniqueClient, packageId)
       )
     ).rejects.toThrow();
 
-    // Verify only one ledger row exists (the first call's row)
+    // Verify only one ledger row exists (the first call's row).
+    // WR-05: key now includes memberId; use firstResult.memberId for the lookup.
+    const expectedKey = `${businessId}:${uniqueClient}:payment_recorded:${isoDateInAthens(new Date())}:${firstResult.memberId}`;
     const ledgerRows = await db
       .select()
       .from(membershipLedger)
-      .where(
-        eq(
-          membershipLedger.idempotencyKey,
-          `${businessId}:${uniqueClient}:payment_recorded:${isoDateInAthens(new Date())}`
-        )
-      );
+      .where(eq(membershipLedger.idempotencyKey, expectedKey));
     expect(ledgerRows).toHaveLength(1);
   });
 
