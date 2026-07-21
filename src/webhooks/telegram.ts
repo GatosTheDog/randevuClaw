@@ -28,6 +28,7 @@ import {
   showMembershipConfirmation,
 } from '../telegram/handlers/payment-flow';
 import { findMembershipByBooking, restoreCredit } from '../billing/queries';
+import { isoDateInAthens } from '../utils/timezone';
 
 interface TelegramFrom {
   id: number;
@@ -65,7 +66,11 @@ async function handleFoundBusiness(
     // owner management agent (not the client booking AI). Identity check only —
     // no keyword gating — so the owner is recognized from their very first message.
     if (business.ownerTelegramId === senderTelegramId) {
-      const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD UTC; close enough for schedule view
+      // WR-04: use Athens calendar date instead of UTC slice — between midnight
+      // and 02:00–03:00 Athens time, UTC would still be "yesterday", causing
+      // the AI agent to show the wrong day's schedule and use the wrong date
+      // for NLU about "today's" bookings or packages.
+      const today = isoDateInAthens(new Date());
       const reply = await aiOwnerAgent(business, senderTelegramId, messageText, today);
       // D-03/D-08: tools that send their own keyboards (create_package, record_payment)
       // return '' to signal that no additional reply should be sent. Skip empty replies.
