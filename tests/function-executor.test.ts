@@ -511,11 +511,74 @@ describe('Phase 8: enforcement + session deduction', () => {
   });
 });
 
-// Phase 9: check_membership_balance tool stubs — NOTF-04
-// These stubs will be implemented in Plan 02 when checkMembershipBalanceTool is built.
+// Phase 9: check_membership_balance tool — NOTF-04
 describe('check_membership_balance tool — NOTF-04', () => {
-  it.todo('returns no-membership Greek message when getActiveMembershipForDeduction returns null (D-08 scenario 1)');
-  it.todo('returns unlimited-sessions Greek message when sessionsRemaining is null (D-08 scenario 2)');
-  it.todo('returns counted-sessions Greek message with N remaining when sessionsRemaining is a number (D-08 scenario 3)');
-  it.todo('returns cross_tenant_denied when args.business_id differs from context.business.id');
+  // Reset mock state between tests to prevent leakage
+  beforeEach(() => {
+    mockedGetActiveMembership.mockReset();
+  });
+
+  it('returns no-membership Greek message when getActiveMembershipForDeduction returns null (D-08 scenario 1)', async () => {
+    mockedGetActiveMembership.mockResolvedValue(null);
+
+    const result = await executeTool(
+      'check_membership_balance',
+      { business_id: BUSINESS.id },
+      CONTEXT
+    );
+
+    expect(result.success).toBe(true);
+    expect(typeof result.message).toBe('string');
+    expect(result.message as string).toContain('Δεν βρέθηκε ενεργή συνδρομή');
+    expect(result.message as string).toContain(BUSINESS.name);
+  });
+
+  it('returns unlimited-sessions Greek message when sessionsRemaining is null (D-08 scenario 2)', async () => {
+    // Noon UTC on 14/08/2026 = 15:00 Athens (UTC+3 DST) — unambiguously the same Athens calendar day.
+    // Using 22:00 UTC would cross midnight in Athens (01:00 +03:00 = 15/08), producing '15/08/2026'.
+    mockedGetActiveMembership.mockResolvedValue({
+      id: 1,
+      sessionsRemaining: null,
+      expiresAt: new Date('2026-08-14T12:00:00Z'),
+    });
+
+    const result = await executeTool(
+      'check_membership_balance',
+      { business_id: BUSINESS.id },
+      CONTEXT
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.message as string).toContain('απεριόριστων μαθημάτων');
+    expect(result.message as string).toContain('14/08/2026');
+  });
+
+  it('returns counted-sessions Greek message with N remaining when sessionsRemaining is a number (D-08 scenario 3)', async () => {
+    // Noon UTC — same DST-safe anchor as Test 2 (avoids midnight-in-Athens ambiguity).
+    mockedGetActiveMembership.mockResolvedValue({
+      id: 2,
+      sessionsRemaining: 5,
+      expiresAt: new Date('2026-08-14T12:00:00Z'),
+    });
+
+    const result = await executeTool(
+      'check_membership_balance',
+      { business_id: BUSINESS.id },
+      CONTEXT
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.message as string).toContain('5 μαθήματα απομείνει');
+    expect(result.message as string).toContain('14/08/2026');
+  });
+
+  it('returns cross_tenant_denied when args.business_id differs from context.business.id', async () => {
+    const result = await executeTool(
+      'check_membership_balance',
+      { business_id: 9999 },
+      CONTEXT // CONTEXT.business.id is 1, not 9999
+    );
+
+    expect(result).toEqual({ error: 'cross_tenant_denied' });
+  });
 });
