@@ -126,7 +126,7 @@ Plans:
   4. Owner deactivates a package via chat; it no longer appears in new payment flows while all existing memberships with that package remain intact.
   5. Owner queries a specific client's membership via chat and receives a Greek reply showing package name, sessions remaining, and membership expiry date.
 
-**Plans**: 5/5 plans executed
+**Plans**: 7 plans (5 original + 2 gap closure)
 Plans:
 **Wave 1**
 
@@ -144,6 +144,11 @@ Plans:
 **Wave 4** *(blocked on Wave 3 completion)*
 
 - [x] 07-05-PLAN.md — Wave 4: NLU integration (ai-owner-agent.ts) + callback routing (telegram.ts)
+
+**Gap Closure Wave 1** *(parallel — no shared files)*
+
+- [ ] 07-06-PLAN.md — [GAP G-07-5, G-07-6] Fix deactivate_package name-based lookup + payment flow fallback to all-time clients
+- [ ] 07-07-PLAN.md — [GAP G-07-2] Clear billing keyboard after terminal confirmation taps
 
 ### Phase 8: Enforcement & Session Deduction
 
