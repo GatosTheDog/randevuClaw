@@ -26,7 +26,6 @@ import {
 import {
   sendTelegramMessageWithKeyboard,
   sendTelegramMessage,
-  answerCallbackQuery,
   InlineKeyboard,
 } from '../client';
 import { logger } from '../../utils/logger';
@@ -163,7 +162,11 @@ export async function showMembershipConfirmation(
 /**
  * Confirms membership creation after owner taps Ναι.
  * Ownership is validated (T-07-01) before any DB mutation.
- * answerCallbackQuery is called first to dismiss the Telegram spinner.
+ *
+ * NOTE: caller (handleCallbackQuery in telegram.ts) has already called
+ * answerCallbackQuery to dismiss the Telegram spinner. Do NOT call it again
+ * here — a second call with the same callback query ID produces a Telegram
+ * API error (WR-02).
  */
 export async function handleConfirmMembership(
   businessId: number,
@@ -172,8 +175,6 @@ export async function handleConfirmMembership(
   senderTelegramId: string,
   callbackQueryId: string
 ): Promise<void> {
-  // Dismiss Telegram spinner before any work (patterns.md Pattern 2)
-  await answerCallbackQuery(callbackQueryId);
 
   // T-07-01: Validate senderTelegramId is the owner before any mutation
   const ownerBusiness = await findBusinessByOwnerTelegramId(senderTelegramId);
@@ -239,6 +240,9 @@ export async function handleConfirmMembership(
 /**
  * Cancels (deletes) a pending package after owner taps Όχι on the D-03 confirmation.
  * Ownership validated before deletion (T-07-01).
+ *
+ * NOTE: caller (handleCallbackQuery in telegram.ts) has already called
+ * answerCallbackQuery. Do NOT call it again here (WR-02).
  */
 export async function handleCancelPackage(
   pendingPackageId: number,
@@ -246,8 +250,6 @@ export async function handleCancelPackage(
   senderTelegramId: string,
   callbackQueryId: string
 ): Promise<void> {
-  await answerCallbackQuery(callbackQueryId);
-
   // T-07-01: validate senderTelegramId is the owner
   const ownerBusiness = await findBusinessByOwnerTelegramId(senderTelegramId);
   if (!ownerBusiness || ownerBusiness.id !== businessId) {
@@ -265,6 +267,9 @@ export async function handleCancelPackage(
 /**
  * Activates a pending package after owner taps Ναι on the D-03 confirmation.
  * Ownership validated before activation (T-07-01).
+ *
+ * NOTE: caller (handleCallbackQuery in telegram.ts) has already called
+ * answerCallbackQuery. Do NOT call it again here (WR-02).
  */
 export async function handleConfirmPackage(
   pendingPackageId: number,
@@ -272,8 +277,6 @@ export async function handleConfirmPackage(
   senderTelegramId: string,
   callbackQueryId: string
 ): Promise<void> {
-  await answerCallbackQuery(callbackQueryId);
-
   // T-07-01: validate senderTelegramId is the owner
   const ownerBusiness = await findBusinessByOwnerTelegramId(senderTelegramId);
   if (!ownerBusiness || ownerBusiness.id !== businessId) {
