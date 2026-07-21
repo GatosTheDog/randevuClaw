@@ -3,12 +3,13 @@
 // through this module. Read functions use getConn() for RLS-enforced connections
 // (T-07-03); write mutations in createMembership use db.transaction() for atomicity.
 
-import { and, desc, eq, gt, gte, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, gte, lte, sql } from 'drizzle-orm';
 import { db } from '../database/db';
 import {
   billingPackages,
   memberships,
   membershipLedger,
+  membershipExpiryNotifications,
   clientBusinessRelationships,
   bookings,
   services,
@@ -573,4 +574,82 @@ export async function getClientActiveMembership(
     expiresAt: rows[0].expiresAt,
     isUnlimited: rows[0].sessionsRemaining === null,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Phase 9: Membership expiry notification queries (NOTF-01, NOTF-02, NOTF-03)
+// ---------------------------------------------------------------------------
+
+/**
+ * Shape of a membership row returned by the 7-day expiry sweep (NOTF-01).
+ * Consumed by runMembershipExpirySweep in Plan 03.
+ */
+export interface ExpiringMembership {
+  id: number;
+  clientPhone: string;
+  businessId: number;
+  expiresAt: Date;
+  sessionsRemaining: number | null;
+}
+
+/**
+ * Returns all active memberships for a business that expire within the next
+ * 7 Athens calendar days (exclusive of already-expired memberships).
+ *
+ * Uses db (not getConn()) — this is a sweep-context read outside any
+ * withBusinessContext transaction; RLS scoping is not needed here because
+ * businessId is already applied in the WHERE clause (T-09-07).
+ *
+ * DST safety: isoDateInAthens + addCalendarDays compute the window boundary
+ * in the Europe/Athens timezone, avoiding off-by-one on DST transitions.
+ */
+export async function findMembershipsExpiringIn7Days(
+  businessId: number
+): Promise<ExpiringMembership[]> {
+  const now = new Date();
+  const nowIso = isoDateInAthens(now);
+  const sevenDaysFromNowIso = addCalendarDays(nowIso, 7);
+  // End-of-day in Athens (T23:59:59+02:00 matches the +02:00 offset used in
+  // createMembership to keep the window boundary stable during DST changes).
+  const windowEnd = new Date(`${sevenDaysFromNowIso}T23:59:59+02:00`);
+
+  return db
+    .select({
+      id: memberships.id,
+      clientPhone: memberships.clientPhone,
+      businessId: memberships.businessId,
+      expiresAt: memberships.expiresAt,
+      sessionsRemaining: memberships.sessionsRemaining,
+    })
+    .from(memberships)
+    .where(
+      and(
+        eq(memberships.businessId, businessId),
+        eq(memberships.isActive, true),
+        lte(memberships.expiresAt, windowEnd),
+        gt(memberships.expiresAt, now) // exclude already-expired memberships (RESEARCH.md OQ-3)
+      )
+    );
+}
+
+/**
+ * Inserts a dedup row into membership_expiry_notifications. Returns true if
+ * the row was newly inserted (notification should be sent), false if the
+ * UNIQUE constraint fired (already notified — skip).
+ *
+ * Uses db (not getConn()) — dedup inserts happen from the sweep, outside any
+ * withBusinessContext transaction (T-09-06).
+ */
+export async function insertMembershipExpiryNotification(
+  membershipId: number,
+  notificationType: '7_day_client' | '7_day_owner',
+  expiryDate: string
+): Promise<boolean> {
+  const result = await db
+    .insert(membershipExpiryNotifications)
+    .values({ membershipId, notificationType, expiryDate })
+    .onConflictDoNothing()
+    .returning({ id: membershipExpiryNotifications.id });
+
+  return result.length > 0;
 }
