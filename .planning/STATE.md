@@ -5,15 +5,15 @@ milestone_name: Studio Session Scheduling & Slotless Bookings
 current_phase: 10
 current_phase_name: session-catalog-schema
 status: executing
-stopped_at: Completed 10-01-PLAN.md
-last_updated: "2026-07-22T23:04:20.956Z"
+stopped_at: Completed 10-05-PLAN.md
+last_updated: "2026-07-22T23:15:01.673Z"
 last_activity: 2026-07-22
 last_activity_desc: Phase 10 execution started
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 6
-  completed_plans: 4
+  completed_plans: 5
   percent: 0
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-22 after v1.2 milestone close)
 ## Current Position
 
 Phase: 10 (session-catalog-schema) — EXECUTING
-Plan: 4 of 6
+Plan: 5 of 6
 Status: Ready to execute
 Last activity: 2026-07-22 — Phase 10 execution started
 
@@ -107,6 +107,7 @@ Phase 15: [ ] Not started
 | Phase 10-session-catalog-schema P10-01 | 42 | 2 tasks | 7 files |
 | Phase 10-session-catalog-schema P03 | 13 | 2 tasks | 5 files |
 | Phase 10 P04 | 6 minutes | 2 tasks | 1 files |
+| Phase 10 P05 | 350s | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -217,6 +218,7 @@ Recent decisions affecting current work:
 - [Roadmap v1.3]: Cancellation cutoff uses isoDateInAthens() for wall-clock comparison — never raw UTC offset arithmetic (DST-safe, proven v1.2)
 - [Roadmap v1.3]: Mass renewal broadcast is owner-approval-gated — sweep finds near-expiry clients, owner reviews list, no send until owner confirms
 - [Phase ?]: Used Jest globals without explicit imports — project uses Jest 29 with ts-jest, no vitest import needed
+- [Phase ?]: session-cancellation poller follows startXxxPoller pattern; registered in server.ts not index.ts
 
 ### Pending Todos
 
@@ -279,8 +281,8 @@ Items acknowledged and deferred at v1.2 milestone close on 2026-07-22:
 
 ## Session Continuity
 
-Last session: 2026-07-22T23:04:20.945Z
-Stopped at: Completed 10-01-PLAN.md
+Last session: 2026-07-22T23:15:01.663Z
+Stopped at: Completed 10-05-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
