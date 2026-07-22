@@ -498,3 +498,31 @@ export const slotlessRequests = pgTable(
       .where(sql`status = 'pending'`),
   ]
 );
+
+/**
+ * Phase 10 (CLSS-03): dedup table preventing duplicate cancellation broadcasts
+ * on poller re-run. One row per cancelled session instance (not per client — the
+ * broadcast covers all clients in one batch). Pattern: membershipExpiryNotifications.
+ *
+ * UNIQUE on sessionInstanceId: onConflictDoNothing on insert guarantees the poller
+ * only sends the notification batch once per cancelled instance, even on concurrent
+ * or repeated runs.
+ */
+export const sessionCancellationNotifications = pgTable(
+  'session_cancellation_notifications',
+  {
+    id: serial('id').primaryKey(),
+    // The cancelled session instance that was notified.
+    sessionInstanceId: integer('session_instance_id')
+      .notNull()
+      .references(() => sessionInstances.id),
+    // When the notification batch was sent.
+    sentAt: timestamp('sent_at').notNull().defaultNow(),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (table) => [
+    // CLSS-03: one notification record per cancelled session instance.
+    // Prevents poller from sending duplicate batches on re-run.
+    uniqueIndex('unique_session_cancellation_notification').on(table.sessionInstanceId),
+  ]
+);
