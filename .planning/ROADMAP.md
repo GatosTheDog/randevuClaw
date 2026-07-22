@@ -67,12 +67,12 @@ See: `.planning/milestones/v1.2-ROADMAP.md`
   4. Owner assigns a specific named client to a session directly via chat and that client receives a Greek confirmation message
   5. Owner asks to see upcoming sessions and receives a list showing each session's date, time, booked count, and capacity
 
-**Plans**: 1/6 plans executed
+**Plans**: 3/6 plans executed
 Plans:
 
 - [x] 10-01-PLAN.md — Nyquist test stubs (5 session test files) + rrule package install
-- [ ] 10-02-PLAN.md — Schema migration: 3 new tables + 7 business columns + drizzle-kit push (blocking human checkpoint)
-- [ ] 10-03-PLAN.md — Session query layer: createSessionCatalogWithExpansion, bookSessionInstance, cancelSession, listSessions
+- [x] 10-02-PLAN.md — Schema migration: 3 new tables + 7 business columns + drizzle-kit push (blocking human checkpoint)
+- [x] 10-03-PLAN.md — Session query layer: createSessionCatalogWithExpansion, bookSessionInstance, cancelSession, listSessions
 - [ ] 10-04-PLAN.md — OWNER_TOOLS: 4 new Gemini tool declarations + executeOwnerTool switch cases
 - [ ] 10-05-PLAN.md — Session cancellation poller + sessionCancellationNotifications dedup table
 - [ ] 10-06-PLAN.md — Replace all it.todo stubs with real passing tests (capacity-race, DST, poller dedup)
@@ -166,7 +166,7 @@ Plans:
 | 7. Billing Configuration & Payment Recording | v1.2 | 7/7 | Complete | 2026-07-21 |
 | 8. Enforcement & Session Deduction | v1.2 | 6/6 | Complete | 2026-07-21 |
 | 9. Expiry Notifications & Client Balance | v1.2 | 3/3 | Complete | 2026-07-22 |
-| 10. Session Catalog & Schema | v1.3 | 1/6 | In Progress|  |
+| 10. Session Catalog & Schema | v1.3 | 3/6 | In Progress|  |
 | 11. Session Booking Flow | v1.3 | 0/TBD | Not started | - |
 | 12. Cancellation Cutoff Policy | v1.3 | 0/TBD | Not started | - |
 | 13. Slotless Booking Requests | v1.3 | 0/TBD | Not started | - |
