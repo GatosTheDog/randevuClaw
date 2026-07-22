@@ -1,10 +1,24 @@
 # RandevuClaw
 
+## Current Milestone: v1.3 Studio Session Scheduling & Slotless Bookings
+
+**Goal:** Businesses optionally run a class-style schedule — pre-defined sessions with capacity, recurring creation, direct client assignment — layered on the v1.2 session-credit system. Cancellation cutoffs and renewal nudges become per-business config. Clients can request bookings with no open slot, subject to owner approval.
+
+**Target features:**
+- Session Catalog & Admin Scheduling (CLSS) — owner creates/recurs/cancels sessions; assigns clients directly; Greek notifications
+- Booking Flow Extensions — multi-session booking (optional, per-business); reschedule locked to membership expiry (always enforced)
+- Cancellation Cutoff Policy (CANC) — opt-in per business (default off); 8h default; credit forfeited inside cutoff; Greek confirmation required
+- Slotless Booking Requests (SLOT) — opt-in per business (default off); client requests → owner approves/rejects → booking; full history + check-in surfacing
+- Renewal Notification Extensions (RENW) — last-session threshold nudge (opt-in, default 1); owner-triggered mass or per-client broadcast
+- Onboarding Extensions (ONB) — onboarding asks each optional feature with clear defaults; all settings editable via chat
+
+**New per-business settings:** `booking_mode`, `cancellation_cutoff_enabled/hours`, `last_session_threshold_enabled/count`, `slotless_requests_enabled`, `allow_multi_booking`
+
 ## What This Is
 
 A WhatsApp-native appointment booking platform for Greek service businesses (pilates studios, gyms, hair salons, etc.). Clients book, cancel, or ask questions by chatting with a shared number; an AI agent understands the request, figures out which business they mean, and handles the booking. Business owners run everything — accepting/rejecting bookings, cancellations, daily agenda — through chat too, no separate app or dashboard required.
 
-**PoC state (v1.2):** Each business runs its own Telegram bot. Owners register, configure their business, set billing packages, and record client payments entirely through guided Telegram chat. The bot tracks session balances, enforces membership policies on booking, and proactively notifies before memberships expire. WhatsApp is shelved pending Meta Business Verification (1-6 week external process); the same booking and billing logic wires to WhatsApp once verification clears.
+**PoC state (v1.3):** Each business runs its own Telegram bot. Owners register, configure their business, set billing packages, and record client payments entirely through guided Telegram chat. The bot tracks session balances, enforces membership policies on booking, and proactively notifies before memberships expire. WhatsApp is shelved pending Meta Business Verification (1-6 week external process); the same booking and billing logic wires to WhatsApp once verification clears.
 
 ## Core Value
 
@@ -47,7 +61,7 @@ A client can book or cancel an appointment with a Greek business entirely throug
 - Per-business dedicated WhatsApp numbers — Meta verification per business is too slow/high-friction; revisit post-PoC
 - Multiple staff/rooms per business (per-instructor calendars) — PoC assumes one shared schedule
 - Payments/deposits — not requested, adds scope
-- Cancellation cutoff windows — client can cancel anytime for now; add notice-period rule post-PoC if no-shows are a problem
+- Cancellation cutoff windows — opt-in per business as of v1.3 (CANC); "cancel anytime" is preserved as the default unless the owner explicitly enables a cutoff; hard enforcement (no-show fees, mandatory deposit) remains out of scope
 - English language support — Greek only, revisit if expanding beyond Greece
 
 ## Context

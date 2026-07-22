@@ -1,19 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.2
-milestone_name: Billing & Membership System
-status: Awaiting next milestone
-stopped_at: context exhaustion at 75% (2026-07-22)
-last_updated: "2026-07-22T08:27:52.781Z"
+milestone: v1.3
+milestone_name: Studio Session Scheduling & Slotless Bookings
+status: planning
+last_updated: "2026-07-22T11:28:27.282Z"
 last_activity: 2026-07-22
-last_activity_desc: Milestone v1.2 completed and archived
 progress:
   total_phases: 0
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
-current_phase: 09
-current_phase_name: Expiry Notifications & Client Balance
+  percent: 0
 ---
 
 # Project State
@@ -27,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-07-17 after v1.1 milestone close)
 
 ## Current Position
 
-Phase: Milestone v1.2 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-07-22 — Milestone v1.2 completed and archived
+Status: Defining requirements
+Last activity: 2026-07-22 — Milestone v1.3 started
 
 ## Performance Metrics
 
