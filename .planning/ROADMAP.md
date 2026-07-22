@@ -45,7 +45,7 @@ See: `.planning/milestones/v1.2-ROADMAP.md`
 
 ### v1.3 Studio Session Scheduling & Slotless Bookings (Phases 10-15)
 
-- [ ] **Phase 10: Session Catalog & Schema** - Owner creates, recurs, lists, cancels, and assigns clients to sessions; 3 new tables + 7 business config columns unblock all downstream phases
+- [ ] **Phase 10: Session Catalog & Schema** - Owner creates, recurs, lists, cancels, and assigns clients to sessions; 3 new tables + 7 business config columns unblock all downstream phases (6 plans)
 - [ ] **Phase 11: Session Booking Flow** - Clients book specific sessions via Greek chat with atomic capacity enforcement and session-credit deduction
 - [ ] **Phase 12: Cancellation Cutoff Policy** - Per-business opt-in cutoff window enforces credit forfeiture with Greek confirmation before cancellations inside the window
 - [ ] **Phase 13: Slotless Booking Requests** - Clients request bookings with no open slot; owner approves or rejects via keyboard; approved requests become real bookings with credit deduction
@@ -64,7 +64,14 @@ See: `.planning/milestones/v1.2-ROADMAP.md`
   3. Owner cancels a single session instance and every client booked into that session receives a Greek notification automatically
   4. Owner assigns a specific named client to a session directly via chat and that client receives a Greek confirmation message
   5. Owner asks to see upcoming sessions and receives a list showing each session's date, time, booked count, and capacity
-**Plans**: TBD
+**Plans**: 6 plans
+Plans:
+- [ ] 10-01-PLAN.md — Nyquist test stubs (5 session test files) + rrule package install
+- [ ] 10-02-PLAN.md — Schema migration: 3 new tables + 7 business columns + drizzle-kit push (blocking human checkpoint)
+- [ ] 10-03-PLAN.md — Session query layer: createSessionCatalogWithExpansion, bookSessionInstance, cancelSession, listSessions
+- [ ] 10-04-PLAN.md — OWNER_TOOLS: 4 new Gemini tool declarations + executeOwnerTool switch cases
+- [ ] 10-05-PLAN.md — Session cancellation poller + sessionCancellationNotifications dedup table
+- [ ] 10-06-PLAN.md — Replace all it.todo stubs with real passing tests (capacity-race, DST, poller dedup)
 
 ### Phase 11: Session Booking Flow
 **Goal**: Clients can book specific sessions from the catalog via natural-language Greek chat, with capacity enforced atomically and session credits deducted via the existing membership ledger
@@ -140,7 +147,7 @@ See: `.planning/milestones/v1.2-ROADMAP.md`
 | 7. Billing Configuration & Payment Recording | v1.2 | 7/7 | Complete | 2026-07-21 |
 | 8. Enforcement & Session Deduction | v1.2 | 6/6 | Complete | 2026-07-21 |
 | 9. Expiry Notifications & Client Balance | v1.2 | 3/3 | Complete | 2026-07-22 |
-| 10. Session Catalog & Schema | v1.3 | 0/TBD | Not started | - |
+| 10. Session Catalog & Schema | v1.3 | 0/6 | Not started | - |
 | 11. Session Booking Flow | v1.3 | 0/TBD | Not started | - |
 | 12. Cancellation Cutoff Policy | v1.3 | 0/TBD | Not started | - |
 | 13. Slotless Booking Requests | v1.3 | 0/TBD | Not started | - |
