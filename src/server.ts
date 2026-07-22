@@ -8,6 +8,7 @@ import { startCalendarSyncPoller } from './calendar/poller';
 import { startAgendaPoller } from './scheduler/agenda';
 import { startReminderPoller } from './scheduler/reminders';
 import { startMembershipExpiryPoller } from './scheduler/membership-expiry';
+import { startSessionCancellationPoller } from './scheduler/session-cancellation';
 
 const app = express();
 
@@ -39,6 +40,7 @@ if (!process.env.JEST_WORKER_ID) {
   startAgendaPoller();
   startReminderPoller();
   startMembershipExpiryPoller();
+  startSessionCancellationPoller();
 }
 
 export default app;
