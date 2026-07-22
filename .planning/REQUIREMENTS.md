@@ -103,13 +103,36 @@
 
 ## Traceability
 
-*Filled by roadmapper*
-
 | Requirement | Phase | Plan |
 |-------------|-------|------|
-| CLSS-01..05 | TBD | TBD |
-| SBOK-01..04 | TBD | TBD |
-| CANC-01..05 | TBD | TBD |
-| SLOT-01..06 | TBD | TBD |
-| RENW-01..05 | TBD | TBD |
-| CONF-01..06 | TBD | TBD |
+| CLSS-01 | Phase 10 | TBD |
+| CLSS-02 | Phase 10 | TBD |
+| CLSS-03 | Phase 10 | TBD |
+| CLSS-04 | Phase 10 | TBD |
+| CLSS-05 | Phase 10 | TBD |
+| SBOK-01 | Phase 11 | TBD |
+| SBOK-02 | Phase 11 | TBD |
+| SBOK-03 | Phase 11 | TBD |
+| SBOK-04 | Phase 11 | TBD |
+| CANC-01 | Phase 12 | TBD |
+| CANC-02 | Phase 12 | TBD |
+| CANC-03 | Phase 12 | TBD |
+| CANC-04 | Phase 12 | TBD |
+| CANC-05 | Phase 12 | TBD |
+| SLOT-01 | Phase 13 | TBD |
+| SLOT-02 | Phase 13 | TBD |
+| SLOT-03 | Phase 13 | TBD |
+| SLOT-04 | Phase 13 | TBD |
+| SLOT-05 | Phase 13 | TBD |
+| SLOT-06 | Phase 13 | TBD |
+| RENW-01 | Phase 14 | TBD |
+| RENW-02 | Phase 14 | TBD |
+| RENW-03 | Phase 14 | TBD |
+| RENW-04 | Phase 14 | TBD |
+| RENW-05 | Phase 14 | TBD |
+| CONF-01 | Phase 15 | TBD |
+| CONF-02 | Phase 15 | TBD |
+| CONF-03 | Phase 15 | TBD |
+| CONF-04 | Phase 15 | TBD |
+| CONF-05 | Phase 15 | TBD |
+| CONF-06 | Phase 15 | TBD |
