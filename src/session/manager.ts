@@ -77,7 +77,11 @@ export async function createSessionCatalogWithExpansion(
   serviceId: number,
   rruleString: string,
   startTime: string,
-  capacity: number
+  capacity: number,
+  /** Optional override for the expansion start date (ISO "YYYY-MM-DD" Athens local).
+   * Defaults to today in Athens. Used in tests for deterministic DST boundary scenarios.
+   * NOT exposed via the owner tool — callers always use today's date in production. */
+  startDate?: string
 ): Promise<{ catalogId: number; instanceCount: number }> {
   // T-10-09: validate rrule before entering the transaction
   let parsedRRule: ReturnType<typeof RRule.parseString>;
@@ -109,19 +113,20 @@ export async function createSessionCatalogWithExpansion(
 
     const catalogId = catalogRows[0].id;
 
-    // Compute expansion window in Athens wall-clock dates (DST-safe)
-    const today = isoDateInAthens(new Date());
-    const expansionEnd = addCalendarDays(today, 90);
+    // Compute expansion window in Athens wall-clock dates (DST-safe).
+    // startDate defaults to today in Athens; can be overridden for test scenarios.
+    const expansionStart = startDate ?? isoDateInAthens(new Date());
+    const expansionEnd = addCalendarDays(expansionStart, 90);
 
-    // Expand the rrule — dtstart anchored at today's startTime in UTC so
-    // rrule.between() produces UTC Date objects that we convert to Athens local.
+    // Expand the rrule — dtstart anchored at the expansion start date's startTime in UTC
+    // so rrule.between() produces UTC Date objects that we convert to Athens local.
     const rrule = new RRule({
       ...parsedRRule,
-      dtstart: new Date(`${today}T${startTime}:00Z`),
+      dtstart: new Date(`${expansionStart}T${startTime}:00Z`),
     });
 
     const instances = rrule.between(
-      new Date(`${today}T00:00:00Z`),
+      new Date(`${expansionStart}T00:00:00Z`),
       new Date(`${expansionEnd}T23:59:59Z`)
     );
 
