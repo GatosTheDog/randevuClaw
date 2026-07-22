@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Billing & Membership System
-current_phase: 09
-current_phase_name: Expiry Notifications & Client Balance
-status: planning
-stopped_at: Completed 07-07-PLAN.md (G-07-2 gap closure — billing keyboard clear)
-last_updated: "2026-07-21T17:26:56.181Z"
-last_activity: 2026-07-21
-last_activity_desc: Phase 08 complete, transitioned to Phase 09
+status: Awaiting next milestone
+stopped_at: Phase 08 complete, UAT 11/11 passed, ready to plan Phase 09
+last_updated: "2026-07-22T08:17:12.023Z"
+last_activity: 2026-07-22
+last_activity_desc: Milestone v1.2 completed and archived
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 16
   completed_plans: 16
   percent: 50
+current_phase: 09
+current_phase_name: Expiry Notifications & Client Balance
 ---
 
 # Project State
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-07-17 after v1.1 milestone close)
 
 ## Current Position
 
-Phase: 09 — Expiry Notifications & Client Balance
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-07-21 — Phase 08 complete, transitioned to Phase 09
+Phase: Milestone v1.2 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-07-22 — Milestone v1.2 completed and archived
 
 ## Performance Metrics
 
@@ -235,10 +235,21 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-07-09:
 | v1.3 | COMP-02/03/04: GDPR data deletion | Deferred from v1.1 Phase 6 |
 | v1.3 | RESIL-01: Gemini p-queue rate-limit resilience | Deferred from v1.1 Phase 6 |
 
+Items acknowledged and deferred at v1.2 milestone close on 2026-07-22:
+
+| Category | Item | Status |
+|----------|------|--------|
+| todo | pivot-to-per-business-whatsapp-numbers-post-poc.md | planning (carry-forward from v1.0, pre-v1.2 scope) |
+| todo | meta-business-verification-not-submitted.md | phase-1 (carry-forward from v1.0, blocked on external Meta process) |
+| operational | Phase 08: live Neon DB migration 0007 enforcement_policy column | human confirmation needed (low risk — Phase 9 ran successfully after) |
+| operational | Phase 09: live Neon DB migration 0008 membership_expiry_notifications table | human confirmation needed (Plan 03 Task 2 confirmed during execution) |
+| nyquist | Phases 7/8/9: VALIDATION.md files in draft status | NOT-VALIDATED (#2117 rule) — run /gsd-validate-phase 7/8/9 if coverage needed |
+| known_deferred: 2 (see above) | | |
+
 ## Session Continuity
 
-Last session: 2026-07-21
-Stopped at: Phase 08 complete, UAT 11/11 passed, ready to plan Phase 09
+Last session: 2026-07-22
+Stopped at: v1.2 milestone complete — all 17 requirements shipped, 320 tests passing
 Resume file: None
 
 ## Operator Next Steps

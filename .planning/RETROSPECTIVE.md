@@ -101,6 +101,52 @@
 
 ---
 
+## Milestone: v1.2 — Billing & Membership System
+
+**Shipped:** 2026-07-22
+**Phases:** 3 (07, 08, 09) | **Plans:** 16 | **Tests:** 320 (112 new)
+
+### What Was Built
+
+- Owner creates billing packages, records payments, and manages memberships entirely via Telegram chat
+- Session ledger with SELECT FOR UPDATE atomic deduction and idempotency-key UNIQUE replay protection
+- Per-business enforcement policies (block/flag) enforced before every booking; flag alert delivered before owner keyboard
+- 6-hour in-process expiry sweep with per-recipient UNIQUE dedup; clients query own balance via chat
+
+### What Worked
+
+- Wave 0 scaffolding (it.todo stubs) kept ts-jest green across all phases before implementations existed — pattern proven across 3 phases
+- Extracting enforcement.ts from bookAppointmentTool made ENFC-02/03 unit-testable in isolation without booking context wiring
+- DST-safe date arithmetic (isoDateInAthens + addCalendarDays) validated by dedicated test file — no off-by-one surprises at October boundary
+- Gap closure plans (07-06, 07-07) after UAT surfaced real UX issues (hallucinated IDs, stale keyboards) — UAT → gap → re-verify cycle proved valuable
+
+### What Was Inefficient
+
+- Phase 08 re-verification needed: previous verification written before Plan 06 (Nyquist compliance) completed — verification timing should trail plan execution, not run concurrently
+- No phase-level SUMMARY.md files generated (only plan-level) — 3-source audit cross-reference degraded to 2 sources; investigate why gsd-verifier didn't generate them
+- Live Neon DB migration confirmations (0007, 0008) required human action each phase — consider a migration-apply task as explicit Wave 0 step in plans that add tables
+
+### Patterns Established
+
+- `getConn()` exclusively for billing writes (not `db.transaction()`) — db.transaction opens a separate connection that breaks withBusinessContext atomicity
+- `sendTelegramMessage` flag alert NOT in try/catch — D-11 critical-path pattern; failure must surface
+- clientPhone always from context (never Gemini args) for balance queries — cross-client inspection guard
+- UNIQUE INDEX on (membership_id, notification_type, expiry_date) — proven dedup pattern for any notification sweep
+
+### Key Lessons
+
+1. SELECT FOR UPDATE serializes concurrent DB writes; onConflictDoNothing handles the idempotency race — compose both for bulletproof atomic operations.
+2. Extract business logic into testable units (enforcement.ts) before wiring into booking context — enables isolated unit tests without complex mocking.
+3. UAT after code review (not before) catches real UX issues that code review misses — always complete code review first, then UAT, then re-verify.
+
+### Cost Observations
+
+- Sessions: 3 phases, 145 commits since v1.1
+- Model: Claude Sonnet 4.6 throughout
+- Notable: billing system shipped with zero production incidents in local test DB; live Neon migration the only manual action required
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -109,6 +155,7 @@
 |-----------|--------|-------|------------|
 | v1.0 | 3 | 19 | Initial build — established all core patterns |
 | v1.1 | 2 | 13 | Per-bot routing + DB-backed onboarding state machine |
+| v1.2 | 3 | 16 | Billing layer + enforcement + proactive notifications; Wave 0 scaffolding mature |
 
 ### Cumulative Quality
 
@@ -116,6 +163,7 @@
 |-----------|-------|------------|-------|
 | v1.0 | 208 | Clean | All 3 phases Nyquist-compliant |
 | v1.1 | 28 test files | Clean | Full mock isolation; no real Telegram API or DB in CI |
+| v1.2 | 320 (42 suites) | Clean | SELECT FOR UPDATE + UNIQUE dedup pattern established |
 
 ### Top Lessons (Verified Across Milestones)
 
@@ -123,3 +171,5 @@
 2. Atomic claim guards prevent double-send/double-sync races — apply universally to any idempotent poller.
 3. Keep ROADMAP.md and REQUIREMENTS.md in sync when deferring requirements — silent divergence creates planning confusion at milestone close.
 4. Run `milestone.complete` CLI before archiving phase docs manually — the CLI needs SUMMARY.md files in place for accurate stats.
+5. Wave 0 it.todo scaffolding pays off across 3+ phases — invest in stubs early, implement late, keep ts-jest green throughout.
+6. UAT → gap plan → re-verify cycle catches real UX regressions that static code review cannot surface.

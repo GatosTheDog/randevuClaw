@@ -4,25 +4,11 @@
 
 A WhatsApp-native appointment booking platform for Greek service businesses (pilates studios, gyms, hair salons, etc.). Clients book, cancel, or ask questions by chatting with a shared number; an AI agent understands the request, figures out which business they mean, and handles the booking. Business owners run everything — accepting/rejecting bookings, cancellations, daily agenda — through chat too, no separate app or dashboard required.
 
-**PoC state (v1.1):** Each business runs its own Telegram bot. Owners register and configure their business entirely through a guided Telegram chat — no manual DB intervention. WhatsApp is shelved pending Meta Business Verification (1-6 week external process); the same booking logic wires to WhatsApp once verification clears.
+**PoC state (v1.2):** Each business runs its own Telegram bot. Owners register, configure their business, set billing packages, and record client payments entirely through guided Telegram chat. The bot tracks session balances, enforces membership policies on booking, and proactively notifies before memberships expire. WhatsApp is shelved pending Meta Business Verification (1-6 week external process); the same booking and billing logic wires to WhatsApp once verification clears.
 
 ## Core Value
 
 A client can book or cancel an appointment with a Greek business entirely through a chat conversation, in Greek, with zero friction — and the owner's calendar updates automatically.
-
-## Current Milestone: v1.2 Billing & Membership System
-
-**Goal:** Businesses can configure flexible billing models (per-session, tokens, passes, multi-month packages); owners record payments via chat; the bot tracks balances, enforces booking rules, and notifies before credits expire.
-
-**Target features:**
-- Package configuration via chat (owner defines name, price, duration in days, session count or unlimited)
-- Manual payment recording via chat (owner assigns package to client → membership with expiry created)
-- Session deduction on confirmed booking (token-based); credit restored on cancel within validity; forfeited on reschedule outside validity window
-- Per-business enforcement policy: "block if no valid membership" or "allow and flag to owner"
-- Expiry notifications: both client and owner notified before credits/pass expires
-- Client self-service balance query ("πόσα μαθήματα μου έχουν απομείνει;")
-
-**Explicitly out of scope for v1.2:** payment gateway integration, automatic payment collection, refunds/invoicing, GDPR deletion (deferred from v1.1 Phase 6), Gemini rate-limit resilience (deferred from v1.1 Phase 6)
 
 ## Requirements
 
@@ -43,16 +29,17 @@ A client can book or cancel an appointment with a Greek business entirely throug
 - ✓ Owner completes full business setup (hours, services, prices) through a guided Telegram chat — v1.1 (ONB-01, ONB-02)
 - ✓ Owner can resume a dropped setup session and update config post-onboarding — v1.1 (ONB-03)
 - ✓ Hardcoded seed fixtures removed; every business is the result of real owner onboarding — v1.1 (ONB-04)
-- ✓ Owner configures billing packages for their business via chat — Phase 7 (BILL-01, BILL-02)
-- ✓ Owner records client payment via chat; bot creates membership with expiry — Phase 7 (PAY-01, PAY-02)
-- ✓ Bot enforces membership validity on booking (block or flag per business policy) — Phase 8 (ENFC-01, ENFC-02, ENFC-03)
-- ✓ Session credits deducted/restored correctly across cancel/reschedule edge cases — Phase 8 (SESS-01 through SESS-04)
+- ✓ Owner configures billing packages for their business via chat — v1.2 Phase 7 (BILL-01, BILL-02, BILL-03)
+- ✓ Owner records client payment via chat; bot creates membership with DST-safe rolling expiry — v1.2 Phase 7 (PAY-01, PAY-02, PAY-03)
+- ✓ Bot enforces membership validity on booking (block or flag per business policy) — v1.2 Phase 8 (ENFC-01, ENFC-02, ENFC-03)
+- ✓ Session credits deducted/restored atomically across cancel edge cases; unlimited memberships handled — v1.2 Phase 8 (SESS-01 through SESS-04)
+- ✓ Client and owner notified 7 days before membership expiry; dedup prevents duplicate sends — v1.2 Phase 9 (NOTF-01, NOTF-02, NOTF-03)
+- ✓ Client queries own session balance via Greek chat; bot replies with live DB data — v1.2 Phase 9 (NOTF-04)
 
 ### Active
 
 - [ ] Bot resolves which business a client means from a single shared number via deep link (PLAT-01) — code complete; blocked on Meta Business Verification
 - [ ] Client shown data-consent notice on first contact (COMP-01) — code complete; not yet observed by a real user
-- [ ] Client and owner both notified before membership expires; client can query balance — Phase 9 (NOTF-BILL-01 through NOTF-BILL-04)
 
 ### Out of Scope
 
@@ -67,11 +54,13 @@ A client can book or cancel an appointment with a Greek business entirely throug
 
 - v1.0 shipped 2026-07-09: 3 phases, 19 plans, 32 tasks, 3,263 LOC TypeScript, 208 tests
 - v1.1 shipped 2026-07-17: 2 phases, 13 plans, 25 tasks, +3,571/-654 lines, 5,162 total src/ LOC
+- v1.2 shipped 2026-07-22: 3 phases, 16 plans, 19 tasks, +5,364/-59 lines, 7,364 total src/ LOC, 320 tests
 - Tech stack: Node.js/TypeScript, Neon/Drizzle (Postgres + RLS), Telegraf (per-bot Telegram), WhatsApp Cloud API (wired, pending Meta BV), @google/genai (Gemini 2.5 Flash-Lite), Google Calendar API, fly.io
+- Billing layer: billingPackages, memberships, membershipLedger, membershipExpiryNotifications tables; SELECT FOR UPDATE atomic deduction; in-process 6-hour expiry sweep
 - Per-bot routing: each business has its own bot token; `businesses.webhook_id` (UUID) maps webhook path to tenant; AsyncLocalStorage threads RLS context per request
 - Meta Business Verification not yet submitted — submit immediately; gates real WhatsApp delivery (1-6 week approval)
 - OAuth consent flow (Google Calendar) CLI ready; tokens needed for live calendar sync demo
-- All tests pass; TypeScript clean. Open gaps are operational (external human actions), not code defects.
+- All 320 tests pass; TypeScript clean. Open gaps are operational (external human actions), not code defects.
 
 ## Constraints
 
@@ -120,5 +109,13 @@ A client can book or cancel an appointment with a Greek business entirely throug
 3. Audit Out of Scope — reasons still valid?
 4. Update Context with current state
 
+| getConn() exclusively for Phase 8 billing writes (not db.transaction()) | db.transaction() opens a separate connection breaking atomicity with withBusinessContext | ✓ Good — no cross-tenant leaks in billing writes |
+| Flag alert (sendTelegramMessage) NOT wrapped in try/catch in bookAppointmentTool | D-11: alert is critical; failure must surface immediately, not be silently swallowed | ✓ Good — ENFC-03 ordering test confirms pre-keyboard delivery |
+| SELECT FOR UPDATE via Drizzle .for('update') for getActiveMembershipForDeduction | Serializes concurrent deductions at DB level; prevents sessionsRemaining going negative | ✓ Good — race guard test proves exactly-1-success with sessionsRemaining=1 |
+| src/billing/enforcement.ts extracted from bookAppointmentTool | Enables unit testing of checkEnforcementAndGetMembership without wiring full booking context | ✓ Good — booking-enforcement.test.ts 3 isolated unit tests |
+| Membership dedup via membershipLedger.idempotencyKey UNIQUE + onConflictDoNothing | Replay-safe: duplicate webhook or test re-run never creates double deductions | ✓ Good |
+| UNIQUE INDEX on (membership_id, notification_type, expiry_date) for expiry notifications | Per-recipient dedup granularity; sweep can run multiple times safely | ✓ Good — NOTF-03 test confirms no second send |
+| checkMembershipBalanceTool reads clientPhone from context, not Gemini args | Prevents cross-client balance inspection — Gemini cannot be prompted to check another client | ✓ Good — T-09-05 guard confirmed in tests |
+
 ---
-*Last updated: 2026-07-21 — Phase 08 (enforcement & session deduction) complete*
+*Last updated: 2026-07-22 — v1.2 Billing & Membership System shipped*

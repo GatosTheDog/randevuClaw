@@ -1,5 +1,28 @@
 # Milestones
 
+## v1.2 Billing & Membership System (Shipped: 2026-07-22)
+
+**Phases completed:** 3 phases, 16 plans, 19 tasks
+
+**Key accomplishments:**
+
+- 8 Jest it.todo() stub files covering all BILL-01..03 and PAY-01..03 requirements, plus a Telegram/Gemini API coverage matrix for Phase 7.
+- Drizzle schema extended with billingPackages, memberships, membershipLedger tables and clientName column on clientBusinessRelationships; SQL reference migration created; schema pushed to live Neon DB with 235 tests passing.
+- Billing CRUD query layer with DST-safe membership creation, atomic ledger writes, and idempotency-enforced replay protection.
+- Zod-validated billing tool handlers (tools.ts) and multi-step inline keyboard payment flow (payment-flow.ts) with ownership validation and price-safe callback_data.
+- Added 5 `FunctionDeclaration` objects to `OWNER_TOOLS` (`create_package`, `list_packages`, `deactivate_package`, `record_payment`, `view_client_membership`) with typed parameters matching Zod schemas in billing/tools.ts. Extended `executeOwnerTool` switch with 5 billing cases: `create_package` detects the `pendingPackageId` result shape and sends the D-03 confirmation keyboard inline; `record_payment` calls `showClientSelection` (keyboard mode, D-08) instead of returning a string; remaining 3 cases return formatted Greek strings directly.
+- Fixed two UAT gaps — all-time client fallback in payment flow + name-based package deactivation eliminating hallucinated IDs.
+- Extended TelegramCallbackQuery with `message?: { message_id: number }` and wired `editTelegramMessageReplyMarkup` into all 4 terminal billing branches to dismiss the Ναι/Όχι keyboard after owner tap.
+- Three test files with 14 it.todo stubs scaffold SESS-01..04 and ENFC-01..03 without importing unbuilt functions, keeping ts-jest compilation green across Phase 8
+- `migrations/0007_enforcement_policy.sql`
+- 1. [Rule 3 - Blocking] Add billing/queries mock to telegram-webhook.test.ts
+- 1. [Rule 2 - Auto-add] Created src/billing/enforcement.ts
+- UNIQUE dedup table for membership expiry notifications, DD/MM/YYYY Athens date formatter, and 10 it.todo stubs covering NOTF-01 through NOTF-04.
+- DST-safe 7-day expiry window query + idempotent dedup insert for the Plan 03 sweep, plus the complete check_membership_balance Gemini tool with three Greek D-08 message scenarios and 4 passing unit tests.
+- 6-hour in-process membership expiry sweep with per-business/per-membership isolation, botTokenStore.run() wrapping, UNIQUE dedup gating, and 6 passing NOTF-01/02/03 tests — poller registered in server.ts after live Neon DB migration confirmed.
+
+---
+
 ## v1.1 Per-Bot Infrastructure & Owner Onboarding (Shipped: 2026-07-17)
 
 **Phases completed:** 2 phases, 13 plans, 25 tasks  
