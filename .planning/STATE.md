@@ -3,16 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Billing & Membership System
 status: Awaiting next milestone
-stopped_at: Phase 08 complete, UAT 11/11 passed, ready to plan Phase 09
-last_updated: "2026-07-22T08:17:12.023Z"
+stopped_at: context exhaustion at 75% (2026-07-22)
+last_updated: "2026-07-22T08:27:52.781Z"
 last_activity: 2026-07-22
 last_activity_desc: Milestone v1.2 completed and archived
 progress:
-  total_phases: 6
-  completed_phases: 3
-  total_plans: 16
-  completed_plans: 16
-  percent: 50
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
 current_phase: 09
 current_phase_name: Expiry Notifications & Client Balance
 ---
@@ -248,8 +247,8 @@ Items acknowledged and deferred at v1.2 milestone close on 2026-07-22:
 
 ## Session Continuity
 
-Last session: 2026-07-22
-Stopped at: v1.2 milestone complete — all 17 requirements shipped, 320 tests passing
+Last session: 2026-07-22T08:27:52.749Z
+Stopped at: context exhaustion at 75% (2026-07-22)
 Resume file: None
 
 ## Operator Next Steps
