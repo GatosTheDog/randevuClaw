@@ -26,7 +26,8 @@ import {
   CreatePackageResult,
 } from '../billing/tools';
 import { showClientSelection } from '../telegram/handlers/payment-flow';
-import { sendTelegramMessageWithKeyboard } from '../telegram/client';
+import { sendTelegramMessage, sendTelegramMessageWithKeyboard } from '../telegram/client';
+import { createSessionCatalogWithExpansion, bookSessionInstance, cancelSession, listSessions, buildRRuleString } from '../session/manager';
 
 const ai = new GoogleGenAI({ apiKey: config.geminiApiKey });
 const GEMINI_MODEL = 'gemini-2.5-flash-lite';
@@ -220,6 +221,89 @@ export const OWNER_TOOLS = [
       required: ['policy'],
     },
   },
+  // ---------------------------------------------------------------------------
+  // Phase 10: Session catalog tools (CLSS-01 through CLSS-05)
+  // ---------------------------------------------------------------------------
+  {
+    type: 'function' as const,
+    name: 'create_recurring_session',
+    description: 'Δημιουργεί επαναλαμβανόμενη σεζόν για κάθε εβδομάδα. Σε μία ενέργεια δημιουργεί ~90 ημέρες σεζόν αυτόματα. Χρησιμοποίησε όταν ο ιδιοκτήτης θέλει να ορίσει εβδομαδιαίο πρόγραμμα.',
+    parameters: {
+      type: 'object',
+      properties: {
+        service_name: {
+          type: 'string',
+          description: 'Όνομα υπηρεσίας, π.χ. "Pilates"',
+        },
+        weekdays: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Ημέρες εβδομάδας στα Ελληνικά, π.χ. ["Δευτέρα", "Τετάρτη", "Παρασκευή"]',
+        },
+        start_time: {
+          type: 'string',
+          description: 'Ώρα έναρξης σε μορφή HH:MM, π.χ. "10:00"',
+        },
+        capacity: {
+          type: 'integer',
+          description: 'Χωρητικότητα θέσεων, π.χ. 15',
+        },
+      },
+      required: ['service_name', 'weekdays', 'start_time', 'capacity'],
+    },
+  },
+  {
+    type: 'function' as const,
+    name: 'list_sessions',
+    description: 'Εμφανίζει τις επερχόμενες σεζόν με αριθμό κρατήσεων και χωρητικότητα.',
+    parameters: {
+      type: 'object',
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    type: 'function' as const,
+    name: 'cancel_session',
+    description: 'Ακυρώνει συγκεκριμένη σεζόν. Όλοι οι κρατημένοι πελάτες ειδοποιούνται αυτόματα.',
+    parameters: {
+      type: 'object',
+      properties: {
+        session_date: {
+          type: 'string',
+          description: 'Ημερομηνία σεζόν σε μορφή YYYY-MM-DD',
+        },
+        session_time: {
+          type: 'string',
+          description: 'Ώρα σεζόν σε μορφή HH:MM',
+        },
+      },
+      required: ['session_date', 'session_time'],
+    },
+  },
+  {
+    type: 'function' as const,
+    name: 'assign_client_to_session',
+    description: 'Ορίζει συγκεκριμένο πελάτη σε σεζόν απευθείας, χωρίς να χρειάζεται να κάνει ο πελάτης κράτηση μόνος του.',
+    parameters: {
+      type: 'object',
+      properties: {
+        client_phone: {
+          type: 'string',
+          description: 'Τηλέφωνο ή Telegram ID πελάτη',
+        },
+        session_date: {
+          type: 'string',
+          description: 'Ημερομηνία σεζόν YYYY-MM-DD',
+        },
+        session_time: {
+          type: 'string',
+          description: 'Ώρα σεζόν HH:MM',
+        },
+      },
+      required: ['client_phone', 'session_date', 'session_time'],
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -290,6 +374,12 @@ interface ToolArgs {
   client_phone?: string;
   // Phase 8: enforcement policy (ENFC-01)
   policy?: string;
+  // Phase 10: session catalog fields (CLSS-01 through CLSS-05)
+  weekdays?: string[];
+  start_time?: string;
+  capacity?: number;
+  session_date?: string;
+  session_time?: string;
 }
 
 /**
@@ -484,6 +574,117 @@ async function executeOwnerTool(
       return withBusinessContext(business.id, () =>
         handleSetEnforcementPolicy(business.id, args as Record<string, unknown>)
       );
+    }
+
+    // -----------------------------------------------------------------------
+    // Phase 10: Session catalog cases (CLSS-01 through CLSS-05)
+    // -----------------------------------------------------------------------
+
+    case 'create_recurring_session': {
+      // D-01 (T-10-11): resolve service_name via case-insensitive partial match against svcList
+      const svcNameArg = args.service_name ?? '';
+      const matchedService = svcList.find((s) =>
+        s.name.toLowerCase().includes(svcNameArg.toLowerCase())
+      );
+      if (!matchedService) {
+        return `Δεν βρέθηκε υπηρεσία με όνομα "${svcNameArg}".`;
+      }
+      const weekdays = args.weekdays ?? [];
+      if (weekdays.length === 0) {
+        return 'Δεν δόθηκαν ημέρες εβδομάδας.';
+      }
+      const start_time = args.start_time ?? '';
+      const capacity = args.capacity ?? 0;
+      // buildRRuleString filters unrecognized weekday strings (T-10-14 mitigation)
+      const rruleString = buildRRuleString(weekdays, start_time);
+      // createSessionCatalogWithExpansion calls withBusinessContext internally
+      const { instanceCount } = await createSessionCatalogWithExpansion(
+        business.id,
+        matchedService.id,
+        rruleString,
+        start_time,
+        capacity
+      );
+      return `Δημιουργήθηκαν ${instanceCount} σεζόν για "${matchedService.name}" (${start_time}) τις επόμενες ~90 ημέρες.`;
+    }
+
+    case 'list_sessions': {
+      // WR-01: listSessions scoped to business.id via sessionCatalog.businessId guard
+      const sessions = await listSessions(business.id);
+      if (sessions.length === 0) {
+        return 'Δεν υπάρχουν επερχόμενες σεζόν.';
+      }
+      const total = sessions.length;
+      const display = sessions.slice(0, 20);
+      const lines = display.map(
+        (s) => `${s.sessionDate} ${s.sessionTime} — ${s.bookedCount}/${s.capacity} θέσεις`
+      );
+      if (total > 20) {
+        lines.push(`... και ${total - 20} ακόμα σεζόν.`);
+      }
+      return lines.join('\n');
+    }
+
+    case 'cancel_session': {
+      const session_date = args.session_date ?? '';
+      const session_time = args.session_time ?? '';
+      if (!session_date || !session_time) {
+        return 'Μη έγκυρα δεδομένα ημερομηνίας/ώρας.';
+      }
+      // Find the matching instance via in-memory filter (bounded list ~90 days)
+      const allSessions = await listSessions(business.id);
+      const target = allSessions.find(
+        (s) => s.sessionDate === session_date && s.sessionTime === session_time
+      );
+      if (!target) {
+        return `Δεν βρέθηκε σεζόν στις ${session_date} ${session_time}.`;
+      }
+      // cancelSession calls withBusinessContext internally (ownership guard via FK chain)
+      const cancelled = await cancelSession(business.id, target.instanceId);
+      if (!cancelled) {
+        return `Η σεζόν στις ${session_date} ${session_time} ήταν ήδη ακυρωμένη.`;
+      }
+      // NOTE: do NOT call sendTelegramMessage here — async notification poller handles it
+      return `Η σεζόν στις ${session_date} ${session_time} ακυρώθηκε. Οι κρατημένοι πελάτες θα ειδοποιηθούν αυτόματα.`;
+    }
+
+    case 'assign_client_to_session': {
+      const client_phone = args.client_phone ?? '';
+      const session_date = args.session_date ?? '';
+      const session_time = args.session_time ?? '';
+      if (!client_phone || !session_date || !session_time) {
+        return 'Μη έγκυρα δεδομένα (απαιτούνται client_phone, session_date, session_time).';
+      }
+      // Find matching session instance via in-memory filter
+      const allSessions = await listSessions(business.id);
+      const target = allSessions.find(
+        (s) => s.sessionDate === session_date && s.sessionTime === session_time
+      );
+      if (!target) {
+        return `Δεν βρέθηκε σεζόν στις ${session_date} ${session_time}.`;
+      }
+      // T-10-12: businessId ownership guard enforced inside bookSessionInstance via FK subquery
+      const idempotencyKey = `owner-assign:${business.id}:${session_date}:${session_time}:${client_phone}`;
+      const bookResult = await bookSessionInstance(
+        business.id,
+        target.instanceId,
+        client_phone,
+        target.serviceId,
+        idempotencyKey
+      );
+      if (bookResult.status === 'full') {
+        return 'Η σεζόν είναι γεμάτη. Δεν είναι δυνατή η ανάθεση.';
+      }
+      if (bookResult.status === 'conflict') {
+        return 'Σφάλμα: η σεζόν δεν είναι διαθέσιμη (ακυρωμένη ή δεν βρέθηκε).';
+      }
+      // D-11 pattern: sendTelegramMessage NOT wrapped in try/catch — failure propagates
+      // to top-level catch which returns Greek error to Gemini (T-10-13 accepted risk).
+      await sendTelegramMessage(
+        client_phone,
+        `Ο ιδιοκτήτης σε όρισε στη σεζόν ${session_date} στις ${session_time}. Σε περιμένουμε!`
+      );
+      return `Ο πελάτης ${client_phone} ορίστηκε στη σεζόν ${session_date} ${session_time} και ειδοποιήθηκε.`;
     }
 
     default:
