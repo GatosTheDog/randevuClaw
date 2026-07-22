@@ -11,11 +11,11 @@
 
 ### CLSS — Session Catalog & Admin Scheduling
 
-- [ ] **CLSS-01**: Owner creates a bookable session (date, time, capacity, service) via chat
-- [ ] **CLSS-02**: Owner creates recurring sessions (weekly day/time pattern) in one chat action; system auto-generates instances ~90 days forward
-- [ ] **CLSS-03**: Owner cancels an individual session; every booked client is notified automatically in Greek
-- [ ] **CLSS-04**: Owner assigns a specific client directly to a session; that client is notified in Greek
-- [ ] **CLSS-05**: Owner lists upcoming sessions with booked count and capacity via chat
+- [x] **CLSS-01**: Owner creates a bookable session (date, time, capacity, service) via chat
+- [x] **CLSS-02**: Owner creates recurring sessions (weekly day/time pattern) in one chat action; system auto-generates instances ~90 days forward
+- [x] **CLSS-03**: Owner cancels an individual session; every booked client is notified automatically in Greek
+- [x] **CLSS-04**: Owner assigns a specific client directly to a session; that client is notified in Greek
+- [x] **CLSS-05**: Owner lists upcoming sessions with booked count and capacity via chat
 
 ### SBOK — Session Booking Flow
 
