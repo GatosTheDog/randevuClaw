@@ -46,6 +46,13 @@ export const businesses = pgTable('businesses', {
   // migration (permit-by-default). CHECK constraint in migration enforces valid
   // values at DB level; Zod enforces at app level (Plan 05).
   enforcementPolicy: text('enforcement_policy').notNull().default('allow'),
+  // Phase 12 (CANC-01): when true, cancellations within cancellationCutoffHours
+  // of the session start forfeit the client's session credit. Default false
+  // (opt-in) — existing businesses are not affected by the migration.
+  cancellationCutoffEnabled: boolean('cancellation_cutoff_enabled').notNull().default(false),
+  // Phase 12 (CANC-01): hours before session at which the cutoff window kicks in.
+  // Only meaningful when cancellationCutoffEnabled = true. Defaults to 8 hours.
+  cancellationCutoffHours: integer('cancellation_cutoff_hours').notNull().default(8),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 
