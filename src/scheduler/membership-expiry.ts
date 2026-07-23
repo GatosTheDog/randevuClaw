@@ -13,10 +13,16 @@ import {
   findMembershipsExpiringIn7Days,
   insertMembershipExpiryNotification,
   getClientName,
+  findMembershipsAtThreshold,
+  insertRenewalNudgeNotification,
 } from '../billing/queries';
-import { botTokenStore, sendTelegramMessage } from '../telegram/client';
+import { botTokenStore, sendTelegramMessage, sendTelegramMessageWithKeyboard } from '../telegram/client';
 import { isoDateInAthens, formatExpiryDateGreek } from '../utils/timezone';
 import { logger } from '../utils/logger';
+
+// RENW-04: in-memory store of pending renewal batch lists awaiting owner approval.
+// Keyed by businessId. Cleared after owner taps Ναι/Όχι or after 10 minutes.
+export const pendingRenewalBatches = new Map<number, string[]>();
 
 /**
  * Sweeps all businesses for memberships expiring within 7 calendar days and
@@ -118,6 +124,42 @@ export async function runMembershipExpirySweep(): Promise<number> {
             { err, membershipId: membership.id, businessId },
             'Membership expiry notification failed'
           );
+        }
+      }
+      // RENW-03/04: threshold sweep — find clients at last-session threshold.
+      if (business.lastSessionThresholdEnabled && business.ownerTelegramId) {
+        try {
+          const atThreshold = await findMembershipsAtThreshold(businessId);
+          const todayAthens = isoDateInAthens(new Date());
+          const toNudge: typeof atThreshold = [];
+          for (const m of atThreshold) {
+            const inserted = await insertRenewalNudgeNotification(m.id, todayAthens);
+            if (inserted) toNudge.push(m);
+          }
+          if (toNudge.length > 0) {
+            const nameLines = await Promise.all(
+              toNudge.map(async (m, i) => {
+                const name = (await getClientName(businessId, m.clientPhone)) ?? m.clientPhone;
+                return `${i + 1}. ${name} (${m.sessionsRemaining} μαθήματα)`;
+              })
+            );
+            const listText = nameLines.join('\n');
+            const batchMessage =
+              `Πελάτες με λίγα εναπομείναντα μαθήματα:\n${listText}\n\nΘέλετε να σταλεί ειδοποίηση ανανέωσης σε όλους;`;
+            pendingRenewalBatches.set(businessId, toNudge.map((m) => m.clientPhone));
+            setTimeout(() => pendingRenewalBatches.delete(businessId), 10 * 60 * 1000);
+            await botTokenStore.run(business.botToken, async () => {
+              await sendTelegramMessageWithKeyboard(business.ownerTelegramId!, batchMessage, [
+                [
+                  { text: '✅ Ναι, στείλε σε όλους', callback_data: `renewal:approve:${businessId}` },
+                  { text: '❌ Όχι', callback_data: `renewal:skip:${businessId}` },
+                ],
+              ]);
+            });
+            notificationCount += toNudge.length;
+          }
+        } catch (err) {
+          logger.error({ err, businessId }, 'Renewal threshold sweep failed for business');
         }
       }
     } catch (err) {
