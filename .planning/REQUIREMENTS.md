@@ -26,10 +26,10 @@
 
 - [ ] **AMENU-01**: Admin can access a persistent menu via `/menu` command showing top-level options: Settings, Classes, Clients, Today's Agenda
 - [ ] **AMENU-02**: From Settings, admin can update business hours, services, prices, and all per-business toggles (cutoff, slotless, booking mode, threshold)
-- [ ] **AMENU-03**: From Classes, admin can view upcoming classes, create a new recurring class, and cancel a class or series
+- [x] **AMENU-03**: From Classes, admin can view upcoming classes, create a new recurring class, and cancel a class or series
 - [ ] **AMENU-04**: From Clients, admin can view client list, view individual membership and session balance, and send renewal nudge
 - [ ] **AMENU-05**: From Today's Agenda, admin sees today's classes and bookings inline (same info as daily agenda push, on-demand)
-- [ ] **AMENU-06**: All binary admin decisions (approve booking, reject slotless request, confirm class creation) show yes/no inline keyboard buttons
+- [x] **AMENU-06**: All binary admin decisions (approve booking, reject slotless request, confirm class creation) show yes/no inline keyboard buttons
 
 ### CMENU — Client Menu
 

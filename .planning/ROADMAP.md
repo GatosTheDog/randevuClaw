@@ -58,8 +58,21 @@ See: `.planning/milestones/v1.2-ROADMAP.md`
 
 ### v1.4 Single-Bot UX Overhaul (Phases 16-20)
 
-- [ ] **Phase 16: Single-Bot Architecture** - Platform bot deleted; business bot routes admin vs client by Telegram ID match; onboarding auto-starts when unfinished admin messages their bot
+- [x] **Phase 16: Single-Bot Architecture** - Platform bot deleted; business bot routes admin vs client by Telegram ID match; onboarding auto-starts when unfinished admin messages their bot
+
+Plans:
+
+- [x] 16-01-PLAN.md — Remove platform bot code/config + add onboarding_completed schema column with migration backfill
+- [x] 16-02-PLAN.md — Extend handleFoundBusiness with onboarding routing; terminal step sets flag
+- [x] 16-03-PLAN.md — Integration tests for all four Phase 16 routing paths + full suite green
 - [ ] **Phase 17: Admin Menu** - `/menu` command shows Settings/Classes/Clients/Today sub-menus; all binary admin decisions use yes/no inline keyboard buttons
+
+Plans:
+
+- [x] 17-01-PLAN.md — /menu pre-emption + MenuCallbackResult union + showAdminRootMenu scaffold + formatAgendaMessage export
+- [ ] 17-02-PLAN.md — Settings sub-menu (read-only display + binary toggles) + Today's Agenda on-demand (AMENU-02, AMENU-05)
+- [x] 17-03-PLAN.md — Classes sub-menu: list, cancel with Ναι/Όχι confirmation, create-via-chat redirect (AMENU-03)
+- [ ] 17-04-PLAN.md — Clients sub-menu: list, balance, renewal nudge + integration tests (AMENU-04)
 - [ ] **Phase 18: Client Menu** - `/start` welcome menu with Book/My Bookings/Cancel/Balance inline flows; free Greek chat remains available at all times
 - [ ] **Phase 19: Class Setup in Onboarding & Terminology Fix** - Onboarding class schedule step with recurrence and capacity; σεζόν replaced with μάθημα across all bot messages and copy
 - [ ] **Phase 20: Client Escalation** - Blocked client triggers Greek apology + admin notification with context and inline reply option
@@ -72,11 +85,13 @@ See: `.planning/milestones/v1.2-ROADMAP.md`
 **Depends on**: Phase 15
 **Requirements**: ARCH-01, ARCH-02, ARCH-03, ARCH-04, AUTH-01, AUTH-02, AUTH-03
 **Success Criteria** (what must be TRUE):
+
   1. Messaging the platform bot produces no response — it has been deregistered and removed; the business bot is the only entry point
   2. Owner messages their business bot; the bot immediately recognises them as admin without asking for a password or PIN
   3. Owner messages their business bot before onboarding is complete and the onboarding flow starts automatically without any manual trigger
   4. A new client messages the business bot for the first time and is auto-created in the DB; their identity persists across restarts with no re-authentication prompt
   5. Both admin and client can close and reopen Telegram, return days later, and the bot recognises them immediately with no session expiry message
+
 **Plans**: TBD
 
 ### Phase 17: Admin Menu
@@ -85,13 +100,21 @@ See: `.planning/milestones/v1.2-ROADMAP.md`
 **Depends on**: Phase 16
 **Requirements**: AMENU-01, AMENU-02, AMENU-03, AMENU-04, AMENU-05, AMENU-06
 **Success Criteria** (what must be TRUE):
+
   1. Admin types `/menu` and receives an inline keyboard with four buttons: Settings, Classes, Clients, Today's Agenda
   2. Admin taps Settings and can update business hours, services, prices, cancellation cutoff, slotless toggle, booking mode, and threshold — all from the same sub-menu
   3. Admin taps Classes and sees upcoming classes; can create a new recurring class or cancel an existing class or series from the same sub-menu
   4. Admin taps Clients and sees a client list; can select a client to view their membership status, session balance, and trigger a renewal nudge
   5. Admin taps Today's Agenda and sees the same class and booking summary that the daily 8am push sends, available on demand at any time
   6. Every binary decision (approve booking, reject slotless, confirm class creation) presents Ναι/Όχι inline buttons — no ambiguous free-text confirmation required
-**Plans**: TBD
+
+**Plans**: 2/4 plans executed
+
+- [ ] 17-01-PLAN.md — /menu pre-emption + MenuCallbackResult union + showAdminRootMenu scaffold + formatAgendaMessage export
+- [ ] 17-02-PLAN.md — Settings sub-menu (read-only display + binary toggles) + Today's Agenda on-demand (AMENU-02, AMENU-05)
+- [ ] 17-03-PLAN.md — Classes sub-menu: list, cancel with Ναι/Όχι confirmation, create-via-chat redirect (AMENU-03)
+- [ ] 17-04-PLAN.md — Clients sub-menu: list, balance, renewal nudge + integration tests (AMENU-04)
+
 **UI hint**: yes
 
 ### Phase 18: Client Menu
@@ -100,11 +123,13 @@ See: `.planning/milestones/v1.2-ROADMAP.md`
 **Depends on**: Phase 16
 **Requirements**: CMENU-01, CMENU-02, CMENU-03, CMENU-04, CMENU-05
 **Success Criteria** (what must be TRUE):
+
   1. Client types `/start` and receives an inline keyboard with four options: Book a class, My bookings, Cancel booking, My balance
   2. Client taps Book a class and sees available classes as inline date → class → slot buttons, completing a booking without typing anything
   3. Client taps Cancel booking and sees their active bookings as inline buttons; selecting one cancels it without requiring free-text input
   4. Any binary confirmation (confirm booking, confirm cancellation) shows Ναι/Όχι inline buttons — no free-text confirmation prompt
   5. Client ignores the menu and types a Greek sentence instead; the AI agent interprets it and routes to the correct flow without error
+
 **Plans**: TBD
 **UI hint**: yes
 
@@ -114,11 +139,13 @@ See: `.planning/milestones/v1.2-ROADMAP.md`
 **Depends on**: Phase 16
 **Requirements**: CLSS-01, CLSS-02, CLSS-03, CLSS-04, CLSS-05, I18N-01, I18N-02, I18N-03
 **Success Criteria** (what must be TRUE):
+
   1. New owner completing onboarding reaches a class schedule step, defines recurring classes (e.g. weekday Pilates 9-10 with 4 slots), and those sessions appear in the DB before onboarding ends
   2. Owner specifies daily, specific-weekday, or monthly recurrence and the system expands the correct set of session instances across the next 90 days
   3. Owner skips class setup during onboarding using an explicit skip option, and no sessions are created — the owner can create them later via the admin menu
   4. Post-onboarding, owner creates a new recurring class series from the admin menu (AMENU-03 flow) and it is fully equivalent to what onboarding would have created
   5. Every bot message, onboarding prompt, and user-visible label uses μάθημα or τάξη — no occurrence of σεζόν remains in any Greek-facing text path
+
 **Plans**: TBD
 
 ### Phase 20: Client Escalation
@@ -127,9 +154,11 @@ See: `.planning/milestones/v1.2-ROADMAP.md`
 **Depends on**: Phase 16
 **Requirements**: ESCL-01, ESCL-02, ESCL-03
 **Success Criteria** (what must be TRUE):
+
   1. Client attempts to book a full class or book with an expired membership and receives a Greek message ("Επικοινωνούμε με τον διαχειριστή") — no raw error or silence
   2. Admin receives an escalation notification containing the client's name, what they tried to do, and the specific reason it failed (class full / membership expired / slotless disabled)
   3. Admin can tap an inline button on the escalation message to approve an exception or send a reply directly to the client — without leaving the bot chat
+
 **Plans**: TBD
 
 ## Progress
@@ -151,8 +180,8 @@ See: `.planning/milestones/v1.2-ROADMAP.md`
 | 13. Slotless Booking Requests | v1.3 | 3/3 | Complete | 2026-07-23 |
 | 14. Renewal Notification Extensions | v1.3 | 3/3 | Complete | 2026-07-23 |
 | 15. Onboarding Extensions | v1.3 | 2/2 | Complete | 2026-07-23 |
-| 16. Single-Bot Architecture | v1.4 | 0/TBD | Not started | - |
-| 17. Admin Menu | v1.4 | 0/TBD | Not started | - |
+| 16. Single-Bot Architecture | v1.4 | 3/3 | Complete | 2026-07-23 |
+| 17. Admin Menu | v1.4 | 2/4 | In Progress|  |
 | 18. Client Menu | v1.4 | 0/TBD | Not started | - |
 | 19. Class Setup in Onboarding & Terminology Fix | v1.4 | 0/TBD | Not started | - |
 | 20. Client Escalation | v1.4 | 0/TBD | Not started | - |
