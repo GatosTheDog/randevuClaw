@@ -355,3 +355,48 @@ export const membershipExpiryNotifications = pgTable(
     ),
   ]
 );
+
+// --- Phase 13: Slotless Booking Requests ---
+
+export const slotlessRequests = pgTable(
+  'slotless_requests',
+  {
+    id: serial('id').primaryKey(),
+    // Phase 13 (SLOT-01): RLS key — FK to businesses enforces ownership.
+    businessId: integer('business_id')
+      .notNull()
+      .references(() => businesses.id),
+    // Phase 13 (SLOT-01): Telegram from.id stringified, consistent with
+    // bookings.clientPhone convention across channel adapters.
+    clientPhone: text('client_phone').notNull(),
+    // Phase 13 (SLOT-01): ISO "YYYY-MM-DD" Athens local (requested date).
+    requestedSessionDate: text('requested_session_date').notNull(),
+    // Phase 13 (SLOT-01): "HH:MM" Athens local (requested time).
+    requestedSessionTime: text('requested_session_time').notNull(),
+    serviceId: integer('service_id')
+      .notNull()
+      .references(() => services.id),
+    // Phase 13 (SLOT-01): 'pending' | 'approved' | 'rejected'. CHECK
+    // constraint in migration enforces valid values at DB level.
+    status: text('status').notNull().default('pending'),
+    // Phase 13 (SLOT-03): nullable FK — set when owner approves and booking
+    // is created; null while pending or rejected.
+    bookingId: integer('booking_id').references(() => bookings.id),
+    // Phase 13 (SLOT-01): prevents duplicate inserts on webhook replay.
+    // Format: "client:{clientPhone}:service:{serviceId}:{requestedSessionDate}:{requestedSessionTime}".
+    idempotencyKey: text('idempotency_key').notNull().unique(),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (table) => [
+    // One pending request per (business, client, service, date); approved/
+    // rejected requests do not block new requests for the same slot.
+    uniqueIndex('unique_pending_slotless_per_client_service')
+      .on(
+        table.businessId,
+        table.clientPhone,
+        table.serviceId,
+        table.requestedSessionDate
+      )
+      .where(sql`status = 'pending'`),
+  ]
+);
