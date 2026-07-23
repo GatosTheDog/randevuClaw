@@ -1,55 +1,44 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.3
-milestone_name: Studio Session Scheduling & Slotless Bookings
-current_phase: 10
-current_phase_name: session-catalog-schema
-status: verifying
-stopped_at: Completed 11-01-PLAN.md
-last_updated: "2026-07-23T09:01:42.854Z"
+milestone: v1.2
+milestone_name: Billing & Membership System
+status: Awaiting next milestone
+stopped_at: context exhaustion at 75% (2026-07-22)
+last_updated: "2026-07-22T08:27:52.781Z"
 last_activity: 2026-07-22
-last_activity_desc: Phase 10 execution started
+last_activity_desc: Milestone v1.2 completed and archived
 progress:
-  total_phases: 6
-  completed_phases: 2
-  total_plans: 9
-  completed_plans: 9
-  percent: 33
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+current_phase: 09
+current_phase_name: Expiry Notifications & Client Balance
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-07-22 after v1.2 milestone close)
+See: .planning/PROJECT.md (updated 2026-07-17 after v1.1 milestone close)
 
 **Core value:** A client can book or cancel an appointment with a Greek business entirely through a chat conversation, in Greek, with zero friction — and the owner's calendar updates automatically.
-**Current focus:** Phase 10 — session-catalog-schema
+**Current focus:** Phase 09 — expiry-notifications-client-balance
 
 ## Current Position
 
-Phase: 10 (session-catalog-schema) — EXECUTING
-Plan: 6 of 6
-Status: Phase complete — ready for verification
-Last activity: 2026-07-22 — Phase 10 execution started
-
-```
-v1.3 Progress: [          ] 0% (0/6 phases)
-Phase 10: [ ] Not started
-Phase 11: [ ] Not started
-Phase 12: [ ] Not started
-Phase 13: [ ] Not started
-Phase 14: [ ] Not started
-Phase 15: [ ] Not started
-```
+Phase: Milestone v1.2 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-07-22 — Milestone v1.2 completed and archived
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 26 (v1.0–v1.2)
+- Total plans completed: 26
 - Average duration: - min
-- Total execution time: 0 hours (v1.3)
+- Total execution time: 0 hours
 
 **By Phase:**
 
@@ -104,13 +93,6 @@ Phase 15: [ ] Not started
 | Phase 09 P03 | 51 | 3 tasks | 3 files |
 | Phase 07 P06 | 4 | 2 tasks | 5 files |
 | Phase 07 P07 | 2 | 1 tasks | 2 files |
-| Phase 10-session-catalog-schema P10-01 | 42 | 2 tasks | 7 files |
-| Phase 10-session-catalog-schema P03 | 13 | 2 tasks | 5 files |
-| Phase 10 P04 | 6 minutes | 2 tasks | 1 files |
-| Phase 10 P05 | 350s | 2 tasks | 4 files |
-| Phase 11 P01 | 25 | 1 tasks | 1 files |
-| Phase 11 P02 | 8 | 2 tasks | 4 files |
-| Phase 11-session-booking-flow P03 | 25m | 11 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -209,23 +191,6 @@ Recent decisions affecting current work:
 - [Phase ?]: [07-06]: getAllClientsForBusiness uses getConn() inside withBusinessContext — RLS-scoped, no booking join
 - [Phase ?]: [07-06]: deactivate_package switched to package_name with case-insensitive partial match — eliminates hallucinated-ID problem
 - [Phase ?]: [Phase 07-07]: TelegramCallbackQuery.message optional-chain guard — keyboard clear is best-effort; non-owner access already mitigated upstream by findBusinessByOwnerTelegramId
-- [Roadmap v1.3]: 6 phases derived from 28 requirements — Phase 10 (session catalog + schema), Phase 11 (session booking flow), Phase 12 (cancellation cutoff), Phase 13 (slotless requests), Phase 14 (renewal extensions), Phase 15 (onboarding extensions)
-- [Roadmap v1.3]: CLSS placed in Phase 10 as schema foundation — 3 new tables + 7 business config columns block all downstream phases
-- [Roadmap v1.3]: SBOK in Phase 11 depends on Phase 10 schema; CANC in Phase 12 depends on Phase 10 schema (extends cancelBookingWithRefund); both are independent of each other
-- [Roadmap v1.3]: SLOT in Phase 13 depends on Phase 10 schema only (slotless_requests table); independent of cutoff logic
-- [Roadmap v1.3]: RENW in Phase 14 depends on Phase 9 expiry sweep only; can run in parallel with Phases 11-13 but placed after for planning simplicity
-- [Roadmap v1.3]: CONF in Phase 15 depends on all feature phases existing — onboarding questions can only be written once the features they configure are built
-- [Roadmap v1.3]: rrule v2.8.1 is the only new package; all other additions reuse existing utilities (isoDateInAthens, SELECT FOR UPDATE, setInterval pollers, Telegraf callback_query)
-- [Roadmap v1.3]: Capacity race guard: SELECT FOR UPDATE on session_instance row + UNIQUE(session_instance_id, client_phone) — same pattern as Phase 8 session deduction
-- [Roadmap v1.3]: Slotless approval transaction re-checks membership validity before converting request to booking — prevents orphaned approvals after membership expiry
-- [Roadmap v1.3]: Cancellation cutoff uses isoDateInAthens() for wall-clock comparison — never raw UTC offset arithmetic (DST-safe, proven v1.2)
-- [Roadmap v1.3]: Mass renewal broadcast is owner-approval-gated — sweep finds near-expiry clients, owner reviews list, no send until owner confirms
-- [Phase ?]: Used Jest globals without explicit imports — project uses Jest 29 with ts-jest, no vitest import needed
-- [Phase ?]: session-cancellation poller follows startXxxPoller pattern; registered in server.ts not index.ts
-- [Phase ?]: 11-01: Use withBusinessContext() instead of getConn().transaction() so deductSession participates in the same RLS-enforced appDb tx — atomic booking+deduction (SBOK-02)
-- [Phase ?]: [Phase 11-02]: ToolContext.business extended with bookingMode + allowMultiBooking — ai-agent.ts narrows at executeTool call site
-- [Phase ?]: [Phase 11-02]: book_session multi-path uses sequential for-loop (T-11-07 capacity race prevention)
-- [Phase ?]: [Phase 11-02]: rescheduleSessionTool SBOK-03 expiry gate blocks sessionDate > isoDateInAthens(expiresAt)
 
 ### Pending Todos
 
@@ -251,12 +216,6 @@ None yet.
 - [Phase 6]: GDPR cascade must cover ALL tables holding user data — document full cascade chain before implementing.
 - [Phase 9]: findMembershipByBooking returns null for pre-Phase-8 bookings — credit restore correctly no-ops (Pitfall 4 from 08-03).
 - [Phase 9]: Expiry sweep isRunning guard required (same pattern as v1.0 reminder poller) to prevent overlapping sweep executions.
-- [Phase 10]: rrule v2.8.1 instance pre-generation must use idempotent inserts (UNIQUE idempotency_key on session_instances) — safe to re-run expansion without duplicate rows.
-- [Phase 10]: Booking mode switch introduces nullable session_id FK on bookings — all existing queries must dispatch on booking_mode flag; existing bookings must not be orphaned.
-- [Phase 11]: Concurrent capacity claim (two clients, last spot) requires SELECT FOR UPDATE on session_instance row + UNIQUE(session_instance_id, client_phone) — test with concurrent transactions in integration suite.
-- [Phase 12]: Cutoff arithmetic must use isoDateInAthens() wall-clock comparison, never raw UTC offset — test Oct 25 2026 (-1h DST) and Mar 28 2027 (+1h DST) boundary cases.
-- [Phase 13]: Slotless approval transaction must re-check membership validity inside the same transaction — membership may expire between client request and owner approval.
-- [Phase 14]: Mass renewal broadcast must throttle to ~10 msg/sec to avoid Telegram rate limits — implement delay between sends in the broadcast loop.
 
 ## Deferred Items
 
@@ -288,10 +247,17 @@ Items acknowledged and deferred at v1.2 milestone close on 2026-07-22:
 
 ## Session Continuity
 
-Last session: 2026-07-23T09:01:42.841Z
-Stopped at: Completed 11-01-PLAN.md
+Last session: 2026-07-23T00:00:00Z
+Stopped at: Completed 12-01-PLAN.md (set_cancellation_cutoff owner tool)
 Resume file: None
+
+**Phase 12 Plan 01 completed:** a940588, 6c5830e, 7d64f85
+- Business interface extended with cancellationCutoffEnabled/Hours
+- setCancellationCutoff DB helper added to queries.ts
+- handleSetCancellationCutoff handler added to billing/tools.ts
+- set_cancellation_cutoff registered in OWNER_TOOLS + executeOwnerTool
 
 ## Operator Next Steps
 
-- Run `/gsd-plan-phase 10` to plan Phase 10: Session Catalog & Schema
+- Continue with Phase 12 Plan 02 (cancelAppointmentTool reads cutoff fields)
+- Or start the next milestone with /gsd-new-milestone

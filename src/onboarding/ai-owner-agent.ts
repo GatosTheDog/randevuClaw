@@ -23,6 +23,7 @@ import {
   handleDeactivatePackage,
   handleViewClientMembership,
   handleSetEnforcementPolicy,
+  handleSetCancellationCutoff,
   CreatePackageResult,
 } from '../billing/tools';
 import { showClientSelection } from '../telegram/handlers/payment-flow';
@@ -221,6 +222,27 @@ export const OWNER_TOOLS = [
       required: ['policy'],
     },
   },
+  // Phase 12: Cancellation cutoff tool (CANC-01, CANC-02)
+  {
+    type: 'function' as const,
+    name: 'set_cancellation_cutoff',
+    description:
+      'Ορίζει το παράθυρο ακύρωσης: αν ένας πελάτης ακυρώσει εντός X ωρών πριν τη σεζόν, χάνει το session. Χρησιμοποίησε enabled=true για ενεργοποίηση, enabled=false για απενεργοποίηση.',
+    parameters: {
+      type: 'object',
+      properties: {
+        enabled: {
+          type: 'boolean',
+          description: 'true = ενεργοποίηση παραθύρου ακύρωσης, false = απενεργοποίηση',
+        },
+        hours: {
+          type: 'integer',
+          description: 'Ώρες πριν τη σεζόν (1-168). Απαιτείται όταν enabled=true.',
+        },
+      },
+      required: ['enabled', 'hours'],
+    },
+  },
   // ---------------------------------------------------------------------------
   // Phase 10: Session catalog tools (CLSS-01 through CLSS-05)
   // ---------------------------------------------------------------------------
@@ -380,6 +402,9 @@ interface ToolArgs {
   capacity?: number;
   session_date?: string;
   session_time?: string;
+  // Phase 12: cancellation cutoff fields (CANC-01, CANC-02)
+  enabled?: boolean;
+  hours?: number;
 }
 
 /**
@@ -573,6 +598,13 @@ async function executeOwnerTool(
       // would let the UPDATE run as admin db user, breaking tenant isolation).
       return withBusinessContext(business.id, () =>
         handleSetEnforcementPolicy(business.id, args as Record<string, unknown>)
+      );
+    }
+
+    // Phase 12: Cancellation cutoff case (CANC-01, CANC-02)
+    case 'set_cancellation_cutoff': {
+      return withBusinessContext(business.id, () =>
+        handleSetCancellationCutoff(business.id, args as Record<string, unknown>)
       );
     }
 

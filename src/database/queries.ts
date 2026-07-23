@@ -39,6 +39,10 @@ export interface Business {
   bookingMode: string;
   /** Phase 11 (SBOK-04): when true, clients may book multiple session instances in a single book_session call. */
   allowMultiBooking: boolean;
+  /** Phase 12 (CANC-01): whether the cancellation cutoff window is active. */
+  cancellationCutoffEnabled: boolean;
+  /** Phase 12 (CANC-01): hours before session at which credit forfeiture kicks in. */
+  cancellationCutoffHours: number;
   createdAt: Date;
 }
 
@@ -418,6 +422,17 @@ export async function findBusinessById(businessId: number): Promise<Business | n
     .where(eq(businesses.id, businessId))
     .limit(1);
   return rows[0] ?? null;
+}
+
+export async function setCancellationCutoff(
+  businessId: number,
+  enabled: boolean,
+  hours: number
+): Promise<void> {
+  await getConn()
+    .update(businesses)
+    .set({ cancellationCutoffEnabled: enabled, cancellationCutoffHours: hours })
+    .where(eq(businesses.id, businessId));
 }
 
 export async function listAllBusinessIds(): Promise<number[]> {
