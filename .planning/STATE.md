@@ -6,15 +6,15 @@ current_phase: 14
 current_phase_name: renewal-notification-extensions
 status: Awaiting next milestone
 stopped_at: Completed 14-01-PLAN.md
-last_updated: "2026-07-23T11:52:28.030Z"
+last_updated: "2026-07-23T16:01:38.135Z"
 last_activity: 2026-07-23
 last_activity_desc: Phase 14 Plan 01 complete (renewal nudge schema + query layer + tool handler)
 progress:
-  total_phases: 6
+  total_phases: 7
   completed_phases: 4
-  total_plans: 15
-  completed_plans: 17
-  percent: 67
+  total_plans: 20
+  completed_plans: 19
+  percent: 57
 ---
 
 # Project State
@@ -94,6 +94,7 @@ Last activity: 2026-07-23 — Phase 14 Plan 01 complete (renewal nudge schema + 
 | Phase 09 P03 | 51 | 3 tasks | 3 files |
 | Phase 07 P06 | 4 | 2 tasks | 5 files |
 | Phase 07 P07 | 2 | 1 tasks | 2 files |
+| Phase 16-single-bot-architecture P1 | 3 | - tasks | - files |
 
 ## Accumulated Context
 
@@ -192,6 +193,8 @@ Recent decisions affecting current work:
 - [Phase ?]: [07-06]: getAllClientsForBusiness uses getConn() inside withBusinessContext — RLS-scoped, no booking join
 - [Phase ?]: [07-06]: deactivate_package switched to package_name with case-insensitive partial match — eliminates hallucinated-ID problem
 - [Phase ?]: [Phase 07-07]: TelegramCallbackQuery.message optional-chain guard — keyboard clear is best-effort; non-owner access already mitigated upstream by findBusinessByOwnerTelegramId
+- [Phase ?]: 16-01: onboarding_completed uses NOT NULL DEFAULT false with backfill migration
+- [Phase ?]: 16-01: Platform bot fully excised — platform.ts deleted, platform env vars removed from config, route removed from server.ts
 
 ### Pending Todos
 
@@ -248,7 +251,7 @@ Items acknowledged and deferred at v1.2 milestone close on 2026-07-22:
 
 ## Session Continuity
 
-Last session: 2026-07-23T11:52:28.020Z
+Last session: 2026-07-23T16:01:24.819Z
 Stopped at: Completed 12-03-PLAN.md (cancellation cutoff integration tests)
 Resume file: None
 
