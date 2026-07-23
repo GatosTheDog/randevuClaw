@@ -19,12 +19,7 @@ import { getOrCreateBotInstance } from '../telegram/registry';
 import { routeConversationMessage } from '../conversation/router';
 import { deleteBookingFromCalendar, syncBookingToCalendar } from '../calendar/sync';
 import { aiOwnerAgent } from '../onboarding/ai-owner-agent';
-import {
-  findBusinessByOwnerTelegramId,
-  findActiveSessionByOwnerTelegramId,
-  createOrResetOnboardingSession,
-} from '../onboarding/queries';
-import { dispatchOnboardingStep } from '../onboarding/router';
+import { findBusinessByOwnerTelegramId } from '../onboarding/queries';
 import {
   handleConfirmMembership,
   handleCancelPackage,
@@ -32,6 +27,7 @@ import {
   showPackageSelection,
   showMembershipConfirmation,
 } from '../telegram/handlers/payment-flow';
+import { handleMenuCallback, MenuCallbackResult, showAdminRootMenu } from '../telegram/handlers/admin-menu';
 import { findMembershipByBooking, restoreCredit } from '../billing/queries';
 import { isoDateInAthens } from '../utils/timezone';
 import { approveSlotlessRequest, rejectSlotlessRequest } from '../session/slotless-requests';
@@ -71,37 +67,18 @@ async function handleFoundBusiness(
   messageText: string
 ): Promise<void> {
   try {
-    // T-16-04: explicit null guard before comparison — a business with no owner
-    // set (ownerTelegramId=null) must never match any sender. Loose equality
-    // (=== only, without the null guard) is safe against null/undefined coercion
-    // but the explicit check makes the intent clear and handles DB nulls.
-    if (business.ownerTelegramId !== null && business.ownerTelegramId === senderTelegramId) {
-      if (!business.onboardingCompleted) {
-        // ARCH-03: owner messages bot before onboarding is complete — route to
-        // the onboarding state machine. Resume an existing active session or
-        // start a fresh one.
-        const activeResult = await findActiveSessionByOwnerTelegramId(senderTelegramId);
-        if (activeResult) {
-          // Resume mid-onboarding session (AUTH-03: session persistence)
-          await dispatchOnboardingStep(
-            activeResult.session,
-            activeResult.business,
-            senderTelegramId,
-            messageText
-          );
-        } else {
-          // First-contact owner: create (or reset) session and send welcome message
-          await createOrResetOnboardingSession(business.id, 'name');
-          await sendTelegramMessage(
-            senderTelegramId,
-            'Καλωσήρθατε! Πώς ονομάζεται η επιχείρησή σας;'
-          );
-        }
+    // Owner intercept: any message from the business owner goes to the AI
+    // owner management agent (not the client booking AI). Identity check only —
+    // no keyword gating — so the owner is recognized from their very first message.
+    if (business.ownerTelegramId === senderTelegramId) {
+      // AMENU-01: /menu command — structured keyboard, no Gemini round-trip.
+      // Pre-empt aiOwnerAgent to avoid wasting Gemini API quota on a known command.
+      if (messageText.trim() === '/menu') {
+        await showAdminRootMenu(senderTelegramId, business);
         await markTelegramUpdateProcessed(updateId, business.id);
         return;
       }
 
-      // ARCH-02 / AUTH-01: onboarding complete — route to AI owner management agent.
       // WR-04: use Athens calendar date instead of UTC slice — between midnight
       // and 02:00–03:00 Athens time, UTC would still be "yesterday", causing
       // the AI agent to show the wrong day's schedule and use the wrong date
@@ -117,7 +94,6 @@ async function handleFoundBusiness(
       return;
     }
 
-    // AUTH-02: client path — non-owner sender routes to the booking AI.
     await routeConversationMessage(business, senderTelegramId, messageText, {
       sendMessage: sendTelegramMessage,
     });
@@ -158,7 +134,7 @@ export type RenewalCallbackResult = {
 
 export function parseCallbackData(
   data: string | undefined
-): BookingCallbackResult | BillingCallbackResult | SlotlessCallbackResult | RenewalCallbackResult | null {
+): BookingCallbackResult | BillingCallbackResult | SlotlessCallbackResult | RenewalCallbackResult | MenuCallbackResult | null {
   // Existing booking action pattern (unchanged — T-02-17)
   const bookingMatch = data?.match(/^(approve|reject|client_cancel)_(\d+)$/);
   if (bookingMatch) {
@@ -195,6 +171,16 @@ export function parseCallbackData(
     return {
       action: `renewal:${renewalMatch[1]}` as RenewalCallbackResult['action'],
       businessId: Number(renewalMatch[2]),
+    };
+  }
+
+  // Phase 17: admin menu callback pattern — menu:<action>[:<numericId>]
+  // The menuAction discriminant is unique across all result types (RESEARCH.md Pitfall 1).
+  const menuMatch = data?.match(/^menu:([\w:]+?)(?::(\d+))?$/);
+  if (menuMatch) {
+    return {
+      menuAction: menuMatch[1],
+      id: menuMatch[2] ? Number(menuMatch[2]) : undefined,
     };
   }
 
@@ -276,6 +262,29 @@ async function handleCallbackQuery(
 
   if (!parsed) {
     logger.warn({ data: callbackQuery.data }, 'Malformed callback_query data, ignoring');
+    return;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Phase 17: Admin menu callback routing (AMENU-01, AMENU-06)
+  // Discriminant: 'menuAction' in result → MenuCallbackResult
+  // Cross-tenant guard: business re-derived from senderTelegramId, not from callback_data.
+  // Placed BEFORE the 'action' check so TypeScript narrows cleanly —
+  // MenuCallbackResult has no 'action' field; checking it first excludes it
+  // from the union before any 'parsed.action' reference below.
+  // ---------------------------------------------------------------------------
+  if ('menuAction' in parsed) {
+    const menuResult = parsed as MenuCallbackResult;
+    const ownerBusiness = await findBusinessByOwnerTelegramId(senderTelegramId);
+    if (!ownerBusiness) {
+      logger.warn({ senderTelegramId }, 'menu callback from unregistered owner, ignoring');
+      return;
+    }
+    // Clear old keyboard before sending sub-menu (RESEARCH.md Pitfall 6)
+    if (callbackQuery.message?.message_id) {
+      await editTelegramMessageReplyMarkup(senderTelegramId, callbackQuery.message.message_id, []);
+    }
+    await handleMenuCallback(menuResult, ownerBusiness, senderTelegramId);
     return;
   }
 

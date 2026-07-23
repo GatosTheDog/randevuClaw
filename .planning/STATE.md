@@ -1,18 +1,20 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.4
-milestone_name: Single-Bot UX Overhaul
-status: executing
-current_phase: 16
-current_phase_name: single-bot-architecture
-last_updated: "2026-07-23T17:57:17.000Z"
+milestone: v1.2
+milestone_name: Billing & Membership System
+current_phase: 14
+current_phase_name: renewal-notification-extensions
+status: Awaiting next milestone
+stopped_at: Completed 14-01-PLAN.md
+last_updated: "2026-07-23T22:49:13.841Z"
 last_activity: 2026-07-23
+last_activity_desc: Phase 14 Plan 01 complete (renewal nudge schema + query layer + tool handler)
 progress:
-  total_phases: 5
-  completed_phases: 0
-  total_plans: 3
-  completed_plans: 2
-  percent: 7
+  total_phases: 7
+  completed_phases: 4
+  total_plans: 20
+  completed_plans: 19
+  percent: 57
 ---
 
 # Project State
@@ -22,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-17 after v1.1 milestone close)
 
 **Core value:** A client can book or cancel an appointment with a Greek business entirely through a chat conversation, in Greek, with zero friction — and the owner's calendar updates automatically.
-**Current focus:** Phase 16 — Single-Bot Architecture
+**Current focus:** Phase 09 — expiry-notifications-client-balance
 
 ## Current Position
 
-Phase: 16 — Single-Bot Architecture
-Plan: 02 complete (next: 03)
-Status: executing — Phase 16 Plan 2 complete
-Last activity: 2026-07-23 — Phase 16-02 complete: owner routing + onboarding flag
+Phase: 14 — renewal-notification-extensions
+Plan: 01 (complete)
+Status: In progress
+Last activity: 2026-07-23 — Phase 14 Plan 01 complete (renewal nudge schema + query layer + tool handler)
 
 ## Performance Metrics
 
@@ -92,8 +94,7 @@ Last activity: 2026-07-23 — Phase 16-02 complete: owner routing + onboarding f
 | Phase 09 P03 | 51 | 3 tasks | 3 files |
 | Phase 07 P06 | 4 | 2 tasks | 5 files |
 | Phase 07 P07 | 2 | 1 tasks | 2 files |
-| Phase 16-single-bot-architecture P1 | 3 | - tasks | - files |
-| Phase 16-single-bot-architecture P2 | 2 | 2 tasks | 2 files |
+| Phase 17-admin-menu P1 | 270 | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -192,15 +193,8 @@ Recent decisions affecting current work:
 - [Phase ?]: [07-06]: getAllClientsForBusiness uses getConn() inside withBusinessContext — RLS-scoped, no booking join
 - [Phase ?]: [07-06]: deactivate_package switched to package_name with case-insensitive partial match — eliminates hallucinated-ID problem
 - [Phase ?]: [Phase 07-07]: TelegramCallbackQuery.message optional-chain guard — keyboard clear is best-effort; non-owner access already mitigated upstream by findBusinessByOwnerTelegramId
-- [Roadmap v1.4]: 5 phases derived from 29 requirements — Phase 16 (single-bot arch + identity), Phase 17 (admin menu), Phase 18 (client menu), Phase 19 (class onboarding + i18n), Phase 20 (escalation)
-- [Roadmap v1.4]: ARCH+AUTH grouped in Phase 16 — both concern routing and identity wiring; must be complete before any menu work in Phases 17/18
-- [Roadmap v1.4]: CLSS+I18N grouped in Phase 19 — class schedule onboarding step is the natural place to introduce correct μάθημα terminology; fixes apply across the same copy pass
-- [Roadmap v1.4]: Phase 20 (escalation) placed last — depends on Phase 16 routing but benefits from Phase 17/18 inline keyboard patterns being established first
-- [Phase 16-01]: onboarding_completed uses NOT NULL DEFAULT false with backfill migration
-- [Phase 16-01]: Platform bot fully excised — platform.ts deleted, platform env vars removed from config, route removed from server.ts
-- [Phase 16-02]: Null guard written as (ownerTelegramId !== null && ownerTelegramId === senderTelegramId) — explicit intent, safe for DB nulls (T-16-04)
-- [Phase 16-02]: onboardingCompleted=true persisted in handleActivate before sendTelegramMessage — routing correct even if message send fails (Pitfall 2)
-- [Phase 16-02]: handleCallbackQuery not touched — callbacks originate only after onboarding completes, no onboarding check needed there
+- [Phase ?]: 'menuAction' in parsed dispatch before action check for TS union narrowing
+- [Phase ?]: C:/Program Files/Git/menu pre-emption bypasses Gemini round-trip for structured command
 
 ### Pending Todos
 
@@ -226,9 +220,6 @@ None yet.
 - [Phase 6]: GDPR cascade must cover ALL tables holding user data — document full cascade chain before implementing.
 - [Phase 9]: findMembershipByBooking returns null for pre-Phase-8 bookings — credit restore correctly no-ops (Pitfall 4 from 08-03).
 - [Phase 9]: Expiry sweep isRunning guard required (same pattern as v1.0 reminder poller) to prevent overlapping sweep executions.
-- [Phase 16]: Platform bot webhook must be deleted via Telegram API before removing the route — otherwise Telegram retries the deregistered endpoint indefinitely.
-- [Phase 17]: Admin menu callback_data budget is 64 bytes (Telegram limit) — use short action codes, not full text, in inline keyboard payloads.
-- [Phase 19]: σεζόν → μάθημα rename must be a grep-exhaustive pass; missed strings produce confusing mixed terminology in production.
 
 ## Deferred Items
 
@@ -260,15 +251,30 @@ Items acknowledged and deferred at v1.2 milestone close on 2026-07-22:
 
 ## Session Continuity
 
-Last session: 2026-07-23
-Stopped at: Phase 16 Plan 01 complete (schema + platform bot excision)
+Last session: 2026-07-23T22:49:07.631Z
+Stopped at: Completed 12-03-PLAN.md (cancellation cutoff integration tests)
 Resume file: None
 
-**v1.4 Roadmap created:**
-- 5 phases: 16 (arch+auth), 17 (admin menu), 18 (client menu), 19 (class onboarding + i18n), 20 (escalation)
-- 29 requirements mapped with 100% coverage
-- ROADMAP.md and REQUIREMENTS.md updated
+**Phase 12 Plan 01 completed:** a940588, 6c5830e, 7d64f85
+
+- Business interface extended with cancellationCutoffEnabled/Hours
+- setCancellationCutoff DB helper added to queries.ts
+- handleSetCancellationCutoff handler added to billing/tools.ts
+- set_cancellation_cutoff registered in OWNER_TOOLS + executeOwnerTool
+
+**Phase 12 Plan 02 completed:** 07142c9
+
+- hoursUntilSessionInAthens DST-safe helper added to function-executor.ts
+- ToolContext.business extended with cancellationCutoffEnabled/Hours
+- cancelAppointmentTool cutoff check + two-message confirmation flow (CANC-03/04/05)
+
+**Phase 12 Plan 03 completed:** 2506744
+
+- tests/cancellation-cutoff.test.ts: 6 integration tests covering CANC-01 through CANC-05
+- tests/helpers/session-fixtures.ts: session catalog/instance test helpers
+- src/session/manager.ts: session query layer (worktree Rule 3 fix)
+- All 6 tests passing against Neon DB
 
 ## Operator Next Steps
 
-- Start Phase 16 planning: `/gsd-plan-phase 16`
+- Phase 12 complete (all 3 plans done) — start next phase or new milestone with /gsd-new-milestone
