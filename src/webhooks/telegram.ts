@@ -29,6 +29,7 @@ import {
 } from '../telegram/handlers/payment-flow';
 import { findMembershipByBooking, restoreCredit } from '../billing/queries';
 import { isoDateInAthens } from '../utils/timezone';
+import { approveSlotlessRequest, rejectSlotlessRequest } from '../session/slotless-requests';
 
 interface TelegramFrom {
   id: number;
@@ -112,10 +113,14 @@ export type BillingCallbackResult = {
   firstId: number;
   optionalSecondId?: number;
 };
+export type SlotlessCallbackResult = {
+  action: 'slotless:req_approve' | 'slotless:req_reject';
+  slotlessRequestId: number;
+};
 
 export function parseCallbackData(
   data: string | undefined
-): BookingCallbackResult | BillingCallbackResult | null {
+): BookingCallbackResult | BillingCallbackResult | SlotlessCallbackResult | null {
   // Existing booking action pattern (unchanged — T-02-17)
   const bookingMatch = data?.match(/^(approve|reject|client_cancel)_(\d+)$/);
   if (bookingMatch) {
@@ -134,6 +139,15 @@ export function parseCallbackData(
       action: `billing:${billingMatch[1]}` as BillingCallbackResult['action'],
       firstId: Number(billingMatch[2]),
       optionalSecondId: billingMatch[3] ? Number(billingMatch[3]) : undefined,
+    };
+  }
+
+  // Phase 13: slotless request action pattern
+  const slotlessMatch = data?.match(/^slotless:(req_approve|req_reject):(\d+)$/);
+  if (slotlessMatch) {
+    return {
+      action: `slotless:${slotlessMatch[1]}` as SlotlessCallbackResult['action'],
+      slotlessRequestId: Number(slotlessMatch[2]),
     };
   }
 
@@ -279,6 +293,61 @@ async function handleCallbackQuery(
       if (callbackQuery.message?.message_id) {
         await editTelegramMessageReplyMarkup(senderTelegramId, callbackQuery.message.message_id, []);
       }
+    }
+    return;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Phase 13: Slotless request callback routing (SLOT-03, SLOT-04)
+  // Discriminant: 'slotlessRequestId' in result → SlotlessCallbackResult
+  // ---------------------------------------------------------------------------
+  if ('slotlessRequestId' in parsed) {
+    const slotlessResult = parsed as SlotlessCallbackResult;
+    // T-13-07: resolve business from owner's Telegram ID (cross-tenant guard)
+    const ownerBusiness = await findBusinessByOwnerTelegramId(senderTelegramId);
+    if (!ownerBusiness) {
+      logger.warn({ senderTelegramId, action: slotlessResult.action }, 'slotless callback from unregistered owner, ignoring');
+      return;
+    }
+
+    if (slotlessResult.action === 'slotless:req_approve') {
+      const result = await approveSlotlessRequest(slotlessResult.slotlessRequestId, ownerBusiness.id);
+      if (result === null) {
+        await sendTelegramMessage(senderTelegramId, 'Δεν ήταν δυνατή η έγκριση: η συνδρομή του πελάτη έχει λήξει ή το αίτημα δεν ισχύει πλέον.');
+      } else {
+        const { booking, request } = result;
+        try {
+          await sendTelegramMessage(
+            booking.clientPhone,
+            `Το αίτημα σας εγκρίθηκε! Η κράτησή σας επιβεβαιώθηκε για ${booking.calendarDate} στις ${booking.calendarTime}.`
+          );
+        } catch (err) {
+          logger.error({ err, bookingId: booking.id }, 'Slotless approval client notification failed (best-effort)');
+        }
+        await sendTelegramMessage(senderTelegramId, `✅ Εγκρίθηκε. Κράτηση #${booking.id} δημιουργήθηκε.`);
+        void request; // request is logged implicitly via approveSlotlessRequest
+      }
+    } else {
+      // slotless:req_reject
+      const request = await rejectSlotlessRequest(slotlessResult.slotlessRequestId);
+      if (request === null) {
+        await sendTelegramMessage(senderTelegramId, 'Το αίτημα δεν βρέθηκε ή έχει ήδη επιλυθεί.');
+      } else {
+        try {
+          await sendTelegramMessage(
+            request.clientPhone,
+            'Το αίτημα κράτησής σας δεν εγκρίθηκε. Παρακαλώ επικοινωνήστε με την επιχείρηση για εναλλακτικές ώρες.'
+          );
+        } catch (err) {
+          logger.error({ err, requestId: request.id }, 'Slotless rejection client notification failed (best-effort)');
+        }
+        await sendTelegramMessage(senderTelegramId, '❌ Απορρίφθηκε.');
+      }
+    }
+
+    // Clear keyboard regardless of outcome
+    if (callbackQuery.message?.message_id) {
+      await editTelegramMessageReplyMarkup(senderTelegramId, callbackQuery.message.message_id, []);
     }
     return;
   }
