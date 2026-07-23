@@ -111,7 +111,13 @@ Plans:
   4. DST boundary dates (Oct 25 2026, Mar 28 2027) do not cause the cutoff calculation to misfire — cancellations remain correctly categorized on those days
   5. Owner can turn the cutoff off at any time and subsequent cancellations immediately revert to always restoring credits
 
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+
+- [ ] 12-01-PLAN.md — Owner tool set_cancellation_cutoff: OWNER_TOOLS declaration + executeOwnerTool case + handleSetCancellationCutoff in billing/tools + Business interface fields (CANC-01, CANC-02)
+- [ ] 12-02-PLAN.md — Cutoff check + two-message confirmation flow in cancelAppointmentTool: hoursUntilSessionInAthens helper, pending_confirmation response, forfeiture and restore branches (CANC-03, CANC-04, CANC-05)
+- [ ] 12-03-PLAN.md — Integration tests: all CANC-01 through CANC-05 scenarios including DST Oct 25 2026 boundary in cancellation-cutoff.test.ts
 
 ### Phase 13: Slotless Booking Requests
 
