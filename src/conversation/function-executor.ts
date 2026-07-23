@@ -30,6 +30,10 @@ export interface ToolContext {
     bookingMode: string;
     /** Phase 11 (SBOK-04): multi-booking gate */
     allowMultiBooking: boolean;
+    /** Phase 12 (CANC-01): whether the cancellation cutoff window is active. */
+    cancellationCutoffEnabled: boolean;
+    /** Phase 12 (CANC-01): hours before session at which credit forfeiture kicks in. */
+    cancellationCutoffHours: number;
   };
   clientPhone: string;
   // Turn-constant identifier, stable across every tool call within the same
@@ -65,6 +69,7 @@ const BookAppointmentArgsSchema = z.object({
 const CancelAppointmentArgsSchema = z.object({
   business_id: z.number().int(),
   booking_id: z.number().int(),
+  confirmed: z.boolean().optional(),
 });
 
 const RescheduleAppointmentArgsSchema = z.object({
@@ -95,6 +100,24 @@ const RescheduleSessionArgsSchema = z.object({
   booking_id: z.number().int(),
   new_session_instance_id: z.number().int(),
 });
+
+function hoursUntilSessionInAthens(sessionDate: string, sessionTime: string): number {
+  const noonUTC = new Date(`${sessionDate}T12:00:00Z`);
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Europe/Athens',
+    hour: '2-digit',
+    hour12: false,
+  }).formatToParts(noonUTC);
+  const athensHour = Number.parseInt(parts.find((p) => p.type === 'hour')!.value, 10);
+  const offsetHours = athensHour - 12;
+  const [hh, mm] = sessionTime.split(':').map(Number);
+  const sessionUTCMs =
+    Date.parse(
+      `${sessionDate}T${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:00Z`
+    ) -
+    offsetHours * 3_600_000;
+  return (sessionUTCMs - Date.now()) / 3_600_000;
+}
 
 export async function executeTool(
   name: string,
@@ -284,6 +307,48 @@ async function cancelAppointmentTool(
   if (booking.clientPhone !== context.clientPhone) return { success: false, error: 'not_your_booking' };
   if (!ACTIVE_STATUSES.includes(booking.bookingStatus)) {
     return { success: false, error: 'not_cancellable' };
+  }
+
+  // Phase 12 (CANC-03, CANC-04, CANC-05): cancellation cutoff enforcement
+  const cutoffEnabled = context.business.cancellationCutoffEnabled;
+  const cutoffHours = context.business.cancellationCutoffHours;
+  if (cutoffEnabled && booking.calendarDate && booking.calendarTime) {
+    const hoursLeft = hoursUntilSessionInAthens(booking.calendarDate, booking.calendarTime);
+    if (hoursLeft < cutoffHours) {
+      if (!parsed.confirmed) {
+        // First call: warn client, no DB mutation (CANC-05)
+        return {
+          success: false,
+          pending_confirmation: true,
+          booking_id: booking.id,
+          warning: `Θα χάσετε 1 session από τη συνδρομή σας αν ακυρώσετε τώρα (εντός ${cutoffHours} ωρών πριν τη σεζόν). Απαντήστε "ναι" για επιβεβαίωση ή "όχι" για ακύρωση.`,
+        };
+      }
+      // confirmed=true: cancel without restoring credit (CANC-04)
+      await updateBookingStatus(booking.id, 'cancelled');
+      try {
+        const fullBusiness = await findBusinessById(context.business.id);
+        if (fullBusiness) await deleteBookingFromCalendar(booking, fullBusiness);
+      } catch (err) {
+        logger.error({ err, bookingId: booking.id }, 'Calendar deletion failed (best-effort, forfeiture)');
+      }
+      const svc = await findServiceById(context.business.id, booking.serviceId);
+      try {
+        if (context.business.ownerTelegramId) {
+          await sendTelegramMessage(
+            context.business.ownerTelegramId,
+            `Ακύρωση (χωρίς επιστροφή session) από πελάτη:\nΥπηρεσία: ${svc?.name ?? 'άγνωστη'}\nΗμερομηνία: ${booking.calendarDate}\nΏρα: ${booking.calendarTime}\nΠελάτης: ${booking.clientPhone}`
+          );
+        }
+      } catch (err) { logger.error({ err }, 'Owner forfeiture notification failed'); }
+      try {
+        await sendTelegramMessage(
+          booking.clientPhone,
+          `Το ραντεβού σας ακυρώθηκε. Το session δεν επιστράφηκε λόγω ακύρωσης εντός ${cutoffHours} ωρών.`
+        );
+      } catch (err) { logger.error({ err }, 'Client forfeiture notification failed'); }
+      return { success: true, booking_id: booking.id, credit_forfeited: true };
+    }
   }
 
   await updateBookingStatus(booking.id, 'cancelled');

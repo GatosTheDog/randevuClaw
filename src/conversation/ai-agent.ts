@@ -384,6 +384,8 @@ export async function aiBookingAgent(
           enforcementPolicy: business.enforcementPolicy,
           bookingMode: business.bookingMode,
           allowMultiBooking: business.allowMultiBooking,
+          cancellationCutoffEnabled: business.cancellationCutoffEnabled,
+          cancellationCutoffHours: business.cancellationCutoffHours,
         },
         clientPhone,
         requestId,
