@@ -247,10 +247,17 @@ Items acknowledged and deferred at v1.2 milestone close on 2026-07-22:
 
 ## Session Continuity
 
-Last session: 2026-07-22T08:27:52.749Z
-Stopped at: context exhaustion at 75% (2026-07-22)
+Last session: 2026-07-23T00:00:00Z
+Stopped at: Completed 12-01-PLAN.md (set_cancellation_cutoff owner tool)
 Resume file: None
+
+**Phase 12 Plan 01 completed:** a940588, 6c5830e, 7d64f85
+- Business interface extended with cancellationCutoffEnabled/Hours
+- setCancellationCutoff DB helper added to queries.ts
+- handleSetCancellationCutoff handler added to billing/tools.ts
+- set_cancellation_cutoff registered in OWNER_TOOLS + executeOwnerTool
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Continue with Phase 12 Plan 02 (cancelAppointmentTool reads cutoff fields)
+- Or start the next milestone with /gsd-new-milestone
