@@ -118,6 +118,47 @@ const BOOKING_TOOLS = [
       required: ['business_id'],
     },
   },
+  // Phase 11: session booking tools (SBOK-01, SBOK-03, SBOK-04)
+  {
+    type: 'function' as const,
+    name: 'list_sessions_for_client',
+    description: 'Επιστρέφει τις επερχόμενες διαθέσιμες σεζόν της επιχείρησης που μπορεί να κλείσει ο πελάτης. Κάλεσέ το πριν από το book_session αν ο πελάτης δεν γνωρίζει τις ακριβείς λεπτομέρειες της σεζόν.',
+    parameters: {
+      type: 'object',
+      properties: {
+        business_id: { type: 'integer', description: 'Αναγνωριστικό επιχείρησης' },
+      },
+      required: ['business_id'],
+    },
+  },
+  {
+    type: 'function' as const,
+    name: 'book_session',
+    description: 'Κλείνει συγκεκριμένη σεζόν για τον πελάτη. Χρησιμοποίησε list_sessions_for_client αν χρειάζεσαι να βρεις το ακριβές session_instance_id. Αν allow_multi_booking είναι ενεργό, μπορείς να στείλεις λίστα session_instance_ids για πολλαπλές κρατήσεις μαζί.',
+    parameters: {
+      type: 'object',
+      properties: {
+        business_id: { type: 'integer' },
+        session_instance_id: { type: 'integer', description: 'ID της συγκεκριμένης σεζόν από list_sessions_for_client' },
+        session_instance_ids: { type: 'array', items: { type: 'integer' }, description: 'Λίστα session instance IDs για πολλαπλές κρατήσεις (μόνο αν allow_multi_booking=true)' },
+      },
+      required: ['business_id'],
+    },
+  },
+  {
+    type: 'function' as const,
+    name: 'reschedule_session',
+    description: 'Αλλάζει μια κράτηση σεζόν σε διαφορετική σεζόν. Ελέγχει αν η νέα σεζόν είναι εντός ισχύος της συνδρομής του πελάτη.',
+    parameters: {
+      type: 'object',
+      properties: {
+        business_id: { type: 'integer' },
+        booking_id: { type: 'integer', description: 'ID της υπάρχουσας κράτησης' },
+        new_session_instance_id: { type: 'integer', description: 'ID της νέας σεζόν' },
+      },
+      required: ['business_id', 'booking_id', 'new_session_instance_id'],
+    },
+  },
 ];
 
 const GREEK_WEEKDAYS = [
@@ -152,6 +193,28 @@ function buildSystemInstruction(
     .map(formatHoursLine)
     .join('\n');
 
+  const rules: string[] = [
+    '- Μιλάς πάντα Ελληνικά, με ζεστό και φιλικό τόνο, ποτέ ρομποτικό ύφος.',
+    '- ΠΟΤΕ μην αναφέρεις υπηρεσία, τιμή ή ωράριο που δεν υπάρχει στα παραπάνω στοιχεία.',
+    "- Όταν δημιουργείς ή αλλάζεις ραντεβού, ΠΟΤΕ μην πεις ότι επιβεβαιώθηκε — μόνο ότι είναι σε αναμονή έγκρισης από την επιχείρηση, ΜΗΝ χρησιμοποιήσεις τη λέξη 'επιβεβαιώθηκε' μέχρι να το πει το ίδιο το σύστημα.",
+    '- Πριν καλέσεις book_appointment ή reschedule_appointment, κάλεσε πάντα πρώτα check_availability για το ίδιο slot.',
+    '- Όταν ο πελάτης θέλει να δει τις κρατήσεις του, να ακυρώσει ή να αλλάξει ραντεβού χωρίς να αναφέρει booking_id, κάλεσε πρώτα list_client_bookings για να δεις τι έχει και ρώτησέ τον ποιο ραντεβού εννοεί.',
+    '- Αν το αίτημα είναι εκτός θέματος (όχι σχετικό με ραντεβού ή την επιχείρηση), αρνήσου ευγενικά χωρίς να προσπαθήσεις να βοηθήσεις εκτός θέματος.',
+    `- Χρησιμοποίησε πάντα business_id=${business.id} σε κάθε κλήση εργαλείου.`,
+  ];
+
+  // Phase 11 (CLSS-01/SBOK-01): fixed_sessions mode — redirect Gemini to session tools
+  if (business.bookingMode === 'fixed_sessions') {
+    const sessionRules = [
+      '- Αυτή η επιχείρηση λειτουργεί με ΣΤΑΘΕΡΕΣ ΣΕΖΟΝ. Χρησιμοποίησε list_sessions_for_client για να δεις τις διαθέσιμες σεζόν και book_session για να κλείσεις.',
+      '- ΜΗΝ χρησιμοποιείς check_availability ή book_appointment για κρατήσεις — χρησιμοποίησε ΜΟΝΟ book_session.',
+      ...(business.allowMultiBooking
+        ? ['- Ο πελάτης μπορεί να κλείσει ΠΟΛΛΑΠΛΕΣ σεζόν σε ένα μήνυμα — χρησιμοποίησε session_instance_ids (λίστα) αντί για session_instance_id.']
+        : []),
+    ];
+    rules.push(...sessionRules);
+  }
+
   return [
     `Είσαι ο ψηφιακός βοηθός κρατήσεων της επιχείρησης "${business.name}".`,
     '',
@@ -162,13 +225,7 @@ function buildSystemInstruction(
     hoursList,
     '',
     'Κανόνες:',
-    '- Μιλάς πάντα Ελληνικά, με ζεστό και φιλικό τόνο, ποτέ ρομποτικό ύφος.',
-    '- ΠΟΤΕ μην αναφέρεις υπηρεσία, τιμή ή ωράριο που δεν υπάρχει στα παραπάνω στοιχεία.',
-    "- Όταν δημιουργείς ή αλλάζεις ραντεβού, ΠΟΤΕ μην πεις ότι επιβεβαιώθηκε — μόνο ότι είναι σε αναμονή έγκρισης από την επιχείρηση, ΜΗΝ χρησιμοποιήσεις τη λέξη 'επιβεβαιώθηκε' μέχρι να το πει το ίδιο το σύστημα.",
-    '- Πριν καλέσεις book_appointment ή reschedule_appointment, κάλεσε πάντα πρώτα check_availability για το ίδιο slot.',
-    '- Όταν ο πελάτης θέλει να δει τις κρατήσεις του, να ακυρώσει ή να αλλάξει ραντεβού χωρίς να αναφέρει booking_id, κάλεσε πρώτα list_client_bookings για να δεις τι έχει και ρώτησέ τον ποιο ραντεβού εννοεί.',
-    '- Αν το αίτημα είναι εκτός θέματος (όχι σχετικό με ραντεβού ή την επιχείρηση), αρνήσου ευγενικά χωρίς να προσπαθήσεις να βοηθήσεις εκτός θέματος.',
-    `- Χρησιμοποίησε πάντα business_id=${business.id} σε κάθε κλήση εργαλείου.`,
+    rules.join('\n'),
   ].join('\n');
 }
 
@@ -320,7 +377,14 @@ export async function aiBookingAgent(
     for (const call of functionCalls) {
       const idempotencyKey = `${requestId}:${call.id}`;
       const result = await executeTool(call.name, call.arguments, {
-        business,
+        business: {
+          id: business.id,
+          name: business.name,
+          ownerTelegramId: business.ownerTelegramId,
+          enforcementPolicy: business.enforcementPolicy,
+          bookingMode: business.bookingMode,
+          allowMultiBooking: business.allowMultiBooking,
+        },
         clientPhone,
         requestId,
         idempotencyKey,

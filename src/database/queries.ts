@@ -35,6 +35,10 @@ export interface Business {
   webhookSecret: string | null;
   /** Phase 8 (D-07): 'allow' | 'block' | 'flag' — controls booking-engine behaviour when client has no active membership. */
   enforcementPolicy: string;
+  /** Phase 10 (CLSS-01): 'open_slots' | 'fixed_sessions' — determines which booking tools Gemini uses. */
+  bookingMode: string;
+  /** Phase 11 (SBOK-04): when true, clients may book multiple session instances in a single book_session call. */
+  allowMultiBooking: boolean;
   createdAt: Date;
 }
 
@@ -247,6 +251,8 @@ export interface Booking {
   businessId: number;
   clientPhone: string;
   serviceId: number;
+  /** Phase 10 (CLSS-01): set when the booking is for a fixed session instance; null for open-slot bookings. */
+  sessionInstanceId: number | null;
   calendarDate: string;
   calendarTime: string;
   bookingStatus: string;
