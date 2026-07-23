@@ -5,13 +5,13 @@ milestone_name: Single-Bot UX Overhaul
 status: executing
 current_phase: 16
 current_phase_name: single-bot-architecture
-last_updated: "2026-07-23T17:00:00.000Z"
+last_updated: "2026-07-23T17:57:17.000Z"
 last_activity: 2026-07-23
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 3
-  completed_plans: 1
+  completed_plans: 2
   percent: 7
 ---
 
@@ -27,9 +27,9 @@ See: .planning/PROJECT.md (updated 2026-07-17 after v1.1 milestone close)
 ## Current Position
 
 Phase: 16 — Single-Bot Architecture
-Plan: —
-Status: Roadmap defined; ready for Phase 16 planning
-Last activity: 2026-07-23 — v1.4 roadmap created (Phases 16-20)
+Plan: 02 complete (next: 03)
+Status: executing — Phase 16 Plan 2 complete
+Last activity: 2026-07-23 — Phase 16-02 complete: owner routing + onboarding flag
 
 ## Performance Metrics
 
@@ -93,6 +93,7 @@ Last activity: 2026-07-23 — v1.4 roadmap created (Phases 16-20)
 | Phase 07 P06 | 4 | 2 tasks | 5 files |
 | Phase 07 P07 | 2 | 1 tasks | 2 files |
 | Phase 16-single-bot-architecture P1 | 3 | - tasks | - files |
+| Phase 16-single-bot-architecture P2 | 2 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -191,13 +192,15 @@ Recent decisions affecting current work:
 - [Phase ?]: [07-06]: getAllClientsForBusiness uses getConn() inside withBusinessContext — RLS-scoped, no booking join
 - [Phase ?]: [07-06]: deactivate_package switched to package_name with case-insensitive partial match — eliminates hallucinated-ID problem
 - [Phase ?]: [Phase 07-07]: TelegramCallbackQuery.message optional-chain guard — keyboard clear is best-effort; non-owner access already mitigated upstream by findBusinessByOwnerTelegramId
-<<<<<<< HEAD
 - [Roadmap v1.4]: 5 phases derived from 29 requirements — Phase 16 (single-bot arch + identity), Phase 17 (admin menu), Phase 18 (client menu), Phase 19 (class onboarding + i18n), Phase 20 (escalation)
 - [Roadmap v1.4]: ARCH+AUTH grouped in Phase 16 — both concern routing and identity wiring; must be complete before any menu work in Phases 17/18
 - [Roadmap v1.4]: CLSS+I18N grouped in Phase 19 — class schedule onboarding step is the natural place to introduce correct μάθημα terminology; fixes apply across the same copy pass
 - [Roadmap v1.4]: Phase 20 (escalation) placed last — depends on Phase 16 routing but benefits from Phase 17/18 inline keyboard patterns being established first
 - [Phase 16-01]: onboarding_completed uses NOT NULL DEFAULT false with backfill migration
 - [Phase 16-01]: Platform bot fully excised — platform.ts deleted, platform env vars removed from config, route removed from server.ts
+- [Phase 16-02]: Null guard written as (ownerTelegramId !== null && ownerTelegramId === senderTelegramId) — explicit intent, safe for DB nulls (T-16-04)
+- [Phase 16-02]: onboardingCompleted=true persisted in handleActivate before sendTelegramMessage — routing correct even if message send fails (Pitfall 2)
+- [Phase 16-02]: handleCallbackQuery not touched — callbacks originate only after onboarding completes, no onboarding check needed there
 
 ### Pending Todos
 

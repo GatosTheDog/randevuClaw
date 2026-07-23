@@ -12,15 +12,15 @@
 ### ARCH — Single-Bot Architecture
 
 - [ ] **ARCH-01**: Platform bot is deleted; business bot is the only bot per business and handles all traffic (admin + client)
-- [ ] **ARCH-02**: Business bot detects admin by matching sender Telegram ID to `businesses.owner_telegram_id`; no password required
-- [ ] **ARCH-03**: If admin messages their business bot and onboarding is not complete, bot starts the onboarding flow automatically
+- [x] **ARCH-02**: Business bot detects admin by matching sender Telegram ID to `businesses.owner_telegram_id`; no password required
+- [x] **ARCH-03**: If admin messages their business bot and onboarding is not complete, bot starts the onboarding flow automatically
 - [ ] **ARCH-04**: Client is identified solely by Telegram user ID; no password or PIN required; identity persists across sessions by Telegram account
 
 ### AUTH — Identity & Session Persistence
 
-- [ ] **AUTH-01**: Admin recognition is implicit (Telegram ID match); bot never asks admin for a password or PIN
-- [ ] **AUTH-02**: Client recognition is implicit (Telegram ID); clients are auto-created in the DB on first contact
-- [ ] **AUTH-03**: Both admin and client sessions persist indefinitely by Telegram identity; no re-authentication required
+- [x] **AUTH-01**: Admin recognition is implicit (Telegram ID match); bot never asks admin for a password or PIN
+- [x] **AUTH-02**: Client recognition is implicit (Telegram ID); clients are auto-created in the DB on first contact
+- [x] **AUTH-03**: Both admin and client sessions persist indefinitely by Telegram identity; no re-authentication required
 
 ### AMENU — Admin Menu
 
@@ -83,12 +83,12 @@
 | REQ-ID | Phase | Plan | Status |
 |--------|-------|------|--------|
 | ARCH-01 | Phase 16 | TBD | Pending |
-| ARCH-02 | Phase 16 | TBD | Pending |
-| ARCH-03 | Phase 16 | TBD | Pending |
+| ARCH-02 | Phase 16 | 16-02 | Complete |
+| ARCH-03 | Phase 16 | 16-02 | Complete |
 | ARCH-04 | Phase 16 | TBD | Pending |
-| AUTH-01 | Phase 16 | TBD | Pending |
-| AUTH-02 | Phase 16 | TBD | Pending |
-| AUTH-03 | Phase 16 | TBD | Pending |
+| AUTH-01 | Phase 16 | 16-02 | Complete |
+| AUTH-02 | Phase 16 | 16-02 | Complete |
+| AUTH-03 | Phase 16 | 16-02 | Complete |
 | AMENU-01 | Phase 17 | TBD | Pending |
 | AMENU-02 | Phase 17 | TBD | Pending |
 | AMENU-03 | Phase 17 | TBD | Pending |
