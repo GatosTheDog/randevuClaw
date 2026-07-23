@@ -55,8 +55,8 @@
 - [ ] **CONF-02**: Onboarding asks whether to enable cancellation cutoff and how many hours (default 8); explicit skip/disable option; never silently defaults to cutoff-on
 - [ ] **CONF-03**: Onboarding asks whether to enable slotless booking requests; default off; explicit skip option
 - [ ] **CONF-04**: Onboarding asks whether to enable last-session threshold nudge and at how many sessions (default 1); explicit skip/disable option
-- [ ] **CONF-05**: `booking_mode` is changeable post-onboarding; bot warns owner in Greek if existing session bookings are present before switching
-- [ ] **CONF-06**: Cancellation cutoff hours and last-session threshold count are editable via the same "update config" chat entry point as hours/services
+- [x] **CONF-05**: `booking_mode` is changeable post-onboarding; bot warns owner in Greek if existing session bookings are present before switching
+- [x] **CONF-06**: Cancellation cutoff hours and last-session threshold count are editable via the same "update config" chat entry point as hours/services
 
 ---
 

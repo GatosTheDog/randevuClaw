@@ -441,6 +441,17 @@ export async function setCancellationCutoff(
     .where(eq(businesses.id, businessId));
 }
 
+/**
+ * Phase 15 (CONF-05): owner booking mode switch. Uses admin db (not getConn) —
+ * booking mode is an owner config update, not a client-scoped RLS operation.
+ */
+export async function setBookingMode(businessId: number, mode: string): Promise<void> {
+  await db
+    .update(businesses)
+    .set({ bookingMode: mode })
+    .where(eq(businesses.id, businessId));
+}
+
 export async function listAllBusinessIds(): Promise<number[]> {
   const rows = await db.select({ id: businesses.id }).from(businesses);
   return rows.map((row) => row.id);
