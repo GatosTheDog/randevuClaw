@@ -6,14 +6,14 @@ current_phase: 10
 current_phase_name: session-catalog-schema
 status: verifying
 stopped_at: Completed 11-01-PLAN.md
-last_updated: "2026-07-23T07:24:11.494Z"
+last_updated: "2026-07-23T07:36:53.044Z"
 last_activity: 2026-07-22
 last_activity_desc: Phase 10 execution started
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 9
-  completed_plans: 7
+  completed_plans: 8
   percent: 17
 ---
 
@@ -109,6 +109,7 @@ Phase 15: [ ] Not started
 | Phase 10 P04 | 6 minutes | 2 tasks | 1 files |
 | Phase 10 P05 | 350s | 2 tasks | 4 files |
 | Phase 11 P01 | 25 | 1 tasks | 1 files |
+| Phase 11 P02 | 8 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -221,6 +222,9 @@ Recent decisions affecting current work:
 - [Phase ?]: Used Jest globals without explicit imports — project uses Jest 29 with ts-jest, no vitest import needed
 - [Phase ?]: session-cancellation poller follows startXxxPoller pattern; registered in server.ts not index.ts
 - [Phase ?]: 11-01: Use withBusinessContext() instead of getConn().transaction() so deductSession participates in the same RLS-enforced appDb tx — atomic booking+deduction (SBOK-02)
+- [Phase ?]: [Phase 11-02]: ToolContext.business extended with bookingMode + allowMultiBooking — ai-agent.ts narrows at executeTool call site
+- [Phase ?]: [Phase 11-02]: book_session multi-path uses sequential for-loop (T-11-07 capacity race prevention)
+- [Phase ?]: [Phase 11-02]: rescheduleSessionTool SBOK-03 expiry gate blocks sessionDate > isoDateInAthens(expiresAt)
 
 ### Pending Todos
 
@@ -283,7 +287,7 @@ Items acknowledged and deferred at v1.2 milestone close on 2026-07-22:
 
 ## Session Continuity
 
-Last session: 2026-07-23T07:24:11.483Z
+Last session: 2026-07-23T07:36:43.149Z
 Stopped at: Completed 11-01-PLAN.md
 Resume file: None
 
