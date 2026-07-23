@@ -462,6 +462,14 @@ export async function handleActivate(
   await activateBusiness(business.id, webhookId, webhookSecret);
   await updateOnboardingStep(session.id, 'done', null);
 
+  // ARCH-03: persist onboarding_completed=true BEFORE sending the congratulatory
+  // message so that routing is correct even if the message send fails
+  // (RESEARCH.md Pitfall 2: flag must be set atomically with the 'done' transition).
+  await db
+    .update(businesses)
+    .set({ onboardingCompleted: true })
+    .where(eq(businesses.id, business.id));
+
   logger.info({ businessId: business.id, webhookId }, 'Business activated via onboarding');
 
   await sendTelegramMessage(
