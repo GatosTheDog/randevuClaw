@@ -19,6 +19,7 @@ import { getClientActiveMembership, getActiveMembershipForDeduction, deductSessi
 import { checkEnforcementAndGetMembership } from '../billing/enforcement';
 import { formatExpiryDateGreek, isoDateInAthens } from '../utils/timezone';
 import { listSessions, bookSessionInstance } from '../session/manager';
+import { insertSlotlessRequest, countSlotlessRequestsSinceCheckin } from '../session/slotless-requests';
 
 export interface ToolContext {
   business: {
@@ -34,6 +35,8 @@ export interface ToolContext {
     cancellationCutoffEnabled: boolean;
     /** Phase 12 (CANC-01): hours before session at which credit forfeiture kicks in. */
     cancellationCutoffHours: number;
+    /** Phase 13 (SLOT-01): slotless request gate. */
+    slotlessRequestsEnabled: boolean;
   };
   clientPhone: string;
   // Turn-constant identifier, stable across every tool call within the same
@@ -195,7 +198,18 @@ async function alertOwnerNewBooking(
     return;
   }
 
-  const sent = await sendTelegramMessageWithKeyboard(business.ownerTelegramId, text, [
+  // SLOT-06: append count of pending slotless requests from same date (best-effort).
+  let slotlessNote = '';
+  try {
+    const slotlessCount = await countSlotlessRequestsSinceCheckin(business.id, booking.clientPhone, booking.calendarDate);
+    if (slotlessCount > 0) {
+      slotlessNote = `\nΑιτήματα χωρίς θέση: ${slotlessCount}`;
+    }
+  } catch (err) {
+    logger.warn({ err, bookingId: booking.id }, 'SLOT-06 count fetch failed (best-effort)');
+  }
+
+  const sent = await sendTelegramMessageWithKeyboard(business.ownerTelegramId, `${text}${slotlessNote}`, [
     [
       { text: 'Αποδοχή', callback_data: `approve_${booking.id}` },
       { text: 'Απόρριψη', callback_data: `reject_${booking.id}` },
@@ -239,6 +253,24 @@ async function bookAppointmentTool(
     };
   }
   const membership = enfResult.membership;
+
+  // Phase 13 (SLOT-01): when business has slotless requests enabled and no
+  // slots are available, submit a slotless request instead of attempting a booking.
+  if (context.business.slotlessRequestsEnabled) {
+    const availability = await checkAvailability(context.business.id, parsed.service_id, parsed.calendar_date);
+    if (availability.availableSlots.length === 0) {
+      const idempotencyKey = `slotless:${context.business.id}:${context.clientPhone}:${parsed.service_id}:${parsed.calendar_date}:${parsed.calendar_time}`;
+      await insertSlotlessRequest({
+        businessId: context.business.id,
+        clientPhone: context.clientPhone,
+        requestedSessionDate: parsed.calendar_date,
+        requestedSessionTime: parsed.calendar_time,
+        serviceId: parsed.service_id,
+        idempotencyKey,
+      });
+      return { success: false, slotless_request_submitted: true, message: 'Δεν υπάρχουν διαθέσιμες θέσεις. Το αίτημά σας υποβλήθηκε στον ιδιοκτήτη για έγκριση.' };
+    }
+  }
 
   const expiresAt = new Date(Date.now() + PENDING_BOOKING_TTL_MS);
   const booking = await insertBooking({

@@ -17,6 +17,7 @@ import {
 } from '../database/queries';
 import { logger } from '../utils/logger';
 import { listPackages } from '../billing/queries';
+import { listSlotlessRequestsForClient } from '../session/slotless-requests';
 import {
   handleCreatePackage,
   handleListPackages,
@@ -324,6 +325,21 @@ export const OWNER_TOOLS = [
         },
       },
       required: ['client_phone', 'session_date', 'session_time'],
+    },
+  },
+  {
+    type: 'function' as const,
+    name: 'list_slotless_requests',
+    description: 'Εμφανίζει το ιστορικό αιτημάτων χωρίς διαθέσιμη θέση για έναν πελάτη.',
+    parameters: {
+      type: 'object',
+      properties: {
+        client_phone: {
+          type: 'string',
+          description: 'Telegram ID ή τηλέφωνο πελάτη',
+        },
+      },
+      required: ['client_phone'],
     },
   },
 ];
@@ -717,6 +733,17 @@ async function executeOwnerTool(
         `Ο ιδιοκτήτης σε όρισε στη σεζόν ${session_date} στις ${session_time}. Σε περιμένουμε!`
       );
       return `Ο πελάτης ${client_phone} ορίστηκε στη σεζόν ${session_date} ${session_time} και ειδοποιήθηκε.`;
+    }
+
+    case 'list_slotless_requests': {
+      const clientPhone = String(args.client_phone ?? '').trim();
+      if (!clientPhone) return 'Δεν δόθηκε αναγνωριστικό πελάτη.';
+      const requests = await listSlotlessRequestsForClient(business.id, clientPhone);
+      if (requests.length === 0) return `Δεν υπάρχουν αιτήματα χωρίς θέση για τον πελάτη ${clientPhone}.`;
+      const lines = requests.map((r, i) =>
+        `${i + 1}. ${r.requestedSessionDate} ${r.requestedSessionTime} — ${r.status === 'pending' ? 'Εκκρεμεί' : r.status === 'approved' ? 'Εγκρίθηκε' : 'Απορρίφθηκε'}`
+      );
+      return `Αιτήματα χωρίς θέση (${requests.length}):\n${lines.join('\n')}`;
     }
 
     default:

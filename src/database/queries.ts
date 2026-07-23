@@ -43,6 +43,8 @@ export interface Business {
   cancellationCutoffEnabled: boolean;
   /** Phase 12 (CANC-01): hours before session at which credit forfeiture kicks in. */
   cancellationCutoffHours: number;
+  /** Phase 13 (SLOT-01): when true, clients can submit slotless booking requests instead of receiving a 'no slots available' error. */
+  slotlessRequestsEnabled: boolean;
   createdAt: Date;
 }
 
