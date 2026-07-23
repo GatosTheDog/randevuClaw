@@ -11,6 +11,7 @@ import {
   deactivatePackage,
   getClientActiveMembership,
   setBusinessEnforcementPolicy,
+  setLastSessionThreshold,
 } from './queries';
 import { setCancellationCutoff } from '../database/queries';
 import { logger } from '../utils/logger';
@@ -252,4 +253,33 @@ export async function handleViewClientMembership(
     logger.error({ err, businessId, clientPhone }, 'handleViewClientMembership failed');
     return 'Σφάλμα κατά την ανάκτηση συνδρομής. Δοκιμάστε ξανά.';
   }
+}
+
+// ---------------------------------------------------------------------------
+// Zod schema for set_last_session_threshold Gemini tool args (RENW-01 / T-14-01-01)
+// ---------------------------------------------------------------------------
+
+const SetLastSessionThresholdSchema = z.object({
+  enabled: z.boolean(),
+  count: z.number().int().min(1).max(20),
+});
+
+/**
+ * Validates Gemini-parsed args (RENW-01 / T-14-01-01) and updates the business
+ * last-session renewal nudge threshold settings.
+ *
+ * SetLastSessionThresholdSchema enforces count 1-20 and boolean enabled before any
+ * DB write. On invalid args, returns a Greek error string and performs NO DB write.
+ * On success, returns a Greek confirmation string.
+ */
+export async function handleSetLastSessionThreshold(
+  businessId: number,
+  args: Record<string, unknown>
+): Promise<string> {
+  const parsed = SetLastSessionThresholdSchema.parse(args);
+  await setLastSessionThreshold(businessId, parsed.enabled, parsed.count);
+  if (!parsed.enabled) {
+    return 'Η ειδοποίηση ανανέωσης συνδρομής απενεργοποιήθηκε.';
+  }
+  return `Η ειδοποίηση ανανέωσης συνδρομής ενεργοποιήθηκε. Θα ειδοποιούνται πελάτες με ${parsed.count} ή λιγότερα μαθήματα.`;
 }
