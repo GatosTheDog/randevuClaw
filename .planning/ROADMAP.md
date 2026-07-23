@@ -90,10 +90,11 @@ Plans:
   4. Client attempting to reschedule a session booking to a date past their membership expiry is blocked with a Greek explanation
   5. Client with `allow_multi_booking` enabled for their business can name multiple sessions in a single chat message and all are booked in one exchange
 
-**Plans**: 3 plans
+**Plans**: 1/3 plans executed
 
 Plans:
-- [ ] 11-01-PLAN.md — Extend bookSessionInstance to atomically deduct session credit within same DB transaction (SBOK-02 core fix)
+
+- [x] 11-01-PLAN.md — Extend bookSessionInstance to atomically deduct session credit within same DB transaction (SBOK-02 core fix)
 - [ ] 11-02-PLAN.md — Client AI tools: book_session, list_sessions_for_client, reschedule_session in BOOKING_TOOLS + function-executor (SBOK-01, SBOK-03, SBOK-04)
 - [ ] 11-03-PLAN.md — Integration tests: SBOK-01 through SBOK-04 full coverage in session-booking-flow.test.ts
 
@@ -172,7 +173,7 @@ Plans:
 | 8. Enforcement & Session Deduction | v1.2 | 6/6 | Complete | 2026-07-21 |
 | 9. Expiry Notifications & Client Balance | v1.2 | 3/3 | Complete | 2026-07-22 |
 | 10. Session Catalog & Schema | v1.3 | 6/6 | Complete   | 2026-07-22 |
-| 11. Session Booking Flow | v1.3 | 0/TBD | Not started | - |
+| 11. Session Booking Flow | v1.3 | 1/3 | In Progress|  |
 | 12. Cancellation Cutoff Policy | v1.3 | 0/TBD | Not started | - |
 | 13. Slotless Booking Requests | v1.3 | 0/TBD | Not started | - |
 | 14. Renewal Notification Extensions | v1.3 | 0/TBD | Not started | - |

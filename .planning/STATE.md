@@ -4,16 +4,16 @@ milestone: v1.3
 milestone_name: Studio Session Scheduling & Slotless Bookings
 current_phase: 10
 current_phase_name: session-catalog-schema
-status: executing
-stopped_at: Completed 10-05-PLAN.md
-last_updated: "2026-07-22T23:39:05.138Z"
+status: verifying
+stopped_at: Completed 11-01-PLAN.md
+last_updated: "2026-07-23T07:24:11.494Z"
 last_activity: 2026-07-22
 last_activity_desc: Phase 10 execution started
 progress:
   total_phases: 6
   completed_phases: 1
-  total_plans: 6
-  completed_plans: 6
+  total_plans: 9
+  completed_plans: 7
   percent: 17
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-07-22 after v1.2 milestone close)
 
 Phase: 10 (session-catalog-schema) — EXECUTING
 Plan: 6 of 6
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-22 — Phase 10 execution started
 
 ```
@@ -108,6 +108,7 @@ Phase 15: [ ] Not started
 | Phase 10-session-catalog-schema P03 | 13 | 2 tasks | 5 files |
 | Phase 10 P04 | 6 minutes | 2 tasks | 1 files |
 | Phase 10 P05 | 350s | 2 tasks | 4 files |
+| Phase 11 P01 | 25 | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -219,6 +220,7 @@ Recent decisions affecting current work:
 - [Roadmap v1.3]: Mass renewal broadcast is owner-approval-gated — sweep finds near-expiry clients, owner reviews list, no send until owner confirms
 - [Phase ?]: Used Jest globals without explicit imports — project uses Jest 29 with ts-jest, no vitest import needed
 - [Phase ?]: session-cancellation poller follows startXxxPoller pattern; registered in server.ts not index.ts
+- [Phase ?]: 11-01: Use withBusinessContext() instead of getConn().transaction() so deductSession participates in the same RLS-enforced appDb tx — atomic booking+deduction (SBOK-02)
 
 ### Pending Todos
 
@@ -281,8 +283,8 @@ Items acknowledged and deferred at v1.2 milestone close on 2026-07-22:
 
 ## Session Continuity
 
-Last session: 2026-07-22T23:39:05.126Z
-Stopped at: Completed 10-05-PLAN.md
+Last session: 2026-07-23T07:24:11.483Z
+Stopped at: Completed 11-01-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
