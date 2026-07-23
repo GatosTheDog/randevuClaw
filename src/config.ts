@@ -40,13 +40,9 @@ const EnvSchema = z.object({
   // Phase 04 (D-11): optional app-role connection string for randevuclaw_app.
   // Falls back to DATABASE_URL if unset (development/tests without the role).
   DATABASE_APP_URL: z.string().optional(),
-  // Phase 5 (D-01): platform onboarding bot token. Only global bot token remaining;
-  // all per-business tokens are DB-driven (businesses.bot_token).
-  PLATFORM_BOT_TOKEN: z.string().min(1),
-  // Phase 5 (D-01): HMAC secret for platform bot webhook. Separate from
-  // per-business webhookSecret values stored in businesses table.
-  PLATFORM_WEBHOOK_SECRET: z.string().min(1),
-  // Phase 5: base URL for constructing setWebhook URLs (e.g. https://randevuclaw.fly.dev).
+  // Phase 16 (ARCH-01): PLATFORM_BOT_TOKEN and PLATFORM_WEBHOOK_SECRET removed.
+  // The platform bot is deleted; onboarding now runs on each business's own bot.
+  // Base URL for constructing setWebhook URLs (e.g. https://randevuclaw.fly.dev).
   // Optional — only required when activating a business bot (setWebhook call).
   // Omit in local dev; set in fly.io secrets for production.
   WEBHOOK_BASE_URL: z.string().optional(),
@@ -64,6 +60,7 @@ export interface Config {
   geminiApiKey: string;
   // telegramBotToken and telegramWebhookSecret removed (D-08, Phase 04).
   // All bot token/secret config is now DB-driven (businesses table).
+  // Phase 16 (ARCH-01): platformBotToken and platformWebhookSecret removed.
   ownerTelegramId: string;
   googleClientId: string;
   googleClientSecret: string;
@@ -71,9 +68,6 @@ export interface Config {
   port: number;
   logLevel: 'debug' | 'info' | 'warn' | 'error';
   nodeEnv: 'development' | 'production';
-  // Phase 5 (D-01): platform onboarding bot credentials and webhook base URL.
-  platformBotToken: string;
-  platformWebhookSecret: string;
   webhookBaseUrl?: string;
 }
 
@@ -97,7 +91,5 @@ export const config: Config = {
   port: env.PORT,
   logLevel: env.LOG_LEVEL,
   nodeEnv: env.NODE_ENV === 'production' ? 'production' : 'development',
-  platformBotToken: env.PLATFORM_BOT_TOKEN,
-  platformWebhookSecret: env.PLATFORM_WEBHOOK_SECRET,
   webhookBaseUrl: env.WEBHOOK_BASE_URL,
 };

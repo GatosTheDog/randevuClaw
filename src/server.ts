@@ -1,7 +1,6 @@
 import express from 'express';
 import { logger } from './utils/logger';
 import webhookRouter from './webhooks/whatsapp';
-import { handlePlatformBotWebhook } from './webhooks/platform';
 import telegramWebhookRouter from './webhooks/telegram';
 import { startExpiryPoller } from './conversation/expiry-poller';
 import { startCalendarSyncPoller } from './calendar/poller';
@@ -13,10 +12,6 @@ import { startSessionCancellationPoller } from './scheduler/session-cancellation
 const app = express();
 
 app.use('/webhooks/whatsapp', webhookRouter);
-// Platform onboarding bot route MUST be registered before the dynamic
-// telegramWebhookRouter so Express does not shadow it with :webhookId.
-// See RESEARCH.md §"Pitfall 1: Express Route Shadow".
-app.post('/webhooks/telegram/platform', express.json(), handlePlatformBotWebhook);
 app.use('/webhooks/telegram', telegramWebhookRouter);
 
 app.get('/healthz', (_req, res) => {
