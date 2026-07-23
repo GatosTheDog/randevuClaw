@@ -12,14 +12,15 @@
 
 import { eq } from 'drizzle-orm';
 import { db } from '../../database/db';
-import { Business, findServiceById, listBookingsForDate } from '../../database/queries';
+import { Business, findServiceById, listBookingsForDate, findClientBusinessRelationshipById } from '../../database/queries';
 import { businesses } from '../../database/schema';
 import { formatAgendaMessage } from '../../scheduler/agenda';
 import { isoDateInAthens } from '../../utils/timezone';
 import { logger } from '../../utils/logger';
 import { findBusinessByOwnerTelegramId } from '../../onboarding/queries';
 import { listSessions, cancelSession } from '../../session/manager';
-import { InlineKeyboard, sendTelegramMessage, sendTelegramMessageWithKeyboard } from '../client';
+import { InlineKeyboard, sendTelegramMessage, sendTelegramMessageWithKeyboard, botTokenStore } from '../client';
+import { getAllClientsForBusiness, getClientActiveMembership } from '../../billing/queries';
 
 // Exported so telegram.ts can use it in the parseCallbackData return union.
 // Discriminant field: menuAction — unique across all existing result types
@@ -326,8 +327,156 @@ export async function handleClassCancelExecute(
 }
 
 // ---------------------------------------------------------------------------
-// Central dispatcher (Plans 17-01 + 17-02 + 17-03)
-// Plan 17-04 will add 'clients' and sub-action cases.
+// Plan 17-04: Clients sub-menu (AMENU-04)
+// ---------------------------------------------------------------------------
+
+/**
+ * Lists up to 20 clients as inline keyboard buttons (AMENU-04).
+ * Cross-tenant guard: business.id is derived from senderTelegramId upstream.
+ * getAllClientsForBusiness uses getConn() (RLS-enforced when inside
+ * withBusinessContext; safe when called from menu callback handlers too).
+ */
+export async function showClientsList(chatId: string, business: Business): Promise<void> {
+  const clients = await getAllClientsForBusiness(business.id);
+  const capped = clients.slice(0, 20);
+  const overLimit = clients.length > 20;
+
+  if (clients.length === 0) {
+    await sendTelegramMessageWithKeyboard(
+      chatId,
+      'Δεν υπάρχουν εγγεγραμμένοι πελάτες ακόμη.',
+      [[{ text: '« Πίσω στο Μενού', callback_data: 'menu:root' }]]
+    );
+    return;
+  }
+
+  const headerText =
+    `Πελάτες (${Math.min(clients.length, 20)} εμφανίζονται):` +
+    (overLimit ? '\n(υπάρχουν κι άλλοι — επικοινώνησε για πλήρη λίστα)' : '');
+
+  const keyboard: InlineKeyboard = capped.map((client) => {
+    const cbData = `menu:clients:balance:${client.clientBusinessRelationshipId}`;
+    assertCallbackDataSize(cbData);
+    return [
+      {
+        text: client.clientName ?? client.senderPhone,
+        callback_data: cbData,
+      },
+    ];
+  });
+
+  keyboard.push([{ text: '« Πίσω στο Μενού', callback_data: 'menu:root' }]);
+
+  await sendTelegramMessageWithKeyboard(chatId, headerText, keyboard);
+}
+
+/**
+ * Shows the selected client's membership status and session balance (AMENU-04).
+ * T-17-14/T-17-16: cross-tenant guard via rel.businessId === business.id check
+ * after DB lookup — prevents forged relId in callback_data from exposing foreign
+ * client data.
+ */
+export async function showClientBalance(
+  chatId: string,
+  business: Business,
+  relId: number
+): Promise<void> {
+  const rel = await findClientBusinessRelationshipById(relId);
+
+  // T-17-14/T-17-16: ownership check — rel.businessId must match the owner's business
+  if (rel?.businessId !== business.id) {
+    await sendTelegramMessage(chatId, 'Ο πελάτης δεν βρέθηκε.');
+    return;
+  }
+
+  const clientPhone = rel.senderPhone;
+  const membership = await getClientActiveMembership(business.id, clientPhone);
+  const displayName = rel.clientName ?? clientPhone;
+
+  let messageText: string;
+  if (!membership) {
+    messageText = `Πελάτης: ${displayName}\nΔεν υπάρχει ενεργή συνδρομή.`;
+  } else if (membership.isUnlimited) {
+    messageText =
+      `Πελάτης: ${displayName}\n` +
+      `Πακέτο: ${membership.packageName}\n` +
+      `Απεριόριστες συνεδρίες\n` +
+      `Λήγει: ${membership.expiresAt.toLocaleDateString('el-GR')}`;
+  } else {
+    messageText =
+      `Πελάτης: ${displayName}\n` +
+      `Πακέτο: ${membership.packageName}\n` +
+      `Υπόλοιπο: ${membership.sessionsRemaining} μαθήματα\n` +
+      `Λήγει: ${membership.expiresAt.toLocaleDateString('el-GR')}`;
+  }
+
+  const backButton = { text: '« Πίσω στο Μενού', callback_data: 'menu:root' };
+  let keyboard: InlineKeyboard;
+
+  if (membership) {
+    const nudgeData = `menu:clients:nudge:${relId}`;
+    assertCallbackDataSize(nudgeData);
+    keyboard = [
+      [{ text: 'Αποστολή υπενθύμισης', callback_data: nudgeData }],
+      [backButton],
+    ];
+  } else {
+    keyboard = [[backButton]];
+  }
+
+  await sendTelegramMessageWithKeyboard(chatId, messageText, keyboard);
+}
+
+/**
+ * Sends a renewal reminder to the client via the business bot (AMENU-04).
+ * T-17-15/T-17-17: senderPhone resolved from DB row (not from callback_data);
+ * ownership checked before sending; botTokenStore.run ensures correct per-business bot.
+ */
+export async function handleRenewalNudge(
+  chatId: string,
+  business: Business,
+  relId: number
+): Promise<void> {
+  const rel = await findClientBusinessRelationshipById(relId);
+
+  // T-17-15: ownership check — rel.businessId must match the owner's business
+  if (rel?.businessId !== business.id) {
+    await sendTelegramMessage(chatId, 'Ο πελάτης δεν βρέθηκε.');
+    return;
+  }
+
+  const membership = await getClientActiveMembership(business.id, rel.senderPhone);
+  if (!membership) {
+    await sendTelegramMessage(
+      chatId,
+      'Δεν υπάρχει ενεργή συνδρομή — η υπενθύμιση δεν στάλθηκε.'
+    );
+    return;
+  }
+
+  if (!business.botToken) {
+    await sendTelegramMessage(chatId, 'Σφάλμα: δεν βρέθηκε το bot token της επιχείρησης.');
+    return;
+  }
+
+  // T-17-17: senderPhone is resolved from DB row (not from callback_data) and
+  // botTokenStore.run scopes the send to the correct per-business bot token.
+  await botTokenStore.run(business.botToken, async () => {
+    await sendTelegramMessage(
+      rel.senderPhone,
+      'Υπενθύμιση: Τα μαθήματά σας τελειώνουν σύντομα! Επικοινωνήστε για ανανέωση.'
+    );
+  });
+
+  await sendTelegramMessage(chatId, `Υπενθύμιση στάλθηκε στον ${rel.clientName ?? rel.senderPhone}.`);
+
+  await sendTelegramMessageWithKeyboard(chatId, 'Τι άλλο θέλεις να κάνεις;', [
+    [{ text: '« Πίσω στο Μενού', callback_data: 'menu:root' }],
+  ]);
+}
+
+// ---------------------------------------------------------------------------
+// Central dispatcher (Plans 17-01 + 17-02 + 17-03 + 17-04)
 // ---------------------------------------------------------------------------
 
 export async function handleMenuCallback(
@@ -402,8 +551,29 @@ export async function handleMenuCallback(
       break;
     }
 
+    case menuAction === 'clients':
+      await showClientsList(chatId, business);
+      break;
+
+    case menuAction === 'clients:balance': {
+      if (result.id === undefined) {
+        await sendTelegramMessage(chatId, 'Σφάλμα: λείπει το αναγνωριστικό πελάτη.');
+        return;
+      }
+      await showClientBalance(chatId, business, result.id);
+      break;
+    }
+
+    case menuAction === 'clients:nudge': {
+      if (result.id === undefined) {
+        await sendTelegramMessage(chatId, 'Σφάλμα: λείπει το αναγνωριστικό πελάτη.');
+        return;
+      }
+      await handleRenewalNudge(chatId, business, result.id);
+      break;
+    }
+
     default:
-      // Plan 17-04 will add 'clients' cases here.
       await sendTelegramMessage(chatId, 'Άγνωστη ενέργεια μενού.');
       break;
   }
