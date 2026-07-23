@@ -5,6 +5,8 @@
 import { and, eq, gte, inArray, sql } from 'drizzle-orm';
 import { sessionCatalog, sessionInstances, bookings } from '../database/schema';
 import { getConn, withBusinessContext } from '../database/queries';
+import { getActiveMembershipForDeduction, deductSession } from '../billing/queries';
+import type { ActiveMembershipForDeduction } from '../billing/queries';
 import { isoDateInAthens, addCalendarDays } from '../utils/timezone';
 import { logger } from '../utils/logger';
 import { RRule } from 'rrule';
@@ -182,13 +184,14 @@ export async function bookSessionInstance(
   sessionInstanceId: number,
   clientPhone: string,
   serviceId: number,
-  idempotencyKey: string
+  idempotencyKey: string,
+  activeMembership?: ActiveMembershipForDeduction | null
 ): Promise<BookSessionResult> {
-  return getConn().transaction(async (tx) => {
+  return withBusinessContext(businessId, async () => {
     // SELECT FOR UPDATE: serialize concurrent bookings on the same instance.
     // Ownership guard via subquery: catalogId IN (SELECT id FROM session_catalog WHERE business_id = businessId).
     // T-10-02: prevents cross-tenant booking even if RLS is misconfigured.
-    const instanceRows = await tx
+    const instanceRows = await getConn()
       .select({
         id: sessionInstances.id,
         catalogId: sessionInstances.catalogId,
@@ -203,7 +206,7 @@ export async function bookSessionInstance(
           eq(sessionInstances.id, sessionInstanceId),
           inArray(
             sessionInstances.catalogId,
-            tx
+            getConn()
               .select({ id: sessionCatalog.id })
               .from(sessionCatalog)
               .where(eq(sessionCatalog.businessId, businessId))
@@ -221,7 +224,7 @@ export async function bookSessionInstance(
     }
 
     // Fetch capacity from the catalog (needed for hard-cap check)
-    const catalogRows = await tx
+    const catalogRows = await getConn()
       .select({ capacity: sessionCatalog.capacity })
       .from(sessionCatalog)
       .where(eq(sessionCatalog.id, instance.catalogId))
@@ -234,7 +237,7 @@ export async function bookSessionInstance(
     }
 
     // Attempt to insert booking — onConflictDoNothing handles idempotent replay
-    const bookingRows = await tx
+    const bookingRows = await getConn()
       .insert(bookings)
       .values({
         businessId,
@@ -251,8 +254,9 @@ export async function bookSessionInstance(
       .returning({ id: bookings.id });
 
     if (bookingRows.length === 0) {
-      // Idempotent replay: booking already exists — return existing bookingId
-      const existingRows = await tx
+      // Idempotent replay: booking already exists — return existing bookingId.
+      // Skip deduction: ledger row already written on the first call.
+      const existingRows = await getConn()
         .select({ id: bookings.id })
         .from(bookings)
         .where(eq(bookings.requestId, idempotencyKey))
@@ -261,12 +265,34 @@ export async function bookSessionInstance(
     }
 
     // Increment denormalized bookedCount atomically (T-10-03: race guard)
-    await tx
+    await getConn()
       .update(sessionInstances)
       .set({ bookedCount: sql`${sessionInstances.bookedCount} + 1` })
       .where(eq(sessionInstances.id, sessionInstanceId));
 
-    return { status: 'success', bookingId: bookingRows[0].id };
+    // SBOK-02: Atomically deduct 1 session credit within the same withBusinessContext
+    // transaction as the booking insert. Both land or both roll back.
+    const bookingId = bookingRows[0].id;
+
+    // Resolve membership: use caller-supplied value (avoids a second round-trip) or
+    // fetch it now (backward-compatible path for owner assign_client_to_session tool
+    // which does not supply a membership).
+    const membership =
+      activeMembership !== undefined
+        ? activeMembership
+        : await getActiveMembershipForDeduction(businessId, clientPhone);
+
+    // T-11-03: only deduct for finite session memberships (sessionsRemaining !== null).
+    // Unlimited memberships (null) and no-membership (null membership) are both skipped.
+    if (membership !== null && membership !== undefined && membership.sessionsRemaining !== null) {
+      await deductSession(membership.id, bookingId, `booking:${bookingId}:deduction`);
+      logger.info(
+        { businessId, sessionInstanceId, clientPhone, membershipId: membership.id },
+        'session credit deducted on session booking'
+      );
+    }
+
+    return { status: 'success', bookingId };
   });
 }
 
