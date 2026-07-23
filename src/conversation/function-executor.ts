@@ -15,12 +15,22 @@ import { checkAvailability } from '../business/availability';
 import { sendTelegramMessage, sendTelegramMessageWithKeyboard } from '../telegram/client';
 import { deleteBookingFromCalendar } from '../calendar/sync';
 import { logger } from '../utils/logger';
-import { getClientActiveMembership, deductSession, getClientName, findMembershipByBooking, restoreCredit, linkRescheduledBooking } from '../billing/queries';
+import { getClientActiveMembership, getActiveMembershipForDeduction, deductSession, getClientName, findMembershipByBooking, restoreCredit, linkRescheduledBooking } from '../billing/queries';
 import { checkEnforcementAndGetMembership } from '../billing/enforcement';
-import { formatExpiryDateGreek } from '../utils/timezone';
+import { formatExpiryDateGreek, isoDateInAthens } from '../utils/timezone';
+import { listSessions, bookSessionInstance } from '../session/manager';
 
 export interface ToolContext {
-  business: { id: number; name: string; ownerTelegramId: string | null; enforcementPolicy: string };
+  business: {
+    id: number;
+    name: string;
+    ownerTelegramId: string | null;
+    enforcementPolicy: string;
+    /** Phase 11 (CLSS-01): 'open_slots' | 'fixed_sessions' */
+    bookingMode: string;
+    /** Phase 11 (SBOK-04): multi-booking gate */
+    allowMultiBooking: boolean;
+  };
   clientPhone: string;
   // Turn-constant identifier, stable across every tool call within the same
   // conversation turn — used for logging/tracing only.
@@ -69,6 +79,23 @@ const CheckMembershipBalanceArgsSchema = z.object({
   business_id: z.number().int(),
 });
 
+// Phase 11 session tool schemas (SBOK-01, SBOK-03, SBOK-04)
+const ListSessionsArgsSchema = z.object({
+  business_id: z.number().int(),
+});
+
+const BookSessionArgsSchema = z.object({
+  business_id: z.number().int(),
+  session_instance_id: z.number().int().optional(),
+  session_instance_ids: z.array(z.number().int()).optional(),
+});
+
+const RescheduleSessionArgsSchema = z.object({
+  business_id: z.number().int(),
+  booking_id: z.number().int(),
+  new_session_instance_id: z.number().int(),
+});
+
 export async function executeTool(
   name: string,
   args: Record<string, unknown>,
@@ -98,6 +125,13 @@ export async function executeTool(
         return await listClientBookingsTool(context);
       case 'check_membership_balance':
         return await checkMembershipBalanceTool(args, context);
+      // Phase 11: session booking tools (SBOK-01, SBOK-03, SBOK-04)
+      case 'list_sessions_for_client':
+        return await listSessionsForClientTool(args, context);
+      case 'book_session':
+        return await bookSessionTool(args, context);
+      case 'reschedule_session':
+        return await rescheduleSessionTool(args, context);
       default:
         return { error: `Tool '${name}' not found` };
     }
@@ -392,5 +426,246 @@ async function checkMembershipBalanceTool(
   return {
     success: true,
     message: 'Έχετε ' + membership.sessionsRemaining + ' μαθήματα απομείνει. Η συνδρομή σας λήγει στις ' + formatExpiryDateGreek(membership.expiresAt) + '.',
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Phase 11: session booking handlers (SBOK-01, SBOK-03, SBOK-04)
+// ---------------------------------------------------------------------------
+
+// SBOK-01: list upcoming non-cancelled session instances for the business.
+// T-11-10: capacity counts are not sensitive; returning them helps clients choose.
+async function listSessionsForClientTool(
+  args: Record<string, unknown>,
+  context: ToolContext
+): Promise<Record<string, unknown>> {
+  ListSessionsArgsSchema.parse(args);
+
+  const sessions = await listSessions(context.business.id);
+
+  if (sessions.length === 0) {
+    return { sessions: [], message: 'Δεν υπάρχουν επερχόμενες σεζόν αυτή τη στιγμή.' };
+  }
+
+  return {
+    sessions: sessions.map((s) => ({
+      instance_id: s.instanceId,
+      session_date: s.sessionDate,
+      session_time: s.sessionTime,
+      booked_count: s.bookedCount,
+      capacity: s.capacity,
+      spots_left: s.capacity - s.bookedCount,
+      service_id: s.serviceId,
+    })),
+  };
+}
+
+// SBOK-01 + SBOK-04: book one or multiple session instances for the client.
+// T-11-06: enforcement check is mandatory before bookSessionInstance — blocked
+// clients receive error:no_membership regardless of enforcement policy.
+// T-11-07: sequential loop (no Promise.all) to prevent concurrent capacity races.
+async function bookSessionTool(
+  args: Record<string, unknown>,
+  context: ToolContext
+): Promise<Record<string, unknown>> {
+  const parsed = BookSessionArgsSchema.parse(args);
+
+  // Multi-booking path (SBOK-04): session_instance_ids array provided
+  if (parsed.session_instance_ids && parsed.session_instance_ids.length > 0) {
+    // T-11-07: gate on allowMultiBooking before fetching sessions or running enforcement
+    if (!context.business.allowMultiBooking) {
+      return {
+        success: false,
+        error: 'multi_booking_disabled',
+        message: 'Η επιχείρηση δεν επιτρέπει πολλαπλές κρατήσεις μαζί.',
+      };
+    }
+
+    // Single enforcement check before the loop — avoids redundant DB round-trips
+    const enfResult = await checkEnforcementAndGetMembership(context.business.id, context.clientPhone);
+    if (!enfResult.allowed) {
+      return {
+        success: false,
+        error: 'no_membership',
+        message: enfResult.message ?? 'Χρειάζεστε ενεργή συνδρομή για να κλείσετε σεζόν. Επικοινωνήστε με ' + context.business.name + ' για ανανέωση.',
+      };
+    }
+
+    const sessions = await listSessions(context.business.id);
+    const booked: number[] = [];
+    const full: number[] = [];
+    const conflict: number[] = [];
+
+    // Sequential loop — intentional: parallel booking could cause capacity races (T-11-07)
+    for (const instanceId of parsed.session_instance_ids) {
+      const session = sessions.find((s) => s.instanceId === instanceId);
+      if (!session) {
+        conflict.push(instanceId);
+        continue;
+      }
+      const key = context.idempotencyKey + ':' + instanceId;
+      const result = await bookSessionInstance(
+        context.business.id,
+        instanceId,
+        context.clientPhone,
+        session.serviceId,
+        key,
+        enfResult.membership
+      );
+      if (result.status === 'success') booked.push(instanceId);
+      else if (result.status === 'full') full.push(instanceId);
+      else conflict.push(instanceId);
+    }
+
+    return {
+      success: booked.length > 0,
+      booked_instance_ids: booked,
+      full_instance_ids: full,
+      conflict_instance_ids: conflict,
+      booked_count: booked.length,
+    };
+  }
+
+  // Single-booking path (SBOK-01)
+  if (parsed.session_instance_id === undefined) {
+    return {
+      success: false,
+      error: 'missing_session_instance_id',
+      message: 'Δεν δόθηκε αναγνωριστικό σεζόν. Χρησιμοποίησε list_sessions_for_client για να δεις τις διαθέσιμες σεζόν.',
+    };
+  }
+
+  const enfResult = await checkEnforcementAndGetMembership(context.business.id, context.clientPhone);
+  if (!enfResult.allowed) {
+    return {
+      success: false,
+      error: 'no_membership',
+      message: enfResult.message ?? 'Χρειάζεστε ενεργή συνδρομή για να κλείσετε σεζόν. Επικοινωνήστε με ' + context.business.name + ' για ανανέωση.',
+    };
+  }
+
+  const sessions = await listSessions(context.business.id);
+  const session = sessions.find((s) => s.instanceId === parsed.session_instance_id);
+  if (!session) {
+    return { success: false, error: 'session_not_found', message: 'Η σεζόν δεν βρέθηκε ή δεν είναι πλέον διαθέσιμη.' };
+  }
+
+  const result = await bookSessionInstance(
+    context.business.id,
+    parsed.session_instance_id,
+    context.clientPhone,
+    session.serviceId,
+    context.idempotencyKey,
+    enfResult.membership
+  );
+
+  if (result.status === 'full') {
+    return { success: false, error: 'session_full', message: 'Η σεζόν είναι πλήρης. Δεν υπάρχουν διαθέσιμες θέσεις.' };
+  }
+  if (result.status === 'conflict') {
+    return { success: false, error: 'session_not_available', message: 'Η σεζόν δεν είναι διαθέσιμη (ακυρωμένη ή δεν βρέθηκε).' };
+  }
+
+  // Best-effort owner alert — session bookings are auto-confirmed; no approve/reject keyboard needed
+  try {
+    if (context.business.ownerTelegramId) {
+      await sendTelegramMessage(
+        context.business.ownerTelegramId,
+        'Νέα κράτηση σεζόν ' + session.sessionDate + ' ' + session.sessionTime + ' — πελάτης: ' + context.clientPhone
+      );
+    }
+  } catch (err) {
+    logger.error({ err }, 'Session booking owner alert failed (best-effort)');
+  }
+
+  return { success: true, booking_id: result.bookingId, session_date: session.sessionDate, session_time: session.sessionTime };
+}
+
+// SBOK-03: move an existing session booking to a different instance.
+// T-11-08: clientPhone ownership guard (same as cancelAppointmentTool).
+// T-11-09: blocks reschedule to a date past membership expiry.
+async function rescheduleSessionTool(
+  args: Record<string, unknown>,
+  context: ToolContext
+): Promise<Record<string, unknown>> {
+  const parsed = RescheduleSessionArgsSchema.parse(args);
+
+  const original = await findBookingById(context.business.id, parsed.booking_id);
+  if (!original) return { success: false, error: 'booking_not_found' };
+
+  // T-11-08: client can only reschedule their own booking
+  if (original.clientPhone !== context.clientPhone) return { success: false, error: 'not_your_booking' };
+  if (!ACTIVE_STATUSES.includes(original.bookingStatus)) return { success: false, error: 'not_reschedulable' };
+
+  // Must be a session booking (has sessionInstanceId) — not an open-slot booking
+  if (original.sessionInstanceId === null || original.sessionInstanceId === undefined) {
+    return {
+      success: false,
+      error: 'not_a_session_booking',
+      message: 'Αυτή η κράτηση δεν αφορά σεζόν. Χρησιμοποίησε reschedule_appointment αντί για reschedule_session.',
+    };
+  }
+
+  const sessions = await listSessions(context.business.id);
+  const newSession = sessions.find((s) => s.instanceId === parsed.new_session_instance_id);
+  if (!newSession) return { success: false, error: 'session_not_found' };
+
+  // SBOK-03: expiry gate — block reschedule to a session past membership expiry (T-11-09)
+  const membership = await getClientActiveMembership(context.business.id, context.clientPhone);
+  if (membership !== null) {
+    const membershipExpiryDate = isoDateInAthens(membership.expiresAt);
+    if (newSession.sessionDate > membershipExpiryDate) {
+      return {
+        success: false,
+        error: 'past_membership_expiry',
+        message:
+          'Η νέα σεζόν (' +
+          newSession.sessionDate +
+          ') είναι μετά τη λήξη της συνδρομής σας (' +
+          formatExpiryDateGreek(membership.expiresAt) +
+          '). Δεν μπορείτε να μετακινήσετε την κράτηση εκτός της ισχύος της συνδρομής σας.',
+      };
+    }
+  }
+
+  // Cancel old booking and restore credit (same pattern as cancelAppointmentTool)
+  await updateBookingStatus(original.id, 'cancelled');
+  const oldMembershipId = await findMembershipByBooking(original.id);
+  if (oldMembershipId !== null) {
+    await restoreCredit(oldMembershipId, original.id, 'booking:' + original.id + ':credit');
+  }
+
+  // Fetch fresh membership after restore so deductSession sees the updated counter
+  const activeMembership = await getActiveMembershipForDeduction(context.business.id, context.clientPhone);
+  const newKey = context.idempotencyKey + ':reschedule:' + parsed.new_session_instance_id;
+
+  const result = await bookSessionInstance(
+    context.business.id,
+    parsed.new_session_instance_id,
+    context.clientPhone,
+    newSession.serviceId,
+    newKey,
+    activeMembership
+  );
+
+  if (result.status !== 'success') {
+    // New session unavailable — log partial failure; old booking is already cancelled
+    logger.error(
+      { bookingId: original.id, newSessionInstanceId: parsed.new_session_instance_id, status: result.status },
+      'reschedule_session: new session unavailable after cancelling old booking'
+    );
+    return {
+      success: false,
+      error: 'reschedule_failed_' + result.status,
+      message: result.status === 'full' ? 'Η νέα σεζόν είναι πλήρης.' : 'Η νέα σεζόν δεν είναι διαθέσιμη.',
+    };
+  }
+
+  return {
+    success: true,
+    booking_id: result.bookingId,
+    cancelled_booking_id: original.id,
+    new_session_date: newSession.sessionDate,
+    new_session_time: newSession.sessionTime,
   };
 }

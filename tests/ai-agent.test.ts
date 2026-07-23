@@ -51,6 +51,8 @@ const BUSINESS = {
   webhookId: null,
   webhookSecret: null,
   enforcementPolicy: 'allow',
+  bookingMode: 'open_slots',
+  allowMultiBooking: false,
   createdAt: new Date(),
 };
 
