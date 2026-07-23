@@ -248,7 +248,7 @@ Items acknowledged and deferred at v1.2 milestone close on 2026-07-22:
 ## Session Continuity
 
 Last session: 2026-07-23T00:00:00Z
-Stopped at: Completed 12-01-PLAN.md (set_cancellation_cutoff owner tool)
+Stopped at: Completed 12-03-PLAN.md (cancellation cutoff integration tests)
 Resume file: None
 
 **Phase 12 Plan 01 completed:** a940588, 6c5830e, 7d64f85
@@ -257,7 +257,17 @@ Resume file: None
 - handleSetCancellationCutoff handler added to billing/tools.ts
 - set_cancellation_cutoff registered in OWNER_TOOLS + executeOwnerTool
 
+**Phase 12 Plan 02 completed:** 07142c9
+- hoursUntilSessionInAthens DST-safe helper added to function-executor.ts
+- ToolContext.business extended with cancellationCutoffEnabled/Hours
+- cancelAppointmentTool cutoff check + two-message confirmation flow (CANC-03/04/05)
+
+**Phase 12 Plan 03 completed:** 2506744
+- tests/cancellation-cutoff.test.ts: 6 integration tests covering CANC-01 through CANC-05
+- tests/helpers/session-fixtures.ts: session catalog/instance test helpers
+- src/session/manager.ts: session query layer (worktree Rule 3 fix)
+- All 6 tests passing against Neon DB
+
 ## Operator Next Steps
 
-- Continue with Phase 12 Plan 02 (cancelAppointmentTool reads cutoff fields)
-- Or start the next milestone with /gsd-new-milestone
+- Phase 12 complete (all 3 plans done) — start next phase or new milestone with /gsd-new-milestone
