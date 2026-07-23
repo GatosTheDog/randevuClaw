@@ -19,10 +19,10 @@
 
 ### SBOK — Session Booking Flow
 
-- [ ] **SBOK-01**: Client books a specific session by name/date via Greek chat; capacity enforced as hard cap (block when full)
+- [x] **SBOK-01**: Client books a specific session by name/date via Greek chat; capacity enforced as hard cap (block when full)
 - [x] **SBOK-02**: Session booking atomically deducts 1 session credit via existing membership ledger
-- [ ] **SBOK-03**: Client reschedule validates against membership expiry window; cannot move past expiry (always enforced, not optional)
-- [ ] **SBOK-04**: Client can book multiple sessions in a single request when `allow_multi_booking` is enabled for that business
+- [x] **SBOK-03**: Client reschedule validates against membership expiry window; cannot move past expiry (always enforced, not optional)
+- [x] **SBOK-04**: Client can book multiple sessions in a single request when `allow_multi_booking` is enabled for that business
 
 ### CANC — Cancellation Cutoff Policy
 

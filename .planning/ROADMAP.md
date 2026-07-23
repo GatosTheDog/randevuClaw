@@ -46,7 +46,7 @@ See: `.planning/milestones/v1.2-ROADMAP.md`
 ### v1.3 Studio Session Scheduling & Slotless Bookings (Phases 10-15)
 
 - [x] **Phase 10: Session Catalog & Schema** - Owner creates, recurs, lists, cancels, and assigns clients to sessions; 3 new tables + 7 business config columns unblock all downstream phases (6 plans) (completed 2026-07-22)
-- [ ] **Phase 11: Session Booking Flow** - Clients book specific sessions via Greek chat with atomic capacity enforcement and session-credit deduction
+- [x] **Phase 11: Session Booking Flow** - Clients book specific sessions via Greek chat with atomic capacity enforcement and session-credit deduction (completed 2026-07-23)
 - [ ] **Phase 12: Cancellation Cutoff Policy** - Per-business opt-in cutoff window enforces credit forfeiture with Greek confirmation before cancellations inside the window
 - [ ] **Phase 13: Slotless Booking Requests** - Clients request bookings with no open slot; owner approves or rejects via keyboard; approved requests become real bookings with credit deduction
 - [ ] **Phase 14: Renewal Notification Extensions** - Last-session threshold nudge and owner-gated mass renewal broadcast extend the existing expiry notification sweep
@@ -90,13 +90,13 @@ Plans:
   4. Client attempting to reschedule a session booking to a date past their membership expiry is blocked with a Greek explanation
   5. Client with `allow_multi_booking` enabled for their business can name multiple sessions in a single chat message and all are booked in one exchange
 
-**Plans**: 2/3 plans executed
+**Plans**: 3/3 plans complete
 
 Plans:
 
 - [x] 11-01-PLAN.md — Extend bookSessionInstance to atomically deduct session credit within same DB transaction (SBOK-02 core fix)
 - [x] 11-02-PLAN.md — Client AI tools: book_session, list_sessions_for_client, reschedule_session in BOOKING_TOOLS + function-executor (SBOK-01, SBOK-03, SBOK-04)
-- [ ] 11-03-PLAN.md — Integration tests: SBOK-01 through SBOK-04 full coverage in session-booking-flow.test.ts
+- [x] 11-03-PLAN.md — Integration tests: SBOK-01 through SBOK-04 full coverage in session-booking-flow.test.ts
 
 ### Phase 12: Cancellation Cutoff Policy
 
@@ -173,7 +173,7 @@ Plans:
 | 8. Enforcement & Session Deduction | v1.2 | 6/6 | Complete | 2026-07-21 |
 | 9. Expiry Notifications & Client Balance | v1.2 | 3/3 | Complete | 2026-07-22 |
 | 10. Session Catalog & Schema | v1.3 | 6/6 | Complete   | 2026-07-22 |
-| 11. Session Booking Flow | v1.3 | 2/3 | In Progress|  |
+| 11. Session Booking Flow | v1.3 | 3/3 | Complete   | 2026-07-23 |
 | 12. Cancellation Cutoff Policy | v1.3 | 0/TBD | Not started | - |
 | 13. Slotless Booking Requests | v1.3 | 0/TBD | Not started | - |
 | 14. Renewal Notification Extensions | v1.3 | 0/TBD | Not started | - |
