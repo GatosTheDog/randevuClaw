@@ -4,16 +4,16 @@ milestone: v1.2
 milestone_name: Billing & Membership System
 current_phase: 2
 status: Awaiting next milestone
-stopped_at: context exhaustion at 75% (2026-07-22)
-last_updated: "2026-07-23T11:08:27.472Z"
-last_activity: 2026-07-22
-last_activity_desc: Milestone v1.2 completed and archived
+stopped_at: Completed 14-01-PLAN.md
+last_updated: "2026-07-23T11:40:00.000Z"
+last_activity: 2026-07-23
+last_activity_desc: Phase 14 Plan 01 — renewal nudge schema + query layer + tool handler
 progress:
-  total_phases: 4
+  total_phases: 5
   completed_phases: 4
   total_plans: 15
-  completed_plans: 15
-  percent: 100
+  completed_plans: 16
+  percent: 80
 current_phase_name: Expiry Notifications & Client Balance
 ---
 
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-07-17 after v1.1 milestone close)
 
 ## Current Position
 
-Phase: Milestone v1.2 complete
-Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-07-22 — Milestone v1.2 completed and archived
+Phase: 14 — renewal-notification-extensions
+Plan: 01 (complete)
+Status: In progress
+Last activity: 2026-07-23 — Phase 14 Plan 01 complete (renewal nudge schema + query layer + tool handler)
 
 ## Performance Metrics
 
@@ -248,7 +248,7 @@ Items acknowledged and deferred at v1.2 milestone close on 2026-07-22:
 
 ## Session Continuity
 
-Last session: 2026-07-23T11:08:27.463Z
+Last session: 2026-07-23T11:22:04.829Z
 Stopped at: Completed 12-03-PLAN.md (cancellation cutoff integration tests)
 Resume file: None
 
