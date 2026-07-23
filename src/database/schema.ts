@@ -5,6 +5,7 @@ import {
   integer,
   boolean,
   timestamp,
+  date,
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
@@ -524,5 +525,25 @@ export const sessionCancellationNotifications = pgTable(
     // CLSS-03: one notification record per cancelled session instance.
     // Prevents poller from sending duplicate batches on re-run.
     uniqueIndex('unique_session_cancellation_notification').on(table.sessionInstanceId),
+  ]
+);
+
+/**
+ * Phase 14 (RENW-03): dedup table preventing duplicate renewal nudges per
+ * membership per calendar day. One row per (membershipId, nudgeDate) pair.
+ */
+export const renewalNudgeNotifications = pgTable(
+  'renewal_nudge_notifications',
+  {
+    id: serial('id').primaryKey(),
+    membershipId: integer('membership_id')
+      .notNull()
+      .references(() => memberships.id),
+    nudgeDate: date('nudge_date').notNull(),
+    sentAt: timestamp('sent_at').notNull().defaultNow(),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('unique_renewal_nudge').on(table.membershipId, table.nudgeDate),
   ]
 );

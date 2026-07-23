@@ -45,6 +45,10 @@ export interface Business {
   cancellationCutoffHours: number;
   /** Phase 13 (SLOT-01): when true, clients can submit slotless booking requests instead of receiving a 'no slots available' error. */
   slotlessRequestsEnabled: boolean;
+  /** Phase 14 (RENW-01): when true, low-session-count renewal nudges are sent to clients. */
+  lastSessionThresholdEnabled: boolean;
+  /** Phase 14 (RENW-01): sessions remaining count that triggers the renewal nudge. */
+  lastSessionThresholdCount: number;
   createdAt: Date;
 }
 
