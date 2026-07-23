@@ -48,7 +48,7 @@ See: `.planning/milestones/v1.2-ROADMAP.md`
 - [x] **Phase 10: Session Catalog & Schema** - Owner creates, recurs, lists, cancels, and assigns clients to sessions; 3 new tables + 7 business config columns unblock all downstream phases (6 plans) (completed 2026-07-22)
 - [x] **Phase 11: Session Booking Flow** - Clients book specific sessions via Greek chat with atomic capacity enforcement and session-credit deduction (completed 2026-07-23)
 - [ ] **Phase 12: Cancellation Cutoff Policy** - Per-business opt-in cutoff window enforces credit forfeiture with Greek confirmation before cancellations inside the window
-- [ ] **Phase 13: Slotless Booking Requests** - Clients request bookings with no open slot; owner approves or rejects via keyboard; approved requests become real bookings with credit deduction
+- [x] **Phase 13: Slotless Booking Requests** - Clients request bookings with no open slot; owner approves or rejects via keyboard; approved requests become real bookings with credit deduction (completed 2026-07-23)
 - [ ] **Phase 14: Renewal Notification Extensions** - Last-session threshold nudge and owner-gated mass renewal broadcast extend the existing expiry notification sweep
 - [ ] **Phase 15: Onboarding Extensions** - Onboarding flow asks about each optional v1.3 feature with explicit defaults; all settings remain editable post-onboarding via chat
 
@@ -133,13 +133,13 @@ Plans:
   5. Owner asks for a client's slotless request history via chat and receives a count and chronological list of all requests for that client
   6. When a client books their next appointment, the owner sees how many slotless requests that client has made since their last check-in, surfaced automatically in the booking alert
 
-**Plans**: 3 plans
+**Plans**: 3/3 plans complete
 
 Plans:
 
-- [ ] 13-01-PLAN.md — Slotless request query layer: insertSlotlessRequest, approveSlotlessRequest (atomic booking+deduction), rejectSlotlessRequest, listSlotlessRequestsForClient, countSlotlessRequestsSinceCheckin
-- [ ] 13-02-PLAN.md — bookAppointmentTool slotless fork (SLOT-01) + SLOT-06 count in owner alert + OWNER_TOOLS list_slotless_requests (SLOT-05)
-- [ ] 13-03-PLAN.md — Keyboard callback handler Ναι/Όχι (SLOT-02, SLOT-03) + integration tests SLOT-01 through SLOT-06
+- [x] 13-01-PLAN.md — Slotless request query layer: insertSlotlessRequest, approveSlotlessRequest (atomic booking+deduction), rejectSlotlessRequest, listSlotlessRequestsForClient, countSlotlessRequestsSinceCheckin
+- [x] 13-02-PLAN.md — bookAppointmentTool slotless fork (SLOT-01) + SLOT-06 count in owner alert + OWNER_TOOLS list_slotless_requests (SLOT-05)
+- [x] 13-03-PLAN.md — Keyboard callback handler Ναι/Όχι (SLOT-02, SLOT-03) + integration tests SLOT-01 through SLOT-06
 
 ### Phase 14: Renewal Notification Extensions
 
@@ -187,6 +187,6 @@ Plans:
 | 10. Session Catalog & Schema | v1.3 | 6/6 | Complete   | 2026-07-22 |
 | 11. Session Booking Flow | v1.3 | 3/3 | Complete   | 2026-07-23 |
 | 12. Cancellation Cutoff Policy | v1.3 | 0/TBD | Not started | - |
-| 13. Slotless Booking Requests | v1.3 | 0/TBD | Not started | - |
+| 13. Slotless Booking Requests | v1.3 | 3/3 | Complete   | 2026-07-23 |
 | 14. Renewal Notification Extensions | v1.3 | 0/TBD | Not started | - |
 | 15. Onboarding Extensions | v1.3 | 0/TBD | Not started | - |
