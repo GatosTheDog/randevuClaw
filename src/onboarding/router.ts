@@ -10,6 +10,10 @@ import {
   handleSvcPriceStep,
   handleSvcDurationStep,
   handleSvcMoreStep,
+  handleConfigBookingModeStep,
+  handleConfigCancellationCutoffStep,
+  handleConfigSlotlessRequestsStep,
+  handleConfigLastSessionThresholdStep,
 } from './steps';
 import { updateOnboardingStep } from './queries';
 
@@ -81,6 +85,14 @@ export async function dispatchOnboardingStep(
       await handleSvcDurationStep(session, business, ownerTelegramId, messageText);
     } else if (step === 'svc_more') {
       await handleSvcMoreStep(session, business, ownerTelegramId, messageText);
+    } else if (step === 'config_booking_mode') {
+      await handleConfigBookingModeStep(session, business, ownerTelegramId, messageText);
+    } else if (step === 'config_cancellation_cutoff') {
+      await handleConfigCancellationCutoffStep(session, business, ownerTelegramId, messageText);
+    } else if (step === 'config_slotless_requests') {
+      await handleConfigSlotlessRequestsStep(session, business, ownerTelegramId, messageText);
+    } else if (step === 'config_last_session_threshold') {
+      await handleConfigLastSessionThresholdStep(session, business, ownerTelegramId, messageText);
     } else if (step === 'done') {
       // Terminal state — should not normally receive messages, but handle gracefully
       await sendTelegramMessage(ownerTelegramId, 'Η επιχείρησή σας είναι ήδη ενεργή.');

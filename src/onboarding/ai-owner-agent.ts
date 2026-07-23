@@ -16,7 +16,7 @@ import {
   getConn,
 } from '../database/queries';
 import { logger } from '../utils/logger';
-import { listPackages } from '../billing/queries';
+import { listPackages, getClientActiveMembership, getClientName } from '../billing/queries';
 import { listSlotlessRequestsForClient } from '../session/slotless-requests';
 import {
   handleCreatePackage,
@@ -25,6 +25,7 @@ import {
   handleViewClientMembership,
   handleSetEnforcementPolicy,
   handleSetCancellationCutoff,
+  handleSetLastSessionThreshold,
   CreatePackageResult,
 } from '../billing/tools';
 import { showClientSelection } from '../telegram/handlers/payment-flow';
@@ -338,6 +339,31 @@ export const OWNER_TOOLS = [
           type: 'string',
           description: 'Telegram ID ή τηλέφωνο πελάτη',
         },
+      },
+      required: ['client_phone'],
+    },
+  },
+  {
+    type: 'function' as const,
+    name: 'set_last_session_threshold',
+    description: 'Ρυθμίζει την ειδοποίηση ανανέωσης συνδρομής όταν ένας πελάτης έχει λίγα μαθήματα.',
+    parameters: {
+      type: 'object',
+      properties: {
+        enabled: { type: 'boolean', description: 'true για ενεργοποίηση, false για απενεργοποίηση' },
+        count: { type: 'number', description: 'Αριθμός εναπομεινάντων μαθημάτων που ενεργοποιεί την ειδοποίηση (1-20)' },
+      },
+      required: ['enabled', 'count'],
+    },
+  },
+  {
+    type: 'function' as const,
+    name: 'send_renewal_reminder',
+    description: 'Στέλνει άμεσα ειδοποίηση ανανέωσης συνδρομής σε έναν συγκεκριμένο πελάτη.',
+    parameters: {
+      type: 'object',
+      properties: {
+        client_phone: { type: 'string', description: 'Telegram ID ή τηλέφωνο πελάτη' },
       },
       required: ['client_phone'],
     },
@@ -744,6 +770,25 @@ async function executeOwnerTool(
         `${i + 1}. ${r.requestedSessionDate} ${r.requestedSessionTime} — ${r.status === 'pending' ? 'Εκκρεμεί' : r.status === 'approved' ? 'Εγκρίθηκε' : 'Απορρίφθηκε'}`
       );
       return `Αιτήματα χωρίς θέση (${requests.length}):\n${lines.join('\n')}`;
+    }
+
+    case 'set_last_session_threshold': {
+      return withBusinessContext(business.id, () =>
+        handleSetLastSessionThreshold(business.id, args as Record<string, unknown>)
+      );
+    }
+
+    case 'send_renewal_reminder': {
+      const clientPhone = String(args.client_phone ?? '').trim();
+      if (!clientPhone) return 'Δεν δόθηκε αναγνωριστικό πελάτη.';
+      const membership = await getClientActiveMembership(business.id, clientPhone);
+      if (!membership) return `Ο πελάτης ${clientPhone} δεν έχει ενεργή συνδρομή.`;
+      const clientName = (await getClientName(business.id, clientPhone)) ?? clientPhone;
+      await sendTelegramMessage(
+        clientPhone,
+        'Υπενθύμιση: Τα μαθήματά σας τελειώνουν σύντομα! Επικοινωνήστε για ανανέωση.'
+      );
+      return `Η ειδοποίηση ανανέωσης στάλθηκε στον/στην ${clientName}.`;
     }
 
     default:

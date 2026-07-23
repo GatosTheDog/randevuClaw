@@ -39,6 +39,10 @@ export type OnboardingStep =
   | 'svc_price'
   | 'svc_duration'
   | 'svc_more'
+  | 'config_booking_mode'
+  | 'config_cancellation_cutoff'
+  | 'config_slotless_requests'
+  | 'config_last_session_threshold'
   | 'done';
 
 /**
@@ -404,7 +408,13 @@ export async function handleSvcMoreStep(
     await updateOnboardingStep(session.id, 'svc_name', serializeCollectedData(collectedData));
     await sendTelegramMessage(ownerTelegramId, 'Όνομα νέας υπηρεσίας: (π.χ. Reformer Pilates)');
   } else if (isNo) {
-    await handleActivate(session, business, ownerTelegramId);
+    await updateOnboardingStep(session.id, 'config_booking_mode', null);
+    await sendTelegramMessage(
+      ownerTelegramId,
+      'Θέλετε να χρησιμοποιήσετε πρόγραμμα τάξεων (ορισμένες ώρες) αντί για ελεύθερες θέσεις;\n' +
+      'Απαντήστε "ναι" για πρόγραμμα τάξεων, "όχι" για ελεύθερες θέσεις, ή "παράλειψη".\n' +
+      '(προεπιλογή: ελεύθερες θέσεις)'
+    );
   } else {
     // Unrecognized input — re-send the question without advancing
     await sendTelegramMessageWithKeyboard(
@@ -458,4 +468,96 @@ export async function handleActivate(
     ownerTelegramId,
     'Η επιχείρησή σας είναι ενεργή! Οι πελάτες μπορούν τώρα να κάνουν κράτηση μέσω του bot σας.'
   );
+}
+
+export async function handleConfigBookingModeStep(
+  session: OnboardingSession,
+  business: Business,
+  ownerTelegramId: string,
+  text: string
+): Promise<void> {
+  const normalized = text.trim().toLowerCase();
+  const isYes = normalized.includes('ναι') || normalized.includes('yes');
+
+  if (isYes) {
+    await db.update(businesses).set({ bookingMode: 'fixed_sessions' }).where(eq(businesses.id, business.id));
+  }
+
+  await updateOnboardingStep(session.id, 'config_cancellation_cutoff', null);
+  await sendTelegramMessage(
+    ownerTelegramId,
+    'Θέλετε όριο ακύρωσης κράτησης;\n' +
+    'Απαντήστε π.χ. "ναι 8" για 8 ώρες, "όχι" για απενεργοποίηση, ή "παράλειψη".\n' +
+    '(προεπιλογή: απενεργοποιημένο)'
+  );
+}
+
+export async function handleConfigCancellationCutoffStep(
+  session: OnboardingSession,
+  business: Business,
+  ownerTelegramId: string,
+  text: string
+): Promise<void> {
+  const normalized = text.trim().toLowerCase();
+  const isNo = normalized === 'όχι' || normalized === 'no' || normalized.includes('παράλειψη') || normalized.includes('skip');
+  const match = text.match(/ναι\s+(\d+)/i);
+
+  if (!isNo && match) {
+    const hours = Math.min(168, Math.max(1, Number.parseInt(match[1], 10)));
+    await db.update(businesses)
+      .set({ cancellationCutoffEnabled: true, cancellationCutoffHours: hours })
+      .where(eq(businesses.id, business.id));
+  }
+
+  await updateOnboardingStep(session.id, 'config_slotless_requests', null);
+  await sendTelegramMessage(
+    ownerTelegramId,
+    'Θέλετε να επιτρέπετε αιτήματα κράτησης όταν δεν υπάρχει διαθέσιμη θέση;\n' +
+    'Απαντήστε "ναι" ή "όχι".\n' +
+    '(προεπιλογή: απενεργοποιημένο)'
+  );
+}
+
+export async function handleConfigSlotlessRequestsStep(
+  session: OnboardingSession,
+  business: Business,
+  ownerTelegramId: string,
+  text: string
+): Promise<void> {
+  const normalized = text.trim().toLowerCase();
+  const isYes = normalized.includes('ναι') || normalized.includes('yes');
+
+  if (isYes) {
+    await db.update(businesses)
+      .set({ slotlessRequestsEnabled: true })
+      .where(eq(businesses.id, business.id));
+  }
+
+  await updateOnboardingStep(session.id, 'config_last_session_threshold', null);
+  await sendTelegramMessage(
+    ownerTelegramId,
+    'Θέλετε ειδοποίηση ανανέωσης όταν ένας πελάτης έχει λίγα εναπομείναντα μαθήματα;\n' +
+    'Απαντήστε π.χ. "ναι 2" για ειδοποίηση στα 2 μαθήματα, "όχι" ή "παράλειψη".\n' +
+    '(προεπιλογή: απενεργοποιημένο)'
+  );
+}
+
+export async function handleConfigLastSessionThresholdStep(
+  session: OnboardingSession,
+  business: Business,
+  ownerTelegramId: string,
+  text: string
+): Promise<void> {
+  const normalized = text.trim().toLowerCase();
+  const isNo = normalized === 'όχι' || normalized === 'no' || normalized.includes('παράλειψη') || normalized.includes('skip');
+  const match = text.match(/ναι\s+(\d+)/i);
+
+  if (!isNo && match) {
+    const count = Math.min(20, Math.max(1, Number.parseInt(match[1], 10)));
+    await db.update(businesses)
+      .set({ lastSessionThresholdEnabled: true, lastSessionThresholdCount: count })
+      .where(eq(businesses.id, business.id));
+  }
+
+  await handleActivate(session, business, ownerTelegramId);
 }

@@ -30,6 +30,7 @@ import {
 import { findMembershipByBooking, restoreCredit } from '../billing/queries';
 import { isoDateInAthens } from '../utils/timezone';
 import { approveSlotlessRequest, rejectSlotlessRequest } from '../session/slotless-requests';
+import { pendingRenewalBatches } from '../scheduler/membership-expiry';
 
 interface TelegramFrom {
   id: number;
@@ -117,10 +118,14 @@ export type SlotlessCallbackResult = {
   action: 'slotless:req_approve' | 'slotless:req_reject';
   slotlessRequestId: number;
 };
+export type RenewalCallbackResult = {
+  action: 'renewal:approve' | 'renewal:skip';
+  businessId: number;
+};
 
 export function parseCallbackData(
   data: string | undefined
-): BookingCallbackResult | BillingCallbackResult | SlotlessCallbackResult | null {
+): BookingCallbackResult | BillingCallbackResult | SlotlessCallbackResult | RenewalCallbackResult | null {
   // Existing booking action pattern (unchanged — T-02-17)
   const bookingMatch = data?.match(/^(approve|reject|client_cancel)_(\d+)$/);
   if (bookingMatch) {
@@ -148,6 +153,15 @@ export function parseCallbackData(
     return {
       action: `slotless:${slotlessMatch[1]}` as SlotlessCallbackResult['action'],
       slotlessRequestId: Number(slotlessMatch[2]),
+    };
+  }
+
+  // Phase 14: renewal nudge batch approval pattern
+  const renewalMatch = data?.match(/^renewal:(approve|skip):(\d+)$/);
+  if (renewalMatch) {
+    return {
+      action: `renewal:${renewalMatch[1]}` as RenewalCallbackResult['action'],
+      businessId: Number(renewalMatch[2]),
     };
   }
 
@@ -346,6 +360,45 @@ async function handleCallbackQuery(
     }
 
     // Clear keyboard regardless of outcome
+    if (callbackQuery.message?.message_id) {
+      await editTelegramMessageReplyMarkup(senderTelegramId, callbackQuery.message.message_id, []);
+    }
+    return;
+  }
+
+  // Discriminant: 'businessId' in result with 'renewal:' prefix → RenewalCallbackResult
+  if ('businessId' in parsed) {
+    const renewalResult = parsed as RenewalCallbackResult;
+    // T-14-01: cross-tenant guard — verify senderTelegramId owns the business in callback_data.
+    const ownerBusiness = await findBusinessByOwnerTelegramId(senderTelegramId);
+    if (!ownerBusiness || ownerBusiness.id !== renewalResult.businessId) {
+      logger.warn({ senderTelegramId, businessId: renewalResult.businessId }, 'renewal callback from non-owner, ignoring');
+      return;
+    }
+
+    const phones = pendingRenewalBatches.get(renewalResult.businessId) ?? [];
+    pendingRenewalBatches.delete(renewalResult.businessId);
+
+    if (renewalResult.action === 'renewal:approve' && phones.length > 0) {
+      let sent = 0;
+      for (const phone of phones) {
+        try {
+          await botTokenStore.run(ownerBusiness.botToken!, async () => {
+            await sendTelegramMessage(
+              phone,
+              'Υπενθύμιση: Τα μαθήματά σας τελειώνουν σύντομα! Επικοινωνήστε για ανανέωση.'
+            );
+          });
+          sent += 1;
+        } catch (err) {
+          logger.error({ err, phone, businessId: ownerBusiness.id }, 'Renewal nudge to client failed (best-effort)');
+        }
+      }
+      await sendTelegramMessage(senderTelegramId, `✅ Στάλθηκαν ειδοποιήσεις σε ${sent} πελάτες.`);
+    } else {
+      await sendTelegramMessage(senderTelegramId, 'Παραλείφθηκε. Δεν στάλθηκαν ειδοποιήσεις.');
+    }
+
     if (callbackQuery.message?.message_id) {
       await editTelegramMessageReplyMarkup(senderTelegramId, callbackQuery.message.message_id, []);
     }
