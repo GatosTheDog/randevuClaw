@@ -67,6 +67,11 @@ export const businesses = pgTable('businesses', {
   // Phase 14 (RENW-01): sessions remaining count that triggers the renewal
   // nudge. Default 1.
   lastSessionThresholdCount: integer('last_session_threshold_count').notNull().default(1),
+  // Phase 16 (ARCH-01): tracks whether the owner completed onboarding on this
+  // business bot. When false, the business bot routes admin messages to the
+  // onboarding state machine. Set to true by the terminal onboarding step handler.
+  // Default false — safe for existing rows (backfill migration sets true where done).
+  onboardingCompleted: boolean('onboarding_completed').notNull().default(false),
   // Phase 11 (SBOK-04): whether a client can book multiple sessions in one
   // request. Default false.
   allowMultiBooking: boolean('allow_multi_booking').notNull().default(false),
