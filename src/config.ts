@@ -40,7 +40,7 @@ const EnvSchema = z.object({
   // Phase 04 (D-11): optional app-role connection string for randevuclaw_app.
   // Falls back to DATABASE_URL if unset (development/tests without the role).
   DATABASE_APP_URL: z.string().optional(),
-  // Phase 16 (ARCH-01): PLATFORM_BOT_TOKEN and PLATFORM_WEBHOOK_SECRET removed.
+  // Phase 16 (ARCH-01): platform bot env vars removed (see git log for history).
   // The platform bot is deleted; onboarding now runs on each business's own bot.
   // Base URL for constructing setWebhook URLs (e.g. https://randevuclaw.fly.dev).
   // Optional — only required when activating a business bot (setWebhook call).
@@ -60,7 +60,7 @@ export interface Config {
   geminiApiKey: string;
   // telegramBotToken and telegramWebhookSecret removed (D-08, Phase 04).
   // All bot token/secret config is now DB-driven (businesses table).
-  // Phase 16 (ARCH-01): platformBotToken and platformWebhookSecret removed.
+  // Phase 16 (ARCH-01): platform bot credentials removed (see git log).
   ownerTelegramId: string;
   googleClientId: string;
   googleClientSecret: string;
