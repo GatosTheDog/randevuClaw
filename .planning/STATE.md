@@ -1,20 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.2
-milestone_name: Billing & Membership System
-current_phase: 14
-current_phase_name: renewal-notification-extensions
-status: Awaiting next milestone
-stopped_at: Completed 14-01-PLAN.md
-last_updated: "2026-07-23T11:52:28.030Z"
+milestone: v1.4
+milestone_name: Single-Bot UX Overhaul
+status: planning
+last_updated: "2026-07-23T15:25:00.223Z"
 last_activity: 2026-07-23
-last_activity_desc: Phase 14 Plan 01 complete (renewal nudge schema + query layer + tool handler)
 progress:
-  total_phases: 6
-  completed_phases: 4
-  total_plans: 15
-  completed_plans: 17
-  percent: 67
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -28,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-07-17 after v1.1 milestone close)
 
 ## Current Position
 
-Phase: 14 — renewal-notification-extensions
-Plan: 01 (complete)
-Status: In progress
-Last activity: 2026-07-23 — Phase 14 Plan 01 complete (renewal nudge schema + query layer + tool handler)
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-07-23 — Milestone v1.4 started
 
 ## Performance Metrics
 

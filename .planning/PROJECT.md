@@ -1,18 +1,17 @@
 # RandevuClaw
 
-## Current Milestone: v1.3 Studio Session Scheduling & Slotless Bookings
+## Current Milestone: v1.4 Single-Bot UX Overhaul
 
-**Goal:** Businesses optionally run a class-style schedule — pre-defined sessions with capacity, recurring creation, direct client assignment — layered on the v1.2 session-credit system. Cancellation cutoffs and renewal nudges become per-business config. Clients can request bookings with no open slot, subject to owner approval.
+**Goal:** Merge platform and business bots into one; add rich inline-keyboard menus for both admin and clients; wire class-schedule setup into onboarding; rename confusing Greek terminology; add client escalation to admin when requests fail.
 
 **Target features:**
-- Session Catalog & Admin Scheduling (CLSS) — owner creates/recurs/cancels sessions; assigns clients directly; Greek notifications
-- Booking Flow Extensions — multi-session booking (optional, per-business); reschedule locked to membership expiry (always enforced)
-- Cancellation Cutoff Policy (CANC) — opt-in per business (default off); 8h default; credit forfeited inside cutoff; Greek confirmation required
-- Slotless Booking Requests (SLOT) — opt-in per business (default off); client requests → owner approves/rejects → booking; full history + check-in surfacing
-- Renewal Notification Extensions (RENW) — last-session threshold nudge (opt-in, default 1); owner-triggered mass or per-client broadcast
-- Onboarding Extensions (ONB) — onboarding asks each optional feature with clear defaults; all settings editable via chat
-
-**New per-business settings:** `booking_mode`, `cancellation_cutoff_enabled/hours`, `last_session_threshold_enabled/count`, `slotless_requests_enabled`, `allow_multi_booking`
+- Single-Bot Architecture (ARCH) — platform bot deleted; business bot handles admin onboarding, admin management, and client booking from one bot
+- Admin/Client Recognition (AUTH) — Telegram ID identifies admin vs client; no passwords; sessions persist by Telegram identity
+- Admin Menu (AMENU) — persistent inline keyboard: Settings, Classes, Clients, Today; quick yes/no buttons on all binary decisions
+- Client Menu (CMENU) — /start shows Book, My Bookings, Cancel, Balance; yes/no buttons on confirmations
+- Class Schedule in Onboarding (CLSS) — onboarding step to define recurring classes (day/time/capacity); admin sets e.g. weekday Pilates slots with 4-person capacity
+- Greek Terminology Fix (I18N) — "σεζόν" → "μάθημα" (class/lesson) throughout bot messages and DB labels
+- Client Escalation (ESCL) — when client is blocked (full class, expired membership, etc.) bot forwards context to admin with one-tap reply
 
 ## What This Is
 
