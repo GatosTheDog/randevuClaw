@@ -38,7 +38,7 @@ function athensWallClockTime(date: Date): string {
 // D-09/D-11: once per business per Athens calendar day, a Greek summary of
 // that day's confirmed appointments. Bookings are already ordered by
 // calendarTime (Plan 03-01's listBookingsForDate), so no re-sort here.
-function formatAgendaMessage(bookings: Booking[], serviceNamesById: Map<number, string>): string {
+export function formatAgendaMessage(bookings: Booking[], serviceNamesById: Map<number, string>): string {
   const lines = bookings.map((booking) => {
     const serviceName = serviceNamesById.get(booking.serviceId) ?? 'Άγνωστη υπηρεσία';
     return `${booking.calendarTime} - ${serviceName} (${booking.clientPhone})`;
