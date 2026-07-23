@@ -38,7 +38,9 @@ function athensWallClockTime(date: Date): string {
 // D-09/D-11: once per business per Athens calendar day, a Greek summary of
 // that day's confirmed appointments. Bookings are already ordered by
 // calendarTime (Plan 03-01's listBookingsForDate), so no re-sort here.
-function formatAgendaMessage(bookings: Booking[], serviceNamesById: Map<number, string>): string {
+// Exported so admin-menu.ts can call it directly for on-demand agenda
+// (Plan 17-02 AMENU-05) without going through claimAgendaSlot.
+export function formatAgendaMessage(bookings: Booking[], serviceNamesById: Map<number, string>): string {
   const lines = bookings.map((booking) => {
     const serviceName = serviceNamesById.get(booking.serviceId) ?? 'Άγνωστη υπηρεσία';
     return `${booking.calendarTime} - ${serviceName} (${booking.clientPhone})`;
