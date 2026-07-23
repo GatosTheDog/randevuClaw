@@ -133,7 +133,13 @@ Plans:
   5. Owner asks for a client's slotless request history via chat and receives a count and chronological list of all requests for that client
   6. When a client books their next appointment, the owner sees how many slotless requests that client has made since their last check-in, surfaced automatically in the booking alert
 
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+
+- [ ] 13-01-PLAN.md — Slotless request query layer: insertSlotlessRequest, approveSlotlessRequest (atomic booking+deduction), rejectSlotlessRequest, listSlotlessRequestsForClient, countSlotlessRequestsSinceCheckin
+- [ ] 13-02-PLAN.md — bookAppointmentTool slotless fork (SLOT-01) + SLOT-06 count in owner alert + OWNER_TOOLS list_slotless_requests (SLOT-05)
+- [ ] 13-03-PLAN.md — Keyboard callback handler Ναι/Όχι (SLOT-02, SLOT-03) + integration tests SLOT-01 through SLOT-06
 
 ### Phase 14: Renewal Notification Extensions
 
