@@ -2,15 +2,17 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Single-Bot UX Overhaul
-status: planning
-last_updated: "2026-07-23T15:25:00.223Z"
+status: executing
+current_phase: 16
+current_phase_name: single-bot-architecture
+last_updated: "2026-07-23T17:00:00.000Z"
 last_activity: 2026-07-23
 progress:
   total_phases: 5
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  total_plans: 3
+  completed_plans: 1
+  percent: 7
 ---
 
 # Project State
@@ -90,6 +92,7 @@ Last activity: 2026-07-23 — v1.4 roadmap created (Phases 16-20)
 | Phase 09 P03 | 51 | 3 tasks | 3 files |
 | Phase 07 P06 | 4 | 2 tasks | 5 files |
 | Phase 07 P07 | 2 | 1 tasks | 2 files |
+| Phase 16-single-bot-architecture P1 | 3 | - tasks | - files |
 
 ## Accumulated Context
 
@@ -188,10 +191,13 @@ Recent decisions affecting current work:
 - [Phase ?]: [07-06]: getAllClientsForBusiness uses getConn() inside withBusinessContext — RLS-scoped, no booking join
 - [Phase ?]: [07-06]: deactivate_package switched to package_name with case-insensitive partial match — eliminates hallucinated-ID problem
 - [Phase ?]: [Phase 07-07]: TelegramCallbackQuery.message optional-chain guard — keyboard clear is best-effort; non-owner access already mitigated upstream by findBusinessByOwnerTelegramId
+<<<<<<< HEAD
 - [Roadmap v1.4]: 5 phases derived from 29 requirements — Phase 16 (single-bot arch + identity), Phase 17 (admin menu), Phase 18 (client menu), Phase 19 (class onboarding + i18n), Phase 20 (escalation)
 - [Roadmap v1.4]: ARCH+AUTH grouped in Phase 16 — both concern routing and identity wiring; must be complete before any menu work in Phases 17/18
 - [Roadmap v1.4]: CLSS+I18N grouped in Phase 19 — class schedule onboarding step is the natural place to introduce correct μάθημα terminology; fixes apply across the same copy pass
 - [Roadmap v1.4]: Phase 20 (escalation) placed last — depends on Phase 16 routing but benefits from Phase 17/18 inline keyboard patterns being established first
+- [Phase 16-01]: onboarding_completed uses NOT NULL DEFAULT false with backfill migration
+- [Phase 16-01]: Platform bot fully excised — platform.ts deleted, platform env vars removed from config, route removed from server.ts
 
 ### Pending Todos
 
@@ -252,7 +258,7 @@ Items acknowledged and deferred at v1.2 milestone close on 2026-07-22:
 ## Session Continuity
 
 Last session: 2026-07-23
-Stopped at: v1.4 roadmap created (Phases 16-20)
+Stopped at: Phase 16 Plan 01 complete (schema + platform bot excision)
 Resume file: None
 
 **v1.4 Roadmap created:**

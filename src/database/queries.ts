@@ -49,6 +49,8 @@ export interface Business {
   lastSessionThresholdEnabled: boolean;
   /** Phase 14 (RENW-01): sessions remaining count that triggers the renewal nudge. */
   lastSessionThresholdCount: number;
+  /** Phase 16 (ARCH-01): when false, admin messages are routed to the onboarding state machine; true once owner completes setup. */
+  onboardingCompleted: boolean;
   createdAt: Date;
 }
 
