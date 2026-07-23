@@ -46,6 +46,20 @@ export const businesses = pgTable('businesses', {
   // migration (permit-by-default). CHECK constraint in migration enforces valid
   // values at DB level; Zod enforces at app level (Plan 05).
   enforcementPolicy: text('enforcement_policy').notNull().default('allow'),
+  // Phase 10 (CLSS-01): booking mode for this business. 'open_slots' = v1.2
+  // behavior (availability-based, default); 'fixed_sessions' = class-schedule
+  // mode. NOT NULL with DEFAULT 'open_slots' — existing rows are safe after
+  // migration (preserve v1.2 behavior).
+  bookingMode: text('booking_mode').notNull().default('open_slots'),
+  // Phase 12 (CANC-01): whether the cancellation cutoff window is active.
+  // Default false — no cutoff unless owner explicitly enables.
+  cancellationCutoffEnabled: boolean('cancellation_cutoff_enabled').notNull().default(false),
+  // Phase 12 (CANC-01): hours before session at which credit forfeiture kicks
+  // in. Default 8.
+  cancellationCutoffHours: integer('cancellation_cutoff_hours').notNull().default(8),
+  // Phase 11 (SBOK-04): whether a client can book multiple sessions in one
+  // request. Default false.
+  allowMultiBooking: boolean('allow_multi_booking').notNull().default(false),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 
@@ -147,6 +161,13 @@ export const bookings = pgTable(
     // type-annotated forward reference in Drizzle; skipped since this field
     // is not integrity-critical.
     rescheduledFromBookingId: integer('rescheduled_from_booking_id'),
+    // Phase 10 (CLSS-01): nullable FK to session_instances; null for
+    // open_slots mode bookings (v1.2 and earlier); set for fixed_sessions
+    // mode bookings (v1.3+). No .references() here — sessionInstances is
+    // defined later in this file and a forward-reference FK would create a
+    // circular dependency; the FK constraint is enforced via the migration
+    // SQL (0010_session_catalog_schema.sql) which runs after both tables exist.
+    sessionInstanceId: integer('session_instance_id'),
     // Phase 3 (D-16 — mirrors the bookingStatus notNull-with-default
     // convention; safe on a non-empty table since Postgres backfills the
     // default): 'pending' | 'synced' | 'failed'. Drives the calendar-sync
@@ -353,5 +374,75 @@ export const membershipExpiryNotifications = pgTable(
       table.notificationType,
       table.expiryDate
     ),
+  ]
+);
+
+// --- Phase 10: Session Catalog & Schema ---
+
+export const sessionCatalog = pgTable(
+  'session_catalog',
+  {
+    id: serial('id').primaryKey(),
+    // RLS key: FK chain to businesses enforces ownership via randevuclaw_app role.
+    businessId: integer('business_id')
+      .notNull()
+      .references(() => businesses.id),
+    serviceId: integer('service_id')
+      .notNull()
+      .references(() => services.id),
+    // Phase 10 (CLSS-02): RFC 5545 recurrence rule string, e.g.
+    // "FREQ=WEEKLY;BYDAY=MO,WE,FR". Stored as text — standard format,
+    // easy to debug and log, consumed by rrule library in Wave 2.
+    rruleString: text('rrule_string').notNull(),
+    // Phase 10 (CLSS-01): wall-clock time "HH:MM" in Europe/Athens local
+    // (24h). Business hours are always local time; avoids DST confusion.
+    startTime: text('start_time').notNull(),
+    // Phase 10 (CLSS-01): hard cap — sessions cannot overfill. CHECK
+    // constraint (capacity > 0) enforced in migration SQL.
+    capacity: integer('capacity').notNull(),
+    // Phase 10 (CLSS-03): soft-delete flag — false = deactivated catalog
+    // entry; preserves audit trail and allows re-activation if needed.
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (table) => [
+    // Partial unique: one active catalog per (business, service). Allows
+    // multiple inactive entries for same combination (audit-safe soft-delete).
+    uniqueIndex('unique_active_catalog_per_business_service')
+      .on(table.businessId, table.serviceId)
+      .where(sql`is_active = true`),
+  ]
+);
+
+export const sessionInstances = pgTable(
+  'session_instances',
+  {
+    id: serial('id').primaryKey(),
+    // FK chain: instance → catalog → businesses → RLS ownership guard.
+    catalogId: integer('catalog_id')
+      .notNull()
+      .references(() => sessionCatalog.id),
+    // Phase 10 (CLSS-02): ISO "YYYY-MM-DD" Europe/Athens wall-clock date.
+    // Matches bookings.calendarDate convention for consistency.
+    sessionDate: text('session_date').notNull(),
+    // Phase 10 (CLSS-02): "HH:MM" Europe/Athens wall-clock time, matches
+    // sessionCatalog.startTime convention.
+    sessionTime: text('session_time').notNull(),
+    // Phase 10 (CLSS-05): denormalized for O(1) list_sessions queries.
+    // Updated atomically on booking insert/cancel via sql`booked_count + 1`.
+    bookedCount: integer('booked_count').notNull().default(0),
+    // Phase 10 (CLSS-03): soft-delete — owner cancelled this instance;
+    // preserves audit trail and idempotency on replay.
+    isCancelled: boolean('is_cancelled').notNull().default(false),
+    // Phase 10 (CLSS-02): idempotency guard against duplicate instance
+    // creation on rrule expansion replay. Format:
+    // "catalog:{catalogId}:{sessionDate}:{sessionTime}".
+    idempotencyKey: text('idempotency_key').notNull().unique(),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (table) => [
+    // One instance per (catalog, date, time); complementary to idempotency_key.
+    uniqueIndex('unique_session_instance')
+      .on(table.catalogId, table.sessionDate, table.sessionTime),
   ]
 );

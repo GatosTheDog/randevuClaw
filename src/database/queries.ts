@@ -35,6 +35,14 @@ export interface Business {
   webhookSecret: string | null;
   /** Phase 8 (D-07): 'allow' | 'block' | 'flag' — controls booking-engine behaviour when client has no active membership. */
   enforcementPolicy: string;
+  /** Phase 10 (CLSS-01): 'open_slots' | 'fixed_sessions' */
+  bookingMode: string;
+  /** Phase 12 (CANC-01): whether the cancellation cutoff window is active. */
+  cancellationCutoffEnabled: boolean;
+  /** Phase 12 (CANC-01): hours before session at which credit forfeiture kicks in. */
+  cancellationCutoffHours: number;
+  /** Phase 11 (SBOK-04): whether a client can book multiple sessions in one request. */
+  allowMultiBooking: boolean;
   createdAt: Date;
 }
 
@@ -253,6 +261,8 @@ export interface Booking {
   requestId: string;
   ownerTelegramMessageId: number | null;
   rescheduledFromBookingId: number | null;
+  /** Phase 10 (CLSS-01): nullable FK to session_instances. */
+  sessionInstanceId: number | null;
   calendarSyncStatus: string;
   googleCalendarEventId: string | null;
   calendarSyncRetryCount: number;
