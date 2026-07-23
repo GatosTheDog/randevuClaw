@@ -10,6 +10,7 @@ import {
   memberships,
   membershipLedger,
   membershipExpiryNotifications,
+  renewalNudgeNotifications,
   clientBusinessRelationships,
   bookings,
   services,
@@ -758,4 +759,87 @@ export async function insertMembershipExpiryNotification(
     .returning({ id: membershipExpiryNotifications.id });
 
   return result.length > 0;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 14: Renewal nudge queries (RENW-01, RENW-03)
+// ---------------------------------------------------------------------------
+
+/**
+ * Updates the last-session renewal nudge settings for a business.
+ * Uses db (admin connection) — called from the owner tool handler outside any
+ * withBusinessContext transaction.
+ */
+export async function setLastSessionThreshold(
+  businessId: number,
+  enabled: boolean,
+  count: number
+): Promise<void> {
+  await db
+    .update(businesses)
+    .set({ lastSessionThresholdEnabled: enabled, lastSessionThresholdCount: count })
+    .where(eq(businesses.id, businessId));
+}
+
+export interface MembershipAtThreshold {
+  id: number;
+  businessId: number;
+  clientPhone: string;
+  sessionsRemaining: number | null;
+  expiresAt: Date;
+  threshold: number;
+}
+
+/**
+ * Returns all active memberships for a business where sessionsRemaining is at or
+ * below the business's lastSessionThresholdCount (RENW-01).
+ *
+ * Only returns memberships when lastSessionThresholdEnabled is true on the business.
+ * Uses getConn() for RLS enforcement when called inside withBusinessContext.
+ */
+export async function findMembershipsAtThreshold(
+  businessId: number
+): Promise<MembershipAtThreshold[]> {
+  const conn = getConn();
+  const rows = await conn
+    .select({
+      id: memberships.id,
+      businessId: memberships.businessId,
+      clientPhone: memberships.clientPhone,
+      sessionsRemaining: memberships.sessionsRemaining,
+      expiresAt: memberships.expiresAt,
+      threshold: businesses.lastSessionThresholdCount,
+    })
+    .from(memberships)
+    .innerJoin(businesses, eq(memberships.businessId, businesses.id))
+    .where(
+      and(
+        eq(memberships.businessId, businessId),
+        eq(memberships.isActive, true),
+        eq(businesses.lastSessionThresholdEnabled, true),
+        sql`${memberships.sessionsRemaining} IS NOT NULL`,
+        sql`${memberships.sessionsRemaining} <= ${businesses.lastSessionThresholdCount}`
+      )
+    );
+  return rows;
+}
+
+/**
+ * Inserts a dedup row into renewal_nudge_notifications. Returns true if the row
+ * was newly inserted (nudge should be sent), false if the UNIQUE constraint fired
+ * (already nudged for this membership on this calendar day — skip).
+ *
+ * Uses db (not getConn()) — dedup inserts happen from the sweep, outside any
+ * withBusinessContext transaction.
+ */
+export async function insertRenewalNudgeNotification(
+  membershipId: number,
+  nudgeDate: string
+): Promise<boolean> {
+  const rows = await db
+    .insert(renewalNudgeNotifications)
+    .values({ membershipId, nudgeDate })
+    .onConflictDoNothing()
+    .returning({ id: renewalNudgeNotifications.id });
+  return rows.length > 0;
 }
