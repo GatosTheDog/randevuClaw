@@ -20,7 +20,16 @@ import { checkEnforcementAndGetMembership } from '../billing/enforcement';
 import { formatExpiryDateGreek } from '../utils/timezone';
 
 export interface ToolContext {
-  business: { id: number; name: string; ownerTelegramId: string | null; enforcementPolicy: string };
+  business: {
+    id: number;
+    name: string;
+    ownerTelegramId: string | null;
+    enforcementPolicy: string;
+    /** Phase 12 (CANC-01): whether the cancellation cutoff window is active. */
+    cancellationCutoffEnabled: boolean;
+    /** Phase 12 (CANC-01): hours before session at which credit forfeiture kicks in. */
+    cancellationCutoffHours: number;
+  };
   clientPhone: string;
   // Turn-constant identifier, stable across every tool call within the same
   // conversation turn — used for logging/tracing only.
@@ -55,6 +64,7 @@ const BookAppointmentArgsSchema = z.object({
 const CancelAppointmentArgsSchema = z.object({
   business_id: z.number().int(),
   booking_id: z.number().int(),
+  confirmed: z.boolean().optional(),
 });
 
 const RescheduleAppointmentArgsSchema = z.object({
@@ -68,6 +78,30 @@ const RescheduleAppointmentArgsSchema = z.object({
 const CheckMembershipBalanceArgsSchema = z.object({
   business_id: z.number().int(),
 });
+
+// Phase 12 (CANC-03/CANC-04/CANC-05): DST-safe helper that computes the
+// number of hours between now (UTC) and the session's Athens wall-clock time.
+// Uses the same noon-UTC Intl offset measurement pattern as isoDateInAthens in
+// timezone.ts — no new library dependencies.
+// Returns a negative value when the session is in the past (also treated as
+// "inside the cutoff window" by the caller).
+function hoursUntilSessionInAthens(sessionDate: string, sessionTime: string): number {
+  const noonUTC = new Date(`${sessionDate}T12:00:00Z`);
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Europe/Athens',
+    hour: '2-digit',
+    hour12: false,
+  }).formatToParts(noonUTC);
+  const athensHour = parseInt(parts.find((p) => p.type === 'hour')!.value, 10);
+  const offsetHours = athensHour - 12;
+  const [hh, mm] = sessionTime.split(':').map(Number);
+  const sessionUTCMs =
+    Date.parse(
+      `${sessionDate}T${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:00Z`
+    ) -
+    offsetHours * 3_600_000;
+  return (sessionUTCMs - Date.now()) / 3_600_000;
+}
 
 export async function executeTool(
   name: string,
@@ -252,6 +286,71 @@ async function cancelAppointmentTool(
     return { success: false, error: 'not_cancellable' };
   }
 
+  // Phase 12 (CANC-03, CANC-04, CANC-05): cancellation cutoff enforcement.
+  // This check runs AFTER ownership + status validation but BEFORE any DB mutation.
+  const cutoffEnabled = context.business.cancellationCutoffEnabled;
+  const cutoffHours = context.business.cancellationCutoffHours;
+  if (cutoffEnabled && booking.calendarDate && booking.calendarTime) {
+    const hoursLeft = hoursUntilSessionInAthens(booking.calendarDate, booking.calendarTime);
+    if (hoursLeft < cutoffHours) {
+      // Inside cutoff window — credit will be forfeited.
+      if (!parsed.confirmed) {
+        // First call: warn the client. No DB mutation, no credit change.
+        // Gemini will relay this warning and call cancel_appointment again
+        // with confirmed=true when the client replies "ναι".
+        return {
+          success: false,
+          pending_confirmation: true,
+          booking_id: booking.id,
+          warning:
+            'Θα χάσετε 1 session από τη συνδρομή σας αν ακυρώσετε τώρα (εντός ' +
+            cutoffHours +
+            ' ωρών πριν τη σεζόν). Απαντήστε "ναι" για επιβεβαίωση ή "όχι" για ακύρωση.',
+        };
+      }
+
+      // confirmed=true: proceed with cancellation but DO NOT restore credit (CANC-04).
+      await updateBookingStatus(booking.id, 'cancelled');
+
+      // Best-effort calendar delete (same pattern as the normal cancel path).
+      try {
+        const fullBusiness = await findBusinessById(context.business.id);
+        if (fullBusiness) await deleteBookingFromCalendar(booking, fullBusiness);
+      } catch (err) {
+        logger.error({ err, bookingId: booking.id }, 'Calendar deletion failed (best-effort, forfeiture path)');
+      }
+
+      const service = await findServiceById(context.business.id, booking.serviceId);
+
+      // Owner forfeiture notification (best-effort).
+      try {
+        if (context.business.ownerTelegramId) {
+          await sendTelegramMessage(
+            context.business.ownerTelegramId,
+            `Ακύρωση (χωρίς επιστροφή session) από πελάτη:\nΥπηρεσία: ${service?.name ?? 'άγνωστη'}\nΗμερομηνία: ${booking.calendarDate}\nΏρα: ${booking.calendarTime}\nΠελάτης: ${booking.clientPhone}`
+          );
+        }
+      } catch (err) {
+        logger.error({ err, bookingId: booking.id }, 'Owner forfeiture notification failed (best-effort)');
+      }
+
+      // Client forfeiture notification (best-effort).
+      try {
+        await sendTelegramMessage(
+          booking.clientPhone,
+          'Το ραντεβού σας ακυρώθηκε. Το session δεν επιστράφηκε λόγω ακύρωσης εντός ' +
+            cutoffHours +
+            ' ωρών.'
+        );
+      } catch (err) {
+        logger.error({ err, bookingId: booking.id }, 'Client forfeiture notification failed (best-effort)');
+      }
+
+      return { success: true, booking_id: booking.id, credit_forfeited: true };
+    }
+  }
+
+  // Outside cutoff window OR cutoff disabled (CANC-03): standard cancel + credit restore.
   await updateBookingStatus(booking.id, 'cancelled');
 
   // Phase 8: credit restore (SESS-02/D-03) — after updateBookingStatus, before notifications
@@ -261,8 +360,8 @@ async function cancelAppointmentTool(
   }
 
   // Best-effort Calendar delete (D-15). ToolContext.business is the narrow
-  // { id, name, ownerTelegramId } shape, not the full Business row, so the
-  // full row (carrying googleRefreshToken) must be fetched separately here.
+  // shape, not the full Business row, so the full row (carrying
+  // googleRefreshToken) must be fetched separately here.
   try {
     const fullBusiness = await findBusinessById(context.business.id);
     if (fullBusiness) await deleteBookingFromCalendar(booking, fullBusiness);

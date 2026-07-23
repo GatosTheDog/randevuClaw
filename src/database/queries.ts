@@ -35,6 +35,10 @@ export interface Business {
   webhookSecret: string | null;
   /** Phase 8 (D-07): 'allow' | 'block' | 'flag' — controls booking-engine behaviour when client has no active membership. */
   enforcementPolicy: string;
+  /** Phase 12 (CANC-01): whether the cancellation cutoff window is active for this business. */
+  cancellationCutoffEnabled: boolean;
+  /** Phase 12 (CANC-01): hours before session start at which credit forfeiture kicks in. */
+  cancellationCutoffHours: number;
   createdAt: Date;
 }
 
