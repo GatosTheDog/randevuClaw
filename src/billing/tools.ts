@@ -12,6 +12,7 @@ import {
   getClientActiveMembership,
   setBusinessEnforcementPolicy,
 } from './queries';
+import { setCancellationCutoff } from '../database/queries';
 import { logger } from '../utils/logger';
 
 // ---------------------------------------------------------------------------
@@ -174,6 +175,47 @@ export async function handleSetEnforcementPolicy(
   } catch (err) {
     logger.error({ err, businessId }, 'handleSetEnforcementPolicy failed');
     return 'Σφάλμα κατά την ενημέρωση πολιτικής. Δοκιμάστε ξανά.';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Zod schema for set_cancellation_cutoff Gemini tool args (CANC-01 / T-12-01-01)
+// ---------------------------------------------------------------------------
+
+const SetCancellationCutoffSchema = z.object({
+  enabled: z.boolean(),
+  hours: z.number().int().min(1).max(168),
+});
+
+/**
+ * Validates Gemini-parsed args (CANC-01 / T-12-01-01) and updates the business
+ * cancellation cutoff settings.
+ *
+ * SetCancellationCutoffSchema enforces hours 1-168 and boolean enabled before any
+ * DB write. On invalid args, returns a Greek error string and performs NO DB write.
+ * On success, logs the change and returns a Greek confirmation string.
+ */
+export async function handleSetCancellationCutoff(
+  businessId: number,
+  args: Record<string, unknown>
+): Promise<string> {
+  const result = SetCancellationCutoffSchema.safeParse(args);
+  if (!result.success) {
+    return 'Μη έγκυρα δεδομένα. Απαιτείται enabled (true/false) και hours (1-168).';
+  }
+
+  try {
+    await setCancellationCutoff(businessId, result.data.enabled, result.data.hours);
+    logger.info(
+      { businessId, enabled: result.data.enabled, hours: result.data.hours },
+      'Cancellation cutoff set via NLU'
+    );
+    return result.data.enabled
+      ? `Το παράθυρο ακύρωσης ορίστηκε σε ${result.data.hours} ώρες. Ακυρώσεις εντός αυτού του διαστήματος θα χάνουν session.`
+      : 'Το παράθυρο ακύρωσης απενεργοποιήθηκε. Όλες οι ακυρώσεις επιστρέφουν session κανονικά.';
+  } catch (err) {
+    logger.error({ err, businessId }, 'Failed to set cancellation cutoff');
+    return 'Σφάλμα κατά την ενημέρωση ρύθμισης. Δοκιμάστε ξανά.';
   }
 }
 
