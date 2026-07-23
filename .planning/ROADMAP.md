@@ -5,7 +5,8 @@
 - ✅ **v1.0 MVP** — Phases 1-3 (shipped 2026-07-09)
 - ✅ **v1.1 Per-Bot Infrastructure & Owner Onboarding** — Phases 4-5 (shipped 2026-07-17)
 - ✅ **v1.2 Billing & Membership System** — Phases 7-9 (shipped 2026-07-22)
-- 🚧 **v1.3 Studio Session Scheduling & Slotless Bookings** — Phases 10-15 (active)
+- ✅ **v1.3 Studio Session Scheduling & Slotless Bookings** — Phases 10-15 (shipped 2026-07-23)
+- 🚧 **v1.4 Single-Bot UX Overhaul** — Phases 16-20 (active)
 
 ## Phases
 
@@ -43,132 +44,92 @@ See: `.planning/milestones/v1.2-ROADMAP.md`
 
 </details>
 
-### v1.3 Studio Session Scheduling & Slotless Bookings (Phases 10-15)
+<details>
+<summary>✅ v1.3 Studio Session Scheduling & Slotless Bookings (Phases 10-15) — SHIPPED 2026-07-23</summary>
 
-- [x] **Phase 10: Session Catalog & Schema** - Owner creates, recurs, lists, cancels, and assigns clients to sessions; 3 new tables + 7 business config columns unblock all downstream phases (6 plans) (completed 2026-07-22)
+- [x] **Phase 10: Session Catalog & Schema** - Owner creates, recurs, lists, cancels, and assigns clients to sessions; 3 new tables + 7 business config columns unblock all downstream phases (completed 2026-07-22)
 - [x] **Phase 11: Session Booking Flow** - Clients book specific sessions via Greek chat with atomic capacity enforcement and session-credit deduction (completed 2026-07-23)
-- [ ] **Phase 12: Cancellation Cutoff Policy** - Per-business opt-in cutoff window enforces credit forfeiture with Greek confirmation before cancellations inside the window
+- [x] **Phase 12: Cancellation Cutoff Policy** - Per-business opt-in cutoff window enforces credit forfeiture with Greek confirmation before cancellations inside the window (completed 2026-07-23)
 - [x] **Phase 13: Slotless Booking Requests** - Clients request bookings with no open slot; owner approves or rejects via keyboard; approved requests become real bookings with credit deduction (completed 2026-07-23)
 - [ ] **Phase 14: Renewal Notification Extensions** - Last-session threshold nudge and owner-gated mass renewal broadcast extend the existing expiry notification sweep
 - [ ] **Phase 15: Onboarding Extensions** - Onboarding flow asks about each optional v1.3 feature with explicit defaults; all settings remain editable post-onboarding via chat
 
+</details>
+
+### v1.4 Single-Bot UX Overhaul (Phases 16-20)
+
+- [ ] **Phase 16: Single-Bot Architecture** - Platform bot deleted; business bot routes admin vs client by Telegram ID match; onboarding auto-starts when unfinished admin messages their bot
+- [ ] **Phase 17: Admin Menu** - `/menu` command shows Settings/Classes/Clients/Today sub-menus; all binary admin decisions use yes/no inline keyboard buttons
+- [ ] **Phase 18: Client Menu** - `/start` welcome menu with Book/My Bookings/Cancel/Balance inline flows; free Greek chat remains available at all times
+- [ ] **Phase 19: Class Setup in Onboarding & Terminology Fix** - Onboarding class schedule step with recurrence and capacity; σεζόν replaced with μάθημα across all bot messages and copy
+- [ ] **Phase 20: Client Escalation** - Blocked client triggers Greek apology + admin notification with context and inline reply option
+
 ## Phase Details
 
-### Phase 10: Session Catalog & Schema
+### Phase 16: Single-Bot Architecture
 
-**Goal**: Owners can create and manage a fixed-capacity session schedule through chat, and the schema foundation exists for all downstream session, cutoff, slotless, and renewal features
-**Depends on**: Phase 9
-**Requirements**: CLSS-01, CLSS-02, CLSS-03, CLSS-04, CLSS-05
+**Goal**: Admin and clients reach a single business bot; the platform bot no longer exists; routing is clean and identity requires no passwords
+**Depends on**: Phase 15
+**Requirements**: ARCH-01, ARCH-02, ARCH-03, ARCH-04, AUTH-01, AUTH-02, AUTH-03
 **Success Criteria** (what must be TRUE):
-
-  1. Owner sends a chat command and a new bookable session (date, time, capacity, service) appears in the database and is listable immediately
-  2. Owner creates a recurring weekly session pattern once and the system auto-generates ~90 days of individual instances without further owner action
-  3. Owner cancels a single session instance and every client booked into that session receives a Greek notification automatically
-  4. Owner assigns a specific named client to a session directly via chat and that client receives a Greek confirmation message
-  5. Owner asks to see upcoming sessions and receives a list showing each session's date, time, booked count, and capacity
-
-**Plans**: 6/6 plans complete
-Plans:
-
-- [x] 10-01-PLAN.md — Nyquist test stubs (5 session test files) + rrule package install
-- [x] 10-02-PLAN.md — Schema migration: 3 new tables + 7 business columns + drizzle-kit push (blocking human checkpoint)
-- [x] 10-03-PLAN.md — Session query layer: createSessionCatalogWithExpansion, bookSessionInstance, cancelSession, listSessions
-- [x] 10-04-PLAN.md — OWNER_TOOLS: 4 new Gemini tool declarations + executeOwnerTool switch cases
-- [x] 10-05-PLAN.md — Session cancellation poller + sessionCancellationNotifications dedup table
-- [x] 10-06-PLAN.md — Replace all it.todo stubs with real passing tests (capacity-race, DST, poller dedup)
-
-### Phase 11: Session Booking Flow
-
-**Goal**: Clients can book specific sessions from the catalog via natural-language Greek chat, with capacity enforced atomically and session credits deducted via the existing membership ledger
-**Depends on**: Phase 10
-**Requirements**: SBOK-01, SBOK-02, SBOK-03, SBOK-04
-**Success Criteria** (what must be TRUE):
-
-  1. Client requests a specific session by name or date/time in Greek and the booking succeeds when the session has capacity and the client holds a valid membership
-  2. When the last capacity spot is taken by two simultaneous requests, exactly one succeeds and the other receives a "full" rejection — no over-booking possible
-  3. Session booking atomically deducts one session credit from the client's membership balance, identical to a standard slot booking
-  4. Client attempting to reschedule a session booking to a date past their membership expiry is blocked with a Greek explanation
-  5. Client with `allow_multi_booking` enabled for their business can name multiple sessions in a single chat message and all are booked in one exchange
-
-**Plans**: 3/3 plans complete
-
-Plans:
-
-- [x] 11-01-PLAN.md — Extend bookSessionInstance to atomically deduct session credit within same DB transaction (SBOK-02 core fix)
-- [x] 11-02-PLAN.md — Client AI tools: book_session, list_sessions_for_client, reschedule_session in BOOKING_TOOLS + function-executor (SBOK-01, SBOK-03, SBOK-04)
-- [x] 11-03-PLAN.md — Integration tests: SBOK-01 through SBOK-04 full coverage in session-booking-flow.test.ts
-
-### Phase 12: Cancellation Cutoff Policy
-
-**Goal**: Businesses with the cutoff feature enabled can enforce a configurable time window before which cancellations restore a credit and after which credits are forfeited, with Greek confirmation required from the client before any forfeiture
-**Depends on**: Phase 10
-**Requirements**: CANC-01, CANC-02, CANC-03, CANC-04, CANC-05
-**Success Criteria** (what must be TRUE):
-
-  1. Owner sets a cancellation cutoff (hours and enabled/disabled state) during or after onboarding, and the setting persists and is reflected in all subsequent cancellations
-  2. Client cancels a booking more than the configured cutoff hours before the session and their session credit is restored normally — no warning shown
-  3. Client cancels a booking within the cutoff window and receives a Greek warning ("Θα χάσετε 1 session") requiring explicit confirmation before the cancellation proceeds without credit restoration
-  4. DST boundary dates (Oct 25 2026, Mar 28 2027) do not cause the cutoff calculation to misfire — cancellations remain correctly categorized on those days
-  5. Owner can turn the cutoff off at any time and subsequent cancellations immediately revert to always restoring credits
-
-**Plans**: 3 plans
-
-Plans:
-
-- [ ] 12-01-PLAN.md — Owner tool set_cancellation_cutoff: OWNER_TOOLS declaration + executeOwnerTool case + handleSetCancellationCutoff in billing/tools + Business interface fields (CANC-01, CANC-02)
-- [ ] 12-02-PLAN.md — Cutoff check + two-message confirmation flow in cancelAppointmentTool: hoursUntilSessionInAthens helper, pending_confirmation response, forfeiture and restore branches (CANC-03, CANC-04, CANC-05)
-- [ ] 12-03-PLAN.md — Integration tests: all CANC-01 through CANC-05 scenarios including DST Oct 25 2026 boundary in cancellation-cutoff.test.ts
-
-### Phase 13: Slotless Booking Requests
-
-**Goal**: Clients of businesses with slotless requests enabled can request an appointment even when no open slot exists; the owner approves or rejects via keyboard; approved requests become real bookings with an auditable history per client
-**Depends on**: Phase 10
-**Requirements**: SLOT-01, SLOT-02, SLOT-03, SLOT-04, SLOT-05, SLOT-06
-**Success Criteria** (what must be TRUE):
-
-  1. Client sends a booking request when `slotless_requests_enabled` is on and no slot is available; the owner immediately receives a Greek notification with the client's name, requested time, and membership status alongside a Ναι/Όχι keyboard
-  2. Owner taps Ναι and the request becomes a confirmed booking that deducts one session credit; if the client's membership lapsed between request and approval the approval is blocked with an error message to the owner
-  3. Owner taps Όχι and the client receives a Greek rejection message; the request is recorded as rejected
-  4. Every request — pending, approved, or rejected — is persisted in the database with its outcome, regardless of the approval decision
-  5. Owner asks for a client's slotless request history via chat and receives a count and chronological list of all requests for that client
-  6. When a client books their next appointment, the owner sees how many slotless requests that client has made since their last check-in, surfaced automatically in the booking alert
-
-**Plans**: 3/3 plans complete
-
-Plans:
-
-- [x] 13-01-PLAN.md — Slotless request query layer: insertSlotlessRequest, approveSlotlessRequest (atomic booking+deduction), rejectSlotlessRequest, listSlotlessRequestsForClient, countSlotlessRequestsSinceCheckin
-- [x] 13-02-PLAN.md — bookAppointmentTool slotless fork (SLOT-01) + SLOT-06 count in owner alert + OWNER_TOOLS list_slotless_requests (SLOT-05)
-- [x] 13-03-PLAN.md — Keyboard callback handler Ναι/Όχι (SLOT-02, SLOT-03) + integration tests SLOT-01 through SLOT-06
-
-### Phase 14: Renewal Notification Extensions
-
-**Goal**: Businesses with the last-session threshold feature enabled send clients a session-count-based renewal nudge in addition to the existing date-based expiry reminder; owners can trigger renewal messages to individual clients on demand and must approve any mass broadcast before it sends
-**Depends on**: Phase 9
-**Requirements**: RENW-01, RENW-02, RENW-03, RENW-04, RENW-05
-**Success Criteria** (what must be TRUE):
-
-  1. When a client's remaining sessions drop to or below the configured threshold, the client receives a Greek renewal nudge automatically — distinct from and in addition to the 7-day date-based expiry reminder
-  2. The renewal sweep surfaces near-expiry clients to the owner as a named list and waits for explicit owner approval before sending any renewal reminders — no broadcast fires without owner action
-  3. Owner approves the sweep list and renewal messages go only to the clients the owner confirmed; unapproved clients receive nothing
-  4. Owner types a chat command naming one specific client and that client receives a renewal reminder immediately without any additional approval step
-  5. Owner can change the threshold count or disable the feature at any time and the sweep immediately reflects the new setting on its next run
-
+  1. Messaging the platform bot produces no response — it has been deregistered and removed; the business bot is the only entry point
+  2. Owner messages their business bot; the bot immediately recognises them as admin without asking for a password or PIN
+  3. Owner messages their business bot before onboarding is complete and the onboarding flow starts automatically without any manual trigger
+  4. A new client messages the business bot for the first time and is auto-created in the DB; their identity persists across restarts with no re-authentication prompt
+  5. Both admin and client can close and reopen Telegram, return days later, and the bot recognises them immediately with no session expiry message
 **Plans**: TBD
 
-### Phase 15: Onboarding Extensions
+### Phase 17: Admin Menu
 
-**Goal**: New owners are asked about each optional v1.3 feature with clear defaults and explicit skip options during onboarding; all feature settings remain changeable after onboarding via chat; switching booking mode warns the owner if session bookings already exist
-**Depends on**: Phase 10, Phase 12, Phase 13, Phase 14
-**Requirements**: CONF-01, CONF-02, CONF-03, CONF-04, CONF-05, CONF-06
+**Goal**: Admin has a structured, keyboard-driven interface for all management tasks accessible from a single `/menu` command
+**Depends on**: Phase 16
+**Requirements**: AMENU-01, AMENU-02, AMENU-03, AMENU-04, AMENU-05, AMENU-06
 **Success Criteria** (what must be TRUE):
+  1. Admin types `/menu` and receives an inline keyboard with four buttons: Settings, Classes, Clients, Today's Agenda
+  2. Admin taps Settings and can update business hours, services, prices, cancellation cutoff, slotless toggle, booking mode, and threshold — all from the same sub-menu
+  3. Admin taps Classes and sees upcoming classes; can create a new recurring class or cancel an existing class or series from the same sub-menu
+  4. Admin taps Clients and sees a client list; can select a client to view their membership status, session balance, and trigger a renewal nudge
+  5. Admin taps Today's Agenda and sees the same class and booking summary that the daily 8am push sends, available on demand at any time
+  6. Every binary decision (approve booking, reject slotless, confirm class creation) presents Ναι/Όχι inline buttons — no ambiguous free-text confirmation required
+**Plans**: TBD
+**UI hint**: yes
 
-  1. New owner completing onboarding is asked whether to enable class-schedule mode, cancellation cutoff, slotless requests, and last-session threshold — each question has an explicit default stated and an explicit skip path
-  2. Owner who skips all optional questions during onboarding gets the same defaults as before v1.3 — no feature silently activates
-  3. Owner types a post-onboarding config update message and can change cancellation cutoff hours, last-session threshold count, and slotless requests enabled/disabled without repeating the full onboarding flow
-  4. Owner attempts to switch booking mode from `open_slots` to `fixed_sessions` (or vice versa) when existing session bookings exist and receives a Greek warning listing the impact before the switch proceeds
-  5. Owner switches booking mode with no existing session bookings and the switch completes immediately with a Greek confirmation
+### Phase 18: Client Menu
 
+**Goal**: Clients have a structured entry point via `/start` with inline flows for booking, cancellations, and balance, while retaining free Greek chat at all times
+**Depends on**: Phase 16
+**Requirements**: CMENU-01, CMENU-02, CMENU-03, CMENU-04, CMENU-05
+**Success Criteria** (what must be TRUE):
+  1. Client types `/start` and receives an inline keyboard with four options: Book a class, My bookings, Cancel booking, My balance
+  2. Client taps Book a class and sees available classes as inline date → class → slot buttons, completing a booking without typing anything
+  3. Client taps Cancel booking and sees their active bookings as inline buttons; selecting one cancels it without requiring free-text input
+  4. Any binary confirmation (confirm booking, confirm cancellation) shows Ναι/Όχι inline buttons — no free-text confirmation prompt
+  5. Client ignores the menu and types a Greek sentence instead; the AI agent interprets it and routes to the correct flow without error
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 19: Class Setup in Onboarding & Terminology Fix
+
+**Goal**: New owners configure their recurring class schedule during onboarding; all bot copy uses μάθημα instead of σεζόν consistently
+**Depends on**: Phase 16
+**Requirements**: CLSS-01, CLSS-02, CLSS-03, CLSS-04, CLSS-05, I18N-01, I18N-02, I18N-03
+**Success Criteria** (what must be TRUE):
+  1. New owner completing onboarding reaches a class schedule step, defines recurring classes (e.g. weekday Pilates 9-10 with 4 slots), and those sessions appear in the DB before onboarding ends
+  2. Owner specifies daily, specific-weekday, or monthly recurrence and the system expands the correct set of session instances across the next 90 days
+  3. Owner skips class setup during onboarding using an explicit skip option, and no sessions are created — the owner can create them later via the admin menu
+  4. Post-onboarding, owner creates a new recurring class series from the admin menu (AMENU-03 flow) and it is fully equivalent to what onboarding would have created
+  5. Every bot message, onboarding prompt, and user-visible label uses μάθημα or τάξη — no occurrence of σεζόν remains in any Greek-facing text path
+**Plans**: TBD
+
+### Phase 20: Client Escalation
+
+**Goal**: When a client is blocked, they receive a graceful Greek message and the admin is immediately notified with enough context to act inline
+**Depends on**: Phase 16
+**Requirements**: ESCL-01, ESCL-02, ESCL-03
+**Success Criteria** (what must be TRUE):
+  1. Client attempts to book a full class or book with an expired membership and receives a Greek message ("Επικοινωνούμε με τον διαχειριστή") — no raw error or silence
+  2. Admin receives an escalation notification containing the client's name, what they tried to do, and the specific reason it failed (class full / membership expired / slotless disabled)
+  3. Admin can tap an inline button on the escalation message to approve an exception or send a reply directly to the client — without leaving the bot chat
 **Plans**: TBD
 
 ## Progress
@@ -184,9 +145,14 @@ Plans:
 | 7. Billing Configuration & Payment Recording | v1.2 | 7/7 | Complete | 2026-07-21 |
 | 8. Enforcement & Session Deduction | v1.2 | 6/6 | Complete | 2026-07-21 |
 | 9. Expiry Notifications & Client Balance | v1.2 | 3/3 | Complete | 2026-07-22 |
-| 10. Session Catalog & Schema | v1.3 | 6/6 | Complete   | 2026-07-22 |
-| 11. Session Booking Flow | v1.3 | 3/3 | Complete   | 2026-07-23 |
-| 12. Cancellation Cutoff Policy | v1.3 | 0/TBD | Not started | - |
-| 13. Slotless Booking Requests | v1.3 | 3/3 | Complete   | 2026-07-23 |
-| 14. Renewal Notification Extensions | v1.3 | 0/TBD | Not started | - |
-| 15. Onboarding Extensions | v1.3 | 0/TBD | Not started | - |
+| 10. Session Catalog & Schema | v1.3 | 6/6 | Complete | 2026-07-22 |
+| 11. Session Booking Flow | v1.3 | 3/3 | Complete | 2026-07-23 |
+| 12. Cancellation Cutoff Policy | v1.3 | 3/3 | Complete | 2026-07-23 |
+| 13. Slotless Booking Requests | v1.3 | 3/3 | Complete | 2026-07-23 |
+| 14. Renewal Notification Extensions | v1.3 | 3/3 | Complete | 2026-07-23 |
+| 15. Onboarding Extensions | v1.3 | 2/2 | Complete | 2026-07-23 |
+| 16. Single-Bot Architecture | v1.4 | 0/TBD | Not started | - |
+| 17. Admin Menu | v1.4 | 0/TBD | Not started | - |
+| 18. Client Menu | v1.4 | 0/TBD | Not started | - |
+| 19. Class Setup in Onboarding & Terminology Fix | v1.4 | 0/TBD | Not started | - |
+| 20. Client Escalation | v1.4 | 0/TBD | Not started | - |

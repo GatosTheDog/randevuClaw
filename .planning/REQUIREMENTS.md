@@ -82,10 +82,32 @@
 
 | REQ-ID | Phase | Plan | Status |
 |--------|-------|------|--------|
-| ARCH-01..04 | TBD | TBD | Pending |
-| AUTH-01..03 | TBD | TBD | Pending |
-| AMENU-01..06 | TBD | TBD | Pending |
-| CMENU-01..05 | TBD | TBD | Pending |
-| CLSS-01..05 | TBD | TBD | Pending |
-| I18N-01..03 | TBD | TBD | Pending |
-| ESCL-01..03 | TBD | TBD | Pending |
+| ARCH-01 | Phase 16 | TBD | Pending |
+| ARCH-02 | Phase 16 | TBD | Pending |
+| ARCH-03 | Phase 16 | TBD | Pending |
+| ARCH-04 | Phase 16 | TBD | Pending |
+| AUTH-01 | Phase 16 | TBD | Pending |
+| AUTH-02 | Phase 16 | TBD | Pending |
+| AUTH-03 | Phase 16 | TBD | Pending |
+| AMENU-01 | Phase 17 | TBD | Pending |
+| AMENU-02 | Phase 17 | TBD | Pending |
+| AMENU-03 | Phase 17 | TBD | Pending |
+| AMENU-04 | Phase 17 | TBD | Pending |
+| AMENU-05 | Phase 17 | TBD | Pending |
+| AMENU-06 | Phase 17 | TBD | Pending |
+| CMENU-01 | Phase 18 | TBD | Pending |
+| CMENU-02 | Phase 18 | TBD | Pending |
+| CMENU-03 | Phase 18 | TBD | Pending |
+| CMENU-04 | Phase 18 | TBD | Pending |
+| CMENU-05 | Phase 18 | TBD | Pending |
+| CLSS-01 | Phase 19 | TBD | Pending |
+| CLSS-02 | Phase 19 | TBD | Pending |
+| CLSS-03 | Phase 19 | TBD | Pending |
+| CLSS-04 | Phase 19 | TBD | Pending |
+| CLSS-05 | Phase 19 | TBD | Pending |
+| I18N-01 | Phase 19 | TBD | Pending |
+| I18N-02 | Phase 19 | TBD | Pending |
+| I18N-03 | Phase 19 | TBD | Pending |
+| ESCL-01 | Phase 20 | TBD | Pending |
+| ESCL-02 | Phase 20 | TBD | Pending |
+| ESCL-03 | Phase 20 | TBD | Pending |
