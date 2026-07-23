@@ -14,6 +14,7 @@ import {
   findServiceById,
   withBusinessContext,
   getConn,
+  setBookingMode,
 } from '../database/queries';
 import { logger } from '../utils/logger';
 import { listPackages, getClientActiveMembership, getClientName } from '../billing/queries';
@@ -368,6 +369,25 @@ export const OWNER_TOOLS = [
       required: ['client_phone'],
     },
   },
+  // ---------------------------------------------------------------------------
+  // Phase 15: Booking mode switch (CONF-05)
+  // ---------------------------------------------------------------------------
+  {
+    type: 'function' as const,
+    name: 'change_booking_mode',
+    description: 'Αλλάζει τον τρόπο κράτησης της επιχείρησης μεταξύ ελεύθερων θέσεων και ορισμένου προγράμματος τάξεων.',
+    parameters: {
+      type: 'object',
+      properties: {
+        mode: {
+          type: 'string',
+          enum: ['open_slots', 'fixed_sessions'],
+          description: '"open_slots" για ελεύθερες θέσεις, "fixed_sessions" για πρόγραμμα τάξεων',
+        },
+      },
+      required: ['mode'],
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -447,6 +467,8 @@ interface ToolArgs {
   // Phase 12: cancellation cutoff fields (CANC-01, CANC-02)
   enabled?: boolean;
   hours?: number;
+  // Phase 15: booking mode switch (CONF-05)
+  mode?: string;
 }
 
 /**
@@ -789,6 +811,33 @@ async function executeOwnerTool(
         'Υπενθύμιση: Τα μαθήματά σας τελειώνουν σύντομα! Επικοινωνήστε για ανανέωση.'
       );
       return `Η ειδοποίηση ανανέωσης στάλθηκε στον/στην ${clientName}.`;
+    }
+
+    // -----------------------------------------------------------------------
+    // Phase 15: Booking mode switch (CONF-05)
+    // -----------------------------------------------------------------------
+
+    case 'change_booking_mode': {
+      const mode = String(args.mode ?? '').trim();
+      if (mode !== 'open_slots' && mode !== 'fixed_sessions') {
+        return 'Μη έγκυρος τρόπος κράτησης. Επιτρεπτές τιμές: open_slots, fixed_sessions.';
+      }
+      if (mode === 'fixed_sessions') {
+        // CONF-05: warn owner if existing session bookings exist, but switch anyway.
+        // WR-01: listSessions scoped to business.id via sessionCatalog.businessId guard.
+        const sessions = await listSessions(business.id);
+        if (sessions.length > 0) {
+          await setBookingMode(business.id, mode);
+          return (
+            `⚠️ Προσοχή: υπάρχουν ${sessions.length} υπάρχουσες σεζόν. ` +
+            'Ο τρόπος κράτησης άλλαξε σε "πρόγραμμα τάξεων". ' +
+            'Οι πελάτες θα βλέπουν πλέον μόνο τις ορισμένες σεζόν.'
+          );
+        }
+      }
+      await setBookingMode(business.id, mode);
+      const modeLabel = mode === 'fixed_sessions' ? 'πρόγραμμα τάξεων' : 'ελεύθερες θέσεις';
+      return `Ο τρόπος κράτησης άλλαξε σε "${modeLabel}".`;
     }
 
     default:
