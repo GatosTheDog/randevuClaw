@@ -11,10 +11,10 @@
 
 ### ARCH — Single-Bot Architecture
 
-- [ ] **ARCH-01**: Platform bot is deleted; business bot is the only bot per business and handles all traffic (admin + client)
+- [x] **ARCH-01**: Platform bot is deleted; business bot is the only bot per business and handles all traffic (admin + client)
 - [x] **ARCH-02**: Business bot detects admin by matching sender Telegram ID to `businesses.owner_telegram_id`; no password required
 - [x] **ARCH-03**: If admin messages their business bot and onboarding is not complete, bot starts the onboarding flow automatically
-- [ ] **ARCH-04**: Client is identified solely by Telegram user ID; no password or PIN required; identity persists across sessions by Telegram account
+- [x] **ARCH-04**: Client is identified solely by Telegram user ID; no password or PIN required; identity persists across sessions by Telegram account
 
 ### AUTH — Identity & Session Persistence
 
@@ -24,11 +24,11 @@
 
 ### AMENU — Admin Menu
 
-- [ ] **AMENU-01**: Admin can access a persistent menu via `/menu` command showing top-level options: Settings, Classes, Clients, Today's Agenda
-- [ ] **AMENU-02**: From Settings, admin can update business hours, services, prices, and all per-business toggles (cutoff, slotless, booking mode, threshold)
+- [x] **AMENU-01**: Admin can access a persistent menu via `/menu` command showing top-level options: Settings, Classes, Clients, Today's Agenda
+- [x] **AMENU-02**: From Settings, admin can update business hours, services, prices, and all per-business toggles (cutoff, slotless, booking mode, threshold)
 - [x] **AMENU-03**: From Classes, admin can view upcoming classes, create a new recurring class, and cancel a class or series
 - [x] **AMENU-04**: From Clients, admin can view client list, view individual membership and session balance, and send renewal nudge
-- [ ] **AMENU-05**: From Today's Agenda, admin sees today's classes and bookings inline (same info as daily agenda push, on-demand)
+- [x] **AMENU-05**: From Today's Agenda, admin sees today's classes and bookings inline (same info as daily agenda push, on-demand)
 - [x] **AMENU-06**: All binary admin decisions (approve booking, reject slotless request, confirm class creation) show yes/no inline keyboard buttons
 
 ### CMENU — Client Menu
@@ -82,32 +82,32 @@
 
 | REQ-ID | Phase | Plan | Status |
 |--------|-------|------|--------|
-| ARCH-01 | Phase 16 | TBD | Pending |
+| ARCH-01 | Phase 16 | TBD | Complete |
 | ARCH-02 | Phase 16 | 16-02 | Complete |
 | ARCH-03 | Phase 16 | 16-02 | Complete |
-| ARCH-04 | Phase 16 | TBD | Pending |
+| ARCH-04 | Phase 16 | TBD | Complete |
 | AUTH-01 | Phase 16 | 16-02 | Complete |
 | AUTH-02 | Phase 16 | 16-02 | Complete |
 | AUTH-03 | Phase 16 | 16-02 | Complete |
-| AMENU-01 | Phase 17 | TBD | Pending |
-| AMENU-02 | Phase 17 | TBD | Pending |
-| AMENU-03 | Phase 17 | TBD | Pending |
-| AMENU-04 | Phase 17 | TBD | Pending |
-| AMENU-05 | Phase 17 | TBD | Pending |
-| AMENU-06 | Phase 17 | TBD | Pending |
+| AMENU-01 | Phase 17 | TBD | Complete |
+| AMENU-02 | Phase 17 | TBD | Complete |
+| AMENU-03 | Phase 17 | TBD | Complete |
+| AMENU-04 | Phase 17 | TBD | Complete |
+| AMENU-05 | Phase 17 | TBD | Complete |
+| AMENU-06 | Phase 17 | TBD | Complete |
 | CMENU-01 | Phase 18 | TBD | Pending |
 | CMENU-02 | Phase 18 | TBD | Pending |
 | CMENU-03 | Phase 18 | TBD | Pending |
 | CMENU-04 | Phase 18 | TBD | Pending |
 | CMENU-05 | Phase 18 | TBD | Pending |
-| CLSS-01 | Phase 19 | TBD | Pending |
-| CLSS-02 | Phase 19 | TBD | Pending |
-| CLSS-03 | Phase 19 | TBD | Pending |
-| CLSS-04 | Phase 19 | TBD | Pending |
-| CLSS-05 | Phase 19 | TBD | Pending |
-| I18N-01 | Phase 19 | TBD | Pending |
-| I18N-02 | Phase 19 | TBD | Pending |
-| I18N-03 | Phase 19 | TBD | Pending |
+| CLSS-01 | Phase 19 | TBD | Complete |
+| CLSS-02 | Phase 19 | TBD | Complete |
+| CLSS-03 | Phase 19 | TBD | Complete |
+| CLSS-04 | Phase 19 | TBD | Complete |
+| CLSS-05 | Phase 19 | TBD | Complete |
+| I18N-01 | Phase 19 | TBD | Complete |
+| I18N-02 | Phase 19 | TBD | Complete |
+| I18N-03 | Phase 19 | TBD | Complete |
 | ESCL-01 | Phase 20 | TBD | Pending |
 | ESCL-02 | Phase 20 | TBD | Pending |
 | ESCL-03 | Phase 20 | TBD | Pending |

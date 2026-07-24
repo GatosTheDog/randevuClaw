@@ -1,19 +1,20 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.2
-milestone_name: Billing & Membership System
+milestone: v1.4
+milestone_name: Single-Bot UX Overhaul
 current_phase: 20
-status: completed
+current_phase_name: Client Escalation
+status: planning
 stopped_at: "Completed 20-02-PLAN.md (escl: callback routing + 17 integration tests)"
-last_updated: "2026-07-24T11:47:49.774Z"
+last_updated: "2026-07-24T12:06:05.698Z"
 last_activity: 2026-07-24
-last_activity_desc: Phase 20 complete
+last_activity_desc: Phase 19 complete, transitioned to Phase 20
 progress:
-  total_phases: 0
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-current_phase_name: client-escalation
+  total_phases: 5
+  completed_phases: 5
+  total_plans: 16
+  completed_plans: 16
+  percent: 100
 ---
 
 # Project State
@@ -27,16 +28,16 @@ See: .planning/PROJECT.md (updated 2026-07-17 after v1.1 milestone close)
 
 ## Current Position
 
-Phase: 20
+Phase: 20 — Client Escalation
 Plan: Not started
-Status: All phases complete
-Last activity: 2026-07-24 — Phase 20 complete
+Status: Ready to plan
+Last activity: 2026-07-24 — Phase 19 complete, transitioned to Phase 20
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 28
+- Total plans completed: 38
 - Average duration: - min
 - Total execution time: 0 hours
 
@@ -49,6 +50,9 @@ Last activity: 2026-07-24 — Phase 20 complete
 | 08 | 6 | - | - |
 | 07 | 5 | - | - |
 | 20 | 2 | - | - |
+| 16 | 3 | - | - |
+| 17 | 4 | - | - |
+| 19 | 3 | - | - |
 
 **Recent Trend:**
 
@@ -256,6 +260,15 @@ Items acknowledged and deferred at v1.2 milestone close on 2026-07-22:
 | operational | Phase 09: live Neon DB migration 0008 membership_expiry_notifications table | human confirmation needed (Plan 03 Task 2 confirmed during execution) |
 | nyquist | Phases 7/8/9: VALIDATION.md files in draft status | NOT-VALIDATED (#2117 rule) — run /gsd-validate-phase 7/8/9 if coverage needed |
 | known_deferred: 2 (see above) | | |
+
+Items acknowledged and deferred at v1.4 milestone close on 2026-07-24:
+
+| Category | Item | Status |
+|----------|------|--------|
+| todo | pivot-to-per-business-whatsapp-numbers-post-poc.md | planning (carry-forward from v1.0/v1.2, pre-v1.4 scope — WhatsApp shelved for Telegram-first) |
+| todo | meta-business-verification-not-submitted.md | phase-1 (carry-forward from v1.0/v1.2, blocked on external Meta process, moot under Telegram-first pivot) |
+| requirement | ESCL-03: reply-to-client relay | Partially satisfied — approve-exception works; reply prompt doesn't relay yet. Tracked in ROADMAP.md Backlog Phase 999.1 |
+| known_deferred: 3 (see above) | | |
 
 ## Session Continuity
 
