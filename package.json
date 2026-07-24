@@ -16,7 +16,8 @@
     "db:push": "drizzle-kit push",
     "db:seed": "ts-node src/database/seed.ts",
     "db:studio": "drizzle-kit studio",
-    "setup-calendar": "ts-node scripts/setup-google-calendar.ts"
+    "setup-calendar": "ts-node scripts/setup-google-calendar.ts",
+    "create-business": "ts-node scripts/create-business.ts"
   },
   "dependencies": {
     "@google/genai": "^2.10.0",
