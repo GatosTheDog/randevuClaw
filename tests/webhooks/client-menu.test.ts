@@ -349,7 +349,7 @@ describe('Suite C: booking flow via handleClientMenuCallback', () => {
     jest.clearAllMocks();
     mockedSendTelegramMessage.mockResolvedValue({ messageId: 999 });
     mockedSendTelegramMessageWithKeyboard.mockResolvedValue({ messageId: 998 });
-    mockedBookSessionInstance.mockResolvedValue({ status: 'booked', bookingId: 42 } as any);
+    mockedBookSessionInstance.mockResolvedValue({ status: 'success', bookingId: 42 });
     mockedListSessions.mockResolvedValue([]);
     // Default: enforcement allows
     mockedCheckEnforcementAndGetMembership.mockResolvedValue({

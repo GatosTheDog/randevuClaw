@@ -362,11 +362,12 @@ async function handleCallbackQuery(
         null   // activeMembership=null: bypass enforcement, use no-deduction path
       );
 
-      if (!result || result.status === 'full') {
-        await sendTelegramMessage(
-          senderTelegramId,
-          'Δεν ήταν δυνατή η εξαίρεση: το μάθημα παραμένει πλήρες.'
-        );
+      if (!result || result.status !== 'success') {
+        const msg =
+          result?.status === 'full'
+            ? 'Δεν ήταν δυνατή η εξαίρεση: το μάθημα παραμένει πλήρες.'
+            : 'Δεν ήταν δυνατή η εξαίρεση: το μάθημα δεν βρέθηκε ή δεν ανήκει σε αυτή την επιχείρηση.';
+        await sendTelegramMessage(senderTelegramId, msg);
         return;
       }
 

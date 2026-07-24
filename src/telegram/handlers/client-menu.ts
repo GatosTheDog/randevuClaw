@@ -230,6 +230,12 @@ export async function handleBookSessionExecute(
     return;
   }
 
+  if (bookResult.status !== 'success') {
+    await sendTelegramMessage(chatId, 'Το μάθημα δεν βρέθηκε ή δεν είναι πλέον διαθέσιμο.');
+    logger.info({ businessId: business.id, senderTelegramId, instanceId, status: bookResult.status }, 'book session conflict');
+    return;
+  }
+
   await sendTelegramMessage(chatId, 'Η κράτησή σας επιβεβαιώθηκε! Θα σας δούμε σύντομα.');
 
   const backKeyboard: InlineKeyboard = [
