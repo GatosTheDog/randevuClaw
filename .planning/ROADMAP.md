@@ -104,6 +104,7 @@ See: `.planning/milestones/v1.4-ROADMAP.md`
 **Source phase:** 20 (Client Escalation)
 **Deferred at:** 2026-07-24 — accepted deferral after phase 20 verification (see `.planning/milestones/v1.4-phases/20-client-escalation/20-VERIFICATION.md`)
 **Scope:**
+
 - [ ] Track pending reply target (e.g. `pendingReplyTarget: Map<ownerTelegramId, clientTelegramId>`) when admin taps "Απάντηση πελάτη"
 - [ ] Intercept the admin's next free-text message in `handleFoundBusiness` before it reaches `aiOwnerAgent`, forward it to `escl.clientTelegramId` instead
 - [ ] Tests for the full reply flow (admin sends message → client receives it)
@@ -114,6 +115,7 @@ See: `.planning/milestones/v1.4-ROADMAP.md`
 **Goal:** Same cross-tenant risk fixed in the menuAction/escalationAction callback handlers (v1.4 close, 17-REVIEW.md CR-01) still exists in three older callback blocks in `src/webhooks/telegram.ts`
 **Source:** Discovered during v1.4 milestone-close verification sweep, 2026-07-24 (not part of v1.4 scope — these blocks predate it)
 **Scope:**
+
 - [ ] Billing callback routing (Phase 7, `'firstId' in parsed` block) — re-derives business via `findBusinessByOwnerTelegramId(senderTelegramId)`
 - [ ] Slotless request callback routing (Phase 13, `'slotlessRequestId' in parsed` block) — same pattern
 - [ ] Renewal callback routing (Phase 14, `'businessId' in parsed` block) — same pattern (partially mitigated by its own `ownerBusiness.id !== renewalResult.businessId` check, but still resolves the wrong owner's business first if one Telegram account owns multiple businesses)
@@ -125,8 +127,20 @@ See: `.planning/milestones/v1.4-ROADMAP.md`
 **Goal:** Build a real "add a new business" flow now that the platform bot is gone
 **Source:** Discovered 2026-07-24 during post-v1.4 local testing (DB was truncated for a clean test, revealing zero code path creates a `businesses` row)
 **Scope:**
+
 - [ ] Phase 16 deleted `src/webhooks/platform.ts`, the only caller of `createBusinessForOnboarding` — nothing replaced its role as the entry point for a brand-new business
 - [ ] `npm run create-business -- --bot-token <token> --owner-telegram-id <id>` (added 2026-07-24, commit 3eff213) is a manual CLI stopgap the platform operator runs per new business — not self-serve, not chat-driven
 - [ ] Decide the real v1.4+ story: does a new business owner talk to *some* bot to register their own bot token (bringing back a minimal platform-bot-like intake), or does the platform operator always bootstrap manually for a single-operator PoC?
 - Low urgency while there's one operator onboarding a handful of pilot businesses by hand; blocking if this needs to scale to self-serve signups
 - Low urgency: requires a single Telegram account to own multiple businesses, an edge case not yet supported by onboarding
+
+### Phase 21: AI-Driven Owner Onboarding
+
+**Goal:** Replace the deterministic step-machine onboarding flow (src/onboarding/steps.ts, router.ts) with a Gemini tool-calling agent, matching the pattern aiOwnerAgent already uses for post-onboarding conversation. Motivated by a bug where handleHoursRangeStep rejected valid free-text Greek hours input because it only accepts strict HH:MM-HH:MM regex format.
+**Requirements**: TBD
+**Depends on:** Phase 20
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 21 to break down)
