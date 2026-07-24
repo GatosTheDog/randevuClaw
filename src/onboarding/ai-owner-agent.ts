@@ -34,7 +34,9 @@ import { sendTelegramMessage, sendTelegramMessageWithKeyboard } from '../telegra
 import { createSessionCatalogWithExpansion, bookSessionInstance, cancelSession, listSessions, buildRRuleString } from '../session/manager';
 
 const ai = new GoogleGenAI({ apiKey: config.geminiApiKey });
-const GEMINI_MODEL = 'gemini-3.1-flash-lite';
+// Exported so src/onboarding/ai-onboarding-agent.ts (Phase 21) imports the exact
+// same model constant instead of hardcoding a second copy that could drift.
+export const GEMINI_MODEL = 'gemini-3.1-flash-lite';
 const MAX_TOOL_ROUNDS = 5;
 
 const GREEK_WEEKDAYS = ['Κυριακή', 'Δευτέρα', 'Τρίτη', 'Τετάρτη', 'Πέμπτη', 'Παρασκευή', 'Σάββατο'];
