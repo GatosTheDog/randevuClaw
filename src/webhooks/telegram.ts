@@ -28,6 +28,7 @@ import {
   showMembershipConfirmation,
 } from '../telegram/handlers/payment-flow';
 import { handleMenuCallback, MenuCallbackResult, showAdminRootMenu } from '../telegram/handlers/admin-menu';
+import { ClientMenuCallbackResult, showClientRootMenu, handleClientMenuCallback } from '../telegram/handlers/client-menu';
 import { findMembershipByBooking, restoreCredit } from '../billing/queries';
 import { isoDateInAthens } from '../utils/timezone';
 import { approveSlotlessRequest, rejectSlotlessRequest } from '../session/slotless-requests';
@@ -94,6 +95,13 @@ async function handleFoundBusiness(
       return;
     }
 
+    // CMENU-01: /start command — structured keyboard, no Gemini round-trip.
+    if (messageText.trim() === '/start') {
+      await showClientRootMenu(senderTelegramId, business);
+      await markTelegramUpdateProcessed(updateId, business.id);
+      return;
+    }
+
     await routeConversationMessage(business, senderTelegramId, messageText, {
       sendMessage: sendTelegramMessage,
     });
@@ -134,7 +142,7 @@ export type RenewalCallbackResult = {
 
 export function parseCallbackData(
   data: string | undefined
-): BookingCallbackResult | BillingCallbackResult | SlotlessCallbackResult | RenewalCallbackResult | MenuCallbackResult | null {
+): BookingCallbackResult | BillingCallbackResult | SlotlessCallbackResult | RenewalCallbackResult | MenuCallbackResult | ClientMenuCallbackResult | null {
   // Existing booking action pattern (unchanged — T-02-17)
   const bookingMatch = data?.match(/^(approve|reject|client_cancel)_(\d+)$/);
   if (bookingMatch) {
@@ -181,6 +189,16 @@ export function parseCallbackData(
     return {
       menuAction: menuMatch[1],
       id: menuMatch[2] ? Number(menuMatch[2]) : undefined,
+    };
+  }
+
+  // Phase 18: client menu callback pattern — cmenu:<action>[:<numericId>]
+  // The clientMenuAction discriminant is unique across all existing result types (RESEARCH.md Pitfall 1).
+  const clientMenuMatch = data?.match(/^cmenu:([\w:]+?)(?::(\d+))?$/);
+  if (clientMenuMatch) {
+    return {
+      clientMenuAction: clientMenuMatch[1],
+      id: clientMenuMatch[2] ? Number(clientMenuMatch[2]) : undefined,
     };
   }
 
@@ -249,7 +267,8 @@ async function handleClientCancelCallback(
 // D-08). Never touches `res` directly; the caller sends the HTTP response.
 async function handleCallbackQuery(
   callbackQuery: TelegramCallbackQuery,
-  senderTelegramId: string
+  senderTelegramId: string,
+  business: Business
 ): Promise<void> {
   const parsed = parseCallbackData(callbackQuery.data);
 
@@ -285,6 +304,20 @@ async function handleCallbackQuery(
       await editTelegramMessageReplyMarkup(senderTelegramId, callbackQuery.message.message_id, []);
     }
     await handleMenuCallback(menuResult, ownerBusiness, senderTelegramId);
+    return;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Phase 18: Client menu callback routing (CMENU-01, CMENU-02, CMENU-03, CMENU-04, CMENU-05)
+  // Discriminant: 'clientMenuAction' in result → ClientMenuCallbackResult
+  // business is passed in from handleCallbackQuery (HMAC-verified upstream).
+  // ---------------------------------------------------------------------------
+  if ('clientMenuAction' in parsed) {
+    const clientResult = parsed as ClientMenuCallbackResult;
+    if (callbackQuery.message?.message_id) {
+      await editTelegramMessageReplyMarkup(senderTelegramId, callbackQuery.message.message_id, []);
+    }
+    await handleClientMenuCallback(clientResult, business, senderTelegramId);
     return;
   }
 
@@ -457,8 +490,9 @@ async function handleCallbackQuery(
   // this immediate ownership check is what makes that safe. A non-owner
   // tapping a booking they somehow reference is ignored, never defaulted to
   // any action (T-02-17).
-  const business = await findBusinessById(booking.businessId);
-  const ownerTelegramId = business?.ownerTelegramId;
+  // Named bookingBusiness to avoid shadowing the `business` parameter (added in Phase 18).
+  const bookingBusiness = await findBusinessById(booking.businessId);
+  const ownerTelegramId = bookingBusiness?.ownerTelegramId;
   if (!ownerTelegramId || ownerTelegramId !== senderTelegramId) {
     logger.warn(
       { bookingId: booking.id, senderTelegramId },
@@ -498,7 +532,7 @@ async function handleCallbackQuery(
       // (D-15: never rethrows, a failure here is retried by the poller).
       try {
         const oldBooking = await findBookingByIdUnscoped(updated.rescheduledFromBookingId);
-        if (oldBooking) await deleteBookingFromCalendar(oldBooking, business);
+        if (oldBooking) await deleteBookingFromCalendar(oldBooking, bookingBusiness);
       } catch (err) {
         logger.error(
           { err, bookingId: updated.rescheduledFromBookingId },
@@ -512,7 +546,7 @@ async function handleCallbackQuery(
     // totally unexpected bug here can never abort the client confirmation
     // message below or the webhook's 200 response.
     try {
-      if (service) await syncBookingToCalendar(updated, business, service);
+      if (service) await syncBookingToCalendar(updated, bookingBusiness, service);
     } catch (err) {
       logger.error({ err, bookingId: updated.id }, 'Calendar sync failed (best-effort)');
     }
@@ -629,7 +663,7 @@ export async function handleTelegramWebhookPost(req: Request, res: Response): Pr
         await bot.handleUpdate(update as any);
 
         if (update.callback_query) {
-          await handleCallbackQuery(update.callback_query, senderTelegramId);
+          await handleCallbackQuery(update.callback_query, senderTelegramId, business);
           return;
         }
 
