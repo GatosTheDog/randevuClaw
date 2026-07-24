@@ -7,7 +7,7 @@ import { logger } from '../utils/logger';
 
 const ai = new GoogleGenAI({ apiKey: config.geminiApiKey });
 
-const GEMINI_MODEL = 'gemini-3.5-flash-lite';
+const GEMINI_MODEL = 'gemini-2.5-flash-lite';
 
 // CR-01: generous upper bound for a single conversation turn; prevents a
 // stuck Gemini tool-call loop from hanging the webhook request that awaits it.
