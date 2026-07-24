@@ -182,10 +182,10 @@ describe('Slotless Booking Requests', () => {
       .where(eq(membershipLedger.bookingId, result.booking.id));
     expect(ledgerRows.length).toBeGreaterThanOrEqual(1);
 
-    // Cleanup
-    await db.delete(bookings).where(eq(bookings.id, result.booking.id));
-    await db.delete(slotlessRequests).where(eq(slotlessRequests.clientPhone, phone));
+    // Cleanup: delete dependents before bookings (two FK constraints)
     await db.delete(membershipLedger).where(eq(membershipLedger.membershipId, membership.id));
+    await db.delete(slotlessRequests).where(eq(slotlessRequests.clientPhone, phone));
+    await db.delete(bookings).where(eq(bookings.id, result.booking.id));
     await db.delete(memberships).where(eq(memberships.id, membership.id));
   });
 
