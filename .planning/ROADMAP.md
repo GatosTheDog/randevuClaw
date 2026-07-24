@@ -82,7 +82,7 @@ Plans:
 - [x] 18-03-PLAN.md — My Bookings display + Cancel flow with cutoff + credit restore + Balance display (CMENU-03, CMENU-04)
 - [x] 18-04-PLAN.md — Integration tests: /start intercept, CMENU-05 free-text, parseCallbackData union, booking/cancel/ownership/cutoff coverage
 - [x] **Phase 19: Class Setup in Onboarding & Terminology Fix** - Onboarding class schedule step with recurrence and capacity; σεζόν replaced with μάθημα across all bot messages and copy (completed 2026-07-24)
-- [ ] **Phase 20: Client Escalation** - Blocked client triggers Greek apology + admin notification with context and inline reply option
+- [x] **Phase 20: Client Escalation** - Blocked client triggers Greek apology + admin notification with context and inline reply option (completed 2026-07-24)
 
 ## Phase Details
 
@@ -208,4 +208,4 @@ Plans:
 | 17. Admin Menu | v1.4 | 4/4 | Complete   | 2026-07-23 |
 | 18. Client Menu | v1.4 | 4/4 | Complete | 2026-07-24 |
 | 19. Class Setup in Onboarding & Terminology Fix | v1.4 | 3/3 | Complete   | 2026-07-24 |
-| 20. Client Escalation | v1.4 | 1/2 | In Progress|  |
+| 20. Client Escalation | v1.4 | 2/2 | Complete | 2026-07-24 |
