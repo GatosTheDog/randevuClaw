@@ -6,15 +6,15 @@ current_phase: 14
 current_phase_name: renewal-notification-extensions
 status: Awaiting next milestone
 stopped_at: Completed 14-01-PLAN.md
-last_updated: "2026-07-23T23:11:34.978Z"
+last_updated: "2026-07-24T09:35:26.861Z"
 last_activity: 2026-07-23
 last_activity_desc: Phase 14 Plan 01 complete (renewal nudge schema + query layer + tool handler)
 progress:
-  total_phases: 2
+  total_phases: 3
   completed_phases: 2
-  total_plans: 7
-  completed_plans: 7
-  percent: 100
+  total_plans: 11
+  completed_plans: 8
+  percent: 67
 ---
 
 # Project State
@@ -94,6 +94,7 @@ Last activity: 2026-07-23 — Phase 14 Plan 01 complete (renewal nudge schema + 
 | Phase 09 P03 | 51 | 3 tasks | 3 files |
 | Phase 07 P06 | 4 | 2 tasks | 5 files |
 | Phase 07 P07 | 2 | 1 tasks | 2 files |
+| Phase 18-client-menu P01 | 5 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -192,6 +193,7 @@ Recent decisions affecting current work:
 - [Phase ?]: [07-06]: getAllClientsForBusiness uses getConn() inside withBusinessContext — RLS-scoped, no booking join
 - [Phase ?]: [07-06]: deactivate_package switched to package_name with case-insensitive partial match — eliminates hallucinated-ID problem
 - [Phase ?]: [Phase 07-07]: TelegramCallbackQuery.message optional-chain guard — keyboard clear is best-effort; non-owner access already mitigated upstream by findBusinessByOwnerTelegramId
+- [Phase ?]: Phase 18-01: Renamed local business var to bookingBusiness in handleCallbackQuery to avoid parameter shadow
 
 ### Pending Todos
 
@@ -248,7 +250,7 @@ Items acknowledged and deferred at v1.2 milestone close on 2026-07-22:
 
 ## Session Continuity
 
-Last session: 2026-07-23T23:11:34.967Z
+Last session: 2026-07-24T09:35:21.964Z
 Stopped at: Completed 12-03-PLAN.md (cancellation cutoff integration tests)
 Resume file: None
 

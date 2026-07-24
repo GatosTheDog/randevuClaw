@@ -33,7 +33,7 @@
 
 ### CMENU — Client Menu
 
-- [ ] **CMENU-01**: Client sees a welcome menu on `/start` with options: Book a class, My bookings, Cancel booking, My balance
+- [x] **CMENU-01**: Client sees a welcome menu on `/start` with options: Book a class, My bookings, Cancel booking, My balance
 - [ ] **CMENU-02**: Client booking flow shows available classes as inline buttons (date → class → slot selection)
 - [ ] **CMENU-03**: Client cancellation flow shows active bookings as inline buttons to cancel
 - [ ] **CMENU-04**: All binary client decisions (confirm booking, confirm cancellation) show yes/no inline keyboard buttons
