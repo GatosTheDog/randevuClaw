@@ -178,11 +178,11 @@ Plans:
   2. Admin receives an escalation notification containing the client's name, what they tried to do, and the specific reason it failed (class full / membership expired / slotless disabled)
   3. Admin can tap an inline button on the escalation message to approve an exception or send a reply directly to the client — without leaving the bot chat
 
-**Plans**: 2 plans
+**Plans**: 1/2 plans executed
 
 Plans:
 
-- [ ] 20-01-PLAN.md — Escalation engine (sendEscalationToAdmin + EscalationReason) + wire into handleBookSessionExecute enforcement and full-capacity blocks (ESCL-01, ESCL-02)
+- [x] 20-01-PLAN.md — Escalation engine (sendEscalationToAdmin + EscalationReason) + wire into handleBookSessionExecute enforcement and full-capacity blocks (ESCL-01, ESCL-02)
 - [ ] 20-02-PLAN.md — EscalationCallbackResult type + parseCallbackData escl: arm + approve-exception and reply-prompt handlers in handleCallbackQuery + integration tests (ESCL-03)
 
 ## Progress
@@ -208,4 +208,4 @@ Plans:
 | 17. Admin Menu | v1.4 | 4/4 | Complete   | 2026-07-23 |
 | 18. Client Menu | v1.4 | 4/4 | Complete | 2026-07-24 |
 | 19. Class Setup in Onboarding & Terminology Fix | v1.4 | 3/3 | Complete   | 2026-07-24 |
-| 20. Client Escalation | v1.4 | 0/TBD | Not started | - |
+| 20. Client Escalation | v1.4 | 1/2 | In Progress|  |

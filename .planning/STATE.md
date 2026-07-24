@@ -6,14 +6,14 @@ current_phase: 19
 current_phase_name: class-setup-onboarding
 status: In progress
 stopped_at: Completed 19-02-PLAN.md
-last_updated: "2026-07-24T10:31:08.116Z"
+last_updated: "2026-07-24T10:40:23.511Z"
 last_activity: 2026-07-24
 last_activity_desc: Phase 19 Plan 02 complete (I18N — replaced σεζόν with μάθημα across 4 files, 45 occurrences)
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 16
-  completed_plans: 14
+  completed_plans: 15
   percent: 80
 ---
 
@@ -96,6 +96,7 @@ Last activity: 2026-07-24 — Phase 19 Plan 02 complete (I18N — replaced σε�
 | Phase 07 P07 | 2 | 1 tasks | 2 files |
 | Phase 18-client-menu P01 | 5 | 2 tasks | 2 files |
 | Phase 19-class-setup P02 | 15 | 3 tasks | 4 files |
+| Phase 20 P01 | 390 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -195,6 +196,8 @@ Recent decisions affecting current work:
 - [Phase ?]: [07-06]: deactivate_package switched to package_name with case-insensitive partial match — eliminates hallucinated-ID problem
 - [Phase ?]: [Phase 07-07]: TelegramCallbackQuery.message optional-chain guard — keyboard clear is best-effort; non-owner access already mitigated upstream by findBusinessByOwnerTelegramId
 - [Phase ?]: Phase 18-01: Renamed local business var to bookingBusiness in handleCallbackQuery to avoid parameter shadow
+- [Phase ?]: Escalation is best-effort: sendEscalationToAdmin never throws; errors are caught and logged
+- [Phase ?]: clientName resolved via findClientBusinessRelationship, falls back to clientTelegramId
 
 ### Pending Todos
 
@@ -251,7 +254,7 @@ Items acknowledged and deferred at v1.2 milestone close on 2026-07-22:
 
 ## Session Continuity
 
-Last session: 2026-07-24T10:31:08.108Z
+Last session: 2026-07-24T10:40:15.435Z
 Stopped at: Completed 18-04-PLAN.md (client menu integration tests)
 Resume file: None
 

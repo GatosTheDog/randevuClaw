@@ -55,8 +55,8 @@
 
 ### ESCL — Client Escalation to Admin
 
-- [ ] **ESCL-01**: When a client request fails (class full, membership expired, slotless requests disabled), bot responds in Greek: "Επικοινωνούμε με τον διαχειριστή" and sends a notification to the admin
-- [ ] **ESCL-02**: Admin escalation message includes: client name, what they tried to do, and the reason it failed
+- [x] **ESCL-01**: When a client request fails (class full, membership expired, slotless requests disabled), bot responds in Greek: "Επικοινωνούμε με τον διαχειριστή" and sends a notification to the admin
+- [x] **ESCL-02**: Admin escalation message includes: client name, what they tried to do, and the reason it failed
 - [ ] **ESCL-03**: Admin can reply to the escalation inline (e.g., approve an exception, send a message to the client)
 
 ---
