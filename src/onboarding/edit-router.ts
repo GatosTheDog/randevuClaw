@@ -1,8 +1,7 @@
 import { eq } from 'drizzle-orm';
 import removeAccents from 'remove-accents';
-import { db } from '../database/db';
 import { services, businessHours } from '../database/schema';
-import { listServicesForBusiness } from '../database/queries';
+import { getConn, listServicesForBusiness } from '../database/queries';
 import type { Business } from '../database/queries';
 import { sendTelegramMessage } from '../telegram/client';
 
@@ -111,7 +110,7 @@ export async function routeOwnerEdit(
     }
 
     const svc = serviceList[parsedIndex - 1];
-    await db.delete(services).where(eq(services.id, svc.id));
+    await getConn().delete(services).where(eq(services.id, svc.id));
     await sendTelegramMessage(ownerTelegramId, `Η υπηρεσία "${svc.name}" διαγράφηκε.`);
     return;
   }
@@ -155,7 +154,7 @@ export async function routeOwnerEdit(
       return;
     }
 
-    await db.insert(businessHours)
+    await getConn().insert(businessHours)
       .values({ businessId: business.id, dayOfWeek, openTime, closeTime, isClosed: false })
       .onConflictDoUpdate({
         target: [businessHours.businessId, businessHours.dayOfWeek],
@@ -200,7 +199,7 @@ export async function routeOwnerEdit(
       return;
     }
 
-    await db.insert(services).values({ businessId: business.id, name, price, durationMin });
+    await getConn().insert(services).values({ businessId: business.id, name, price, durationMin });
     await sendTelegramMessage(ownerTelegramId, `Η υπηρεσία "${name}" προστέθηκε.`);
     return;
   }
@@ -235,7 +234,7 @@ export async function routeOwnerEdit(
     }
 
     const svc = serviceList[idx];
-    await db.update(services).set({ price: newPrice }).where(eq(services.id, svc.id));
+    await getConn().update(services).set({ price: newPrice }).where(eq(services.id, svc.id));
     await sendTelegramMessage(
       ownerTelegramId,
       `Η τιμή της υπηρεσίας "${svc.name}" ενημερώθηκε σε ${newPrice} λεπτά.`

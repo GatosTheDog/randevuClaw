@@ -812,6 +812,38 @@ export async function handleTelegramWebhookPost(req: Request, res: Response): Pr
         await bot.handleUpdate(update as any);
 
         if (update.callback_query) {
+          // ARCH-03: owner tapping an inline-keyboard button (e.g. the Ναι/Όχι
+          // prompts) before onboarding is complete must route to the onboarding
+          // state machine, same as a typed message would (see the analogous
+          // branch in handleFoundBusiness below) — otherwise the tap is silently
+          // dropped by handleCallbackQuery, which only knows post-onboarding
+          // menu/booking callback shapes.
+          if (
+            business.ownerTelegramId !== null &&
+            business.ownerTelegramId === senderTelegramId &&
+            !business.onboardingCompleted
+          ) {
+            await answerCallbackQuery(update.callback_query.id);
+            if (update.callback_query.message) {
+              await editTelegramMessageReplyMarkup(
+                senderTelegramId,
+                update.callback_query.message.message_id,
+                []
+              );
+            }
+            const activeResult = await findActiveSessionByOwnerTelegramId(senderTelegramId);
+            if (activeResult) {
+              await dispatchOnboardingStep(
+                activeResult.session,
+                activeResult.business,
+                senderTelegramId,
+                update.callback_query.data ?? ''
+              );
+            }
+            await markTelegramUpdateProcessed(updateId, business.id);
+            return;
+          }
+
           await handleCallbackQuery(update.callback_query, senderTelegramId, business);
           return;
         }

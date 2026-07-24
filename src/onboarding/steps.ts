@@ -1,10 +1,9 @@
 import crypto from 'crypto';
 import { eq } from 'drizzle-orm';
-import { db } from '../database/db';
 import { businesses, businessHours, services } from '../database/schema';
 import { generateSlug } from '../database/seed';
 import type { Business } from '../database/queries';
-import { listServicesForBusiness, findServiceById } from '../database/queries';
+import { getConn, listServicesForBusiness, findServiceById } from '../database/queries';
 import { updateOnboardingStep, activateBusiness } from './queries';
 import type { OnboardingSession } from './queries';
 import {
@@ -164,11 +163,11 @@ export async function handleNameStep(
     return;
   }
 
-  const existingSlugsRows = await db.select({ slug: businesses.slug }).from(businesses);
+  const existingSlugsRows = await getConn().select({ slug: businesses.slug }).from(businesses);
   const existingSlugs = existingSlugsRows.map((r) => r.slug);
   const slug = generateSlug(trimmed, existingSlugs);
 
-  await db
+  await getConn()
     .update(businesses)
     .set({ name: trimmed, slug })
     .where(eq(businesses.id, business.id));
@@ -206,7 +205,7 @@ export async function handleHoursQueryStep(
     );
   } else if (isNo) {
     // Always insert the closed-day row — never skip (Pitfall 3)
-    await db
+    await getConn()
       .insert(businessHours)
       .values({
         businessId: business.id,
@@ -267,7 +266,7 @@ export async function handleHoursRangeStep(
     return;
   }
 
-  await db
+  await getConn()
     .insert(businessHours)
     .values({
       businessId: business.id,
@@ -387,7 +386,7 @@ export async function handleSvcDurationStep(
     return;
   }
 
-  await db.insert(services).values({
+  await getConn().insert(services).values({
     businessId: business.id,
     name,
     price: price ?? null,
@@ -482,7 +481,7 @@ export async function handleActivate(
   // ARCH-03: persist onboarding_completed=true BEFORE sending the congratulatory
   // message so that routing is correct even if the message send fails
   // (RESEARCH.md Pitfall 2: flag must be set atomically with the 'done' transition).
-  await db
+  await getConn()
     .update(businesses)
     .set({ onboardingCompleted: true })
     .where(eq(businesses.id, business.id));
@@ -505,7 +504,7 @@ export async function handleConfigBookingModeStep(
   const isYes = normalized.includes('ναι') || normalized.includes('yes');
 
   if (isYes) {
-    await db.update(businesses).set({ bookingMode: 'fixed_sessions' }).where(eq(businesses.id, business.id));
+    await getConn().update(businesses).set({ bookingMode: 'fixed_sessions' }).where(eq(businesses.id, business.id));
   }
 
   await updateOnboardingStep(session.id, 'config_cancellation_cutoff', null);
@@ -529,7 +528,7 @@ export async function handleConfigCancellationCutoffStep(
 
   if (!isNo && match) {
     const hours = Math.min(168, Math.max(1, Number.parseInt(match[1], 10)));
-    await db.update(businesses)
+    await getConn().update(businesses)
       .set({ cancellationCutoffEnabled: true, cancellationCutoffHours: hours })
       .where(eq(businesses.id, business.id));
   }
@@ -553,7 +552,7 @@ export async function handleConfigSlotlessRequestsStep(
   const isYes = normalized.includes('ναι') || normalized.includes('yes');
 
   if (isYes) {
-    await db.update(businesses)
+    await getConn().update(businesses)
       .set({ slotlessRequestsEnabled: true })
       .where(eq(businesses.id, business.id));
   }
@@ -579,7 +578,7 @@ export async function handleConfigLastSessionThresholdStep(
 
   if (!isNo && match) {
     const count = Math.min(20, Math.max(1, Number.parseInt(match[1], 10)));
-    await db.update(businesses)
+    await getConn().update(businesses)
       .set({ lastSessionThresholdEnabled: true, lastSessionThresholdCount: count })
       .where(eq(businesses.id, business.id));
   }

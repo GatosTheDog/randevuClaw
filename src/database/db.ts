@@ -3,7 +3,7 @@ import { Pool } from 'pg';
 import * as schema from './schema';
 import { config } from '../config';
 
-export const pool = new Pool({ connectionString: config.databaseUrl });
+export const pool = new Pool({ connectionString: config.databaseUrl, connectionTimeoutMillis: 5000 });
 
 export const db = drizzle(pool, { schema });
 
@@ -17,6 +17,9 @@ export const db = drizzle(pool, { schema });
  * Falls back to databaseUrl if DATABASE_APP_URL is unset, so existing tests
  * that only set DATABASE_URL continue to work without a randevuclaw_app role.
  */
-export const appPool = new Pool({ connectionString: config.databaseAppUrl ?? config.databaseUrl });
+export const appPool = new Pool({
+  connectionString: config.databaseAppUrl ?? config.databaseUrl,
+  connectionTimeoutMillis: 5000,
+});
 
 export const appDb = drizzle(appPool, { schema });
