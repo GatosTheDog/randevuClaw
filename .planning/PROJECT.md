@@ -41,8 +41,24 @@ A client can book or cancel an appointment with a Greek business entirely throug
 - ✓ Session credits deducted/restored atomically across cancel edge cases; unlimited memberships handled — v1.2 Phase 8 (SESS-01 through SESS-04)
 - ✓ Client and owner notified 7 days before membership expiry; dedup prevents duplicate sends — v1.2 Phase 9 (NOTF-01, NOTF-02, NOTF-03)
 - ✓ Client queries own session balance via Greek chat; bot replies with live DB data — v1.2 Phase 9 (NOTF-04)
+- ✓ Owner creates/recurs/lists/cancels/assigns clients to session catalog (classes with capacity) — v1.3 Phase 10 (req IDs lost, see gap note above)
+- ✓ Clients book specific class sessions via Greek chat with atomic capacity enforcement and credit deduction — v1.3 Phase 11
+- ✓ Per-business opt-in cancellation cutoff window enforces credit forfeiture with Greek confirmation — v1.3 Phase 12
+- ✓ Clients request bookings when no slot is open; owner approves/rejects via keyboard — v1.3 Phase 13
+- ✓ Last-session threshold nudge + owner-gated mass renewal broadcast — v1.3 Phase 14
+- ✓ Onboarding asks about each optional v1.3 feature with explicit defaults, editable post-onboarding — v1.3 Phase 15
+- ✓ Platform bot deleted; single business bot handles admin + client; admin/client identified implicitly by Telegram ID, no password — v1.4 (ARCH-01..04, AUTH-01..03)
+- ✓ Owner onboarding auto-starts when an owner with incomplete onboarding messages their bot — v1.4 (ARCH-03)
+- ✓ Admin `/menu`: Settings/Classes/Clients/Today's Agenda, all binary decisions via Ναι/Όχι inline buttons — v1.4 (AMENU-01..06)
+- ✓ Client `/start` menu: Book/My Bookings/Cancel/Balance via inline flows; free Greek chat still works — v1.4 (CMENU-01..05)
+- ✓ Class schedule setup added to onboarding (recurrence + capacity); σεζόν→μάθημα terminology fixed — v1.4 (CLSS-01..05, I18N-01..03)
+- ✓ Blocked client gets Greek apology; admin gets escalation notification with context + approve-exception button — v1.4 (ESCL-01, ESCL-02)
 
 ### Active
+
+- [ ] Admin's "reply to client" escalation button doesn't relay the message yet — prompt only (ESCL-03 partial, ROADMAP.md Backlog Phase 999.1)
+- [ ] GDPR data-deletion flow (COMP-02/03/04) — deferred v1.1→v1.3, never scheduled into a phase, still not built
+- [ ] Gemini rate-limit resilience / p-queue (RESIL-01) — deferred v1.1→v1.3, never scheduled into a phase, still not built
 
 - [ ] Bot resolves which business a client means from a single shared number via deep link (PLAT-01) — code complete; blocked on Meta Business Verification
 - [ ] Client shown data-consent notice on first contact (COMP-01) — code complete; not yet observed by a real user
@@ -61,19 +77,21 @@ A client can book or cancel an appointment with a Greek business entirely throug
 - v1.0 shipped 2026-07-09: 3 phases, 19 plans, 32 tasks, 3,263 LOC TypeScript, 208 tests
 - v1.1 shipped 2026-07-17: 2 phases, 13 plans, 25 tasks, +3,571/-654 lines, 5,162 total src/ LOC
 - v1.2 shipped 2026-07-22: 3 phases, 16 plans, 19 tasks, +5,364/-59 lines, 7,364 total src/ LOC, 320 tests
-- Tech stack: Node.js/TypeScript, Neon/Drizzle (Postgres + RLS), Telegraf (per-bot Telegram), WhatsApp Cloud API (wired, pending Meta BV), @google/genai (Gemini 2.5 Flash-Lite), Google Calendar API, fly.io
+- v1.3 + v1.4 shipped 2026-07-23/24 (combined — v1.3 never got a proper milestone close, see gap note above): 11 phases (10-20), +9,953/-303 lines since v1.2 close, 11,262 total src/ LOC, 344 tests in suite
+- Tech stack: Node.js/TypeScript, Neon/Drizzle (Postgres + RLS), Telegraf (per-bot Telegram, now the sole bot per business as of v1.4), WhatsApp Cloud API (wired, pending Meta BV), @google/genai (Gemini 2.5 Flash-Lite), Google Calendar API, date-fns (rolling windows), rrule (v1.3 session recurrence), fly.io
 - Billing layer: billingPackages, memberships, membershipLedger, membershipExpiryNotifications tables; SELECT FOR UPDATE atomic deduction; in-process 6-hour expiry sweep
-- Per-bot routing: each business has its own bot token; `businesses.webhook_id` (UUID) maps webhook path to tenant; AsyncLocalStorage threads RLS context per request
+- Session layer (v1.3): sessionCatalog, sessionInstances, slotlessRequests tables; RRule-expanded recurring classes; atomic capacity + credit deduction
+- Single-bot routing (v1.4): platform bot removed; each business's own bot handles admin (Telegram-ID match to owner_telegram_id) and client traffic; `businesses.webhook_id` (UUID) maps webhook path to tenant; AsyncLocalStorage threads RLS context per request
 - Meta Business Verification not yet submitted — submit immediately; gates real WhatsApp delivery (1-6 week approval)
 - OAuth consent flow (Google Calendar) CLI ready; tokens needed for live calendar sync demo
-- All 320 tests pass; TypeScript clean. Open gaps are operational (external human actions), not code defects.
+- **Test suite health (as of v1.4 close): 247/344 passing, 94 failing across ~32 suites.** All failures pre-date v1.4 and are unrelated to phases 16-20 (confirmed via git stash comparison during milestone-close review) — stale test fixtures missing newer `Business`/`Booking` schema fields from v1.3, duplicate top-level `const` identifiers across some test files (`TS6200`), and a `config.test.ts` env-capture issue. `npx tsc --noEmit` on the actual `src/` app code is clean; the failures are confined to test-file maintenance debt, not production code. Not fixed during v1.4 close (out of scope — flagging as real, pre-existing debt rather than claiming a clean suite). Recommend a dedicated test-suite health phase early in the next milestone.
 
 ## Constraints
 
 - **Budget**: Near-$0 for PoC — AI (Gemini free tier), DB (Neon free tier), WhatsApp (Meta Cloud API free tier). fly.io costs ~$1.94/mo — accepted as negligible.
 - **Tech stack**: Node.js/TypeScript backend, Neon (Postgres) for data, fly.io for hosting, Cloudflare R2 for storage, Google Gemini API for AI, Google Calendar API for owner sync, WhatsApp Cloud API for messaging (Telegram during PoC).
 - **Language**: Bot conversation is Greek-only for the PoC.
-- **Compliance**: GDPR applies; data model keeps phone number + booking history only. Full deletion flow deferred to Phase 5.
+- **Compliance**: GDPR applies; data model keeps phone number + booking history only. Data-deletion flow (COMP-02/03/04) and Gemini rate-limit resilience (RESIL-01) were deferred v1.1→v1.3 but never actually scheduled into a v1.3 phase — still not built as of v1.4. Still Active/deferred, not Out of Scope.
 
 ## Key Decisions
 
@@ -100,6 +118,15 @@ A client can book or cancel an appointment with a Greek business entirely throug
 | Flag alert (sendTelegramMessage) NOT wrapped in try/catch in bookAppointmentTool | D-11: alert is critical; failure must surface immediately, not be silently swallowed | ✓ Good — ENFC-03 ordering test confirms pre-keyboard delivery |
 | SELECT FOR UPDATE via Drizzle .for('update') for getActiveMembershipForDeduction | Serializes concurrent deductions at DB level; prevents sessionsRemaining going negative | ✓ Good — race guard test proves exactly-1-success with sessionsRemaining=1 |
 | src/billing/enforcement.ts extracted from bookAppointmentTool | Enables unit testing of checkEnforcementAndGetMembership without wiring full booking context | ✓ Good — booking-enforcement.test.ts 3 isolated unit tests |
+| Membership dedup via membershipLedger.idempotencyKey UNIQUE + onConflictDoNothing | Replay-safe: duplicate webhook or test re-run never creates double deductions | ✓ Good |
+| UNIQUE INDEX on (membership_id, notification_type, expiry_date) for expiry notifications | Per-recipient dedup granularity; sweep can run multiple times safely | ✓ Good — NOTF-03 test confirms no second send |
+| checkMembershipBalanceTool reads clientPhone from context, not Gemini args | Prevents cross-client balance inspection — Gemini cannot be prompted to check another client | ✓ Good — T-09-05 guard confirmed in tests |
+| T-16-04: explicit null guard on business.ownerTelegramId before sender comparison | A business with no owner set (null) must never match any sender by loose equality | ✓ Good — prevents null/null false-positive owner match |
+| Onboarding-incomplete routing checked before /menu pre-emption in handleFoundBusiness | An owner mid-onboarding shouldn't be able to reach the admin menu | ✓ Good — but the routing block itself was silently dropped by a later merge and had to be restored at v1.4 close (16-REVIEW.md CR-01) |
+| Callback handlers reuse the webhook-scoped `business` param instead of re-deriving via findBusinessByOwnerTelegramId(senderTelegramId) | findBusinessByOwnerTelegramId has no unique constraint / ORDER BY — ambiguous if one Telegram account owns multiple businesses | ✓ Good for menuAction/escalationAction (fixed 17-REVIEW.md CR-01); billing/slotless/renewal blocks still use the old ambiguous pattern (ROADMAP.md Backlog 999.2) |
+| activeMembership=null passed to bookSessionInstance for admin-approved exceptions | Bypasses the membership enforcement gate while capacity SELECT FOR UPDATE still applies — admin override never overbooks | ✓ Good |
+| Escalation idempotency key escl:approve:<clientId>:<instanceId> | Prevents duplicate bookings from repeated admin button taps | ✓ Good |
+| Phase code review + goal-backward verification run retroactively at milestone close (not per-phase during execution) | v1.4's phases 16/17/19 were executed but never reviewed/verified until the milestone-close sweep — caught 3 real bugs (dead routing code, cross-tenant lookup ambiguity, wrong Gemini model id) that would have shipped silently | ⚠️ Revisit — run code-review + verify-work per phase during execution next milestone, not deferred to close |
 
 ## Evolution
 
@@ -115,13 +142,5 @@ A client can book or cancel an appointment with a Greek business entirely throug
 3. Audit Out of Scope — reasons still valid?
 4. Update Context with current state
 
-| getConn() exclusively for Phase 8 billing writes (not db.transaction()) | db.transaction() opens a separate connection breaking atomicity with withBusinessContext | ✓ Good — no cross-tenant leaks in billing writes |
-| Flag alert (sendTelegramMessage) NOT wrapped in try/catch in bookAppointmentTool | D-11: alert is critical; failure must surface immediately, not be silently swallowed | ✓ Good — ENFC-03 ordering test confirms pre-keyboard delivery |
-| SELECT FOR UPDATE via Drizzle .for('update') for getActiveMembershipForDeduction | Serializes concurrent deductions at DB level; prevents sessionsRemaining going negative | ✓ Good — race guard test proves exactly-1-success with sessionsRemaining=1 |
-| src/billing/enforcement.ts extracted from bookAppointmentTool | Enables unit testing of checkEnforcementAndGetMembership without wiring full booking context | ✓ Good — booking-enforcement.test.ts 3 isolated unit tests |
-| Membership dedup via membershipLedger.idempotencyKey UNIQUE + onConflictDoNothing | Replay-safe: duplicate webhook or test re-run never creates double deductions | ✓ Good |
-| UNIQUE INDEX on (membership_id, notification_type, expiry_date) for expiry notifications | Per-recipient dedup granularity; sweep can run multiple times safely | ✓ Good — NOTF-03 test confirms no second send |
-| checkMembershipBalanceTool reads clientPhone from context, not Gemini args | Prevents cross-client balance inspection — Gemini cannot be prompted to check another client | ✓ Good — T-09-05 guard confirmed in tests |
-
 ---
-*Last updated: 2026-07-22 — v1.2 Billing & Membership System shipped*
+*Last updated: 2026-07-24 — v1.4 Single-Bot UX Overhaul shipped*
