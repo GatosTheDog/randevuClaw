@@ -10,11 +10,27 @@
 // - /start pre-emption in handleFoundBusiness client branch validates that
 //   the sender is NOT the owner before reaching showClientRootMenu.
 
-import { Business } from '../../database/queries';
-import { InlineKeyboard, sendTelegramMessage, sendTelegramMessageWithKeyboard } from '../client';
+import {
+  Business,
+  listClientBookings,
+  findBookingByIdUnscoped,
+  updateBookingStatus,
+} from '../../database/queries';
+import {
+  InlineKeyboard,
+  sendTelegramMessage,
+  sendTelegramMessageWithKeyboard,
+  botTokenStore,
+} from '../client';
 import { logger } from '../../utils/logger';
 import { listSessions, bookSessionInstance } from '../../session/manager';
 import { checkEnforcementAndGetMembership } from '../../billing/enforcement';
+import {
+  getClientActiveMembership,
+  findMembershipByBooking,
+  restoreCredit,
+} from '../../billing/queries';
+import { deleteBookingFromCalendar } from '../../calendar/sync';
 import { db } from '../../database/db';
 import { sessionInstances, sessionCatalog } from '../../database/schema';
 import { eq } from 'drizzle-orm';
@@ -73,6 +89,30 @@ export async function showClientRootMenu(chatId: string, business: Business): Pr
 
   // Suppress unused variable warning — business will be used in later plans
   void business;
+}
+
+// ---------------------------------------------------------------------------
+// Local helper: compute hours until a session starts in the Europe/Athens timezone.
+// Copied verbatim from src/conversation/function-executor.ts (hoursUntilSessionInAthens).
+// Not imported from there because that module is a conversation-layer concern —
+// importing it here would create unnecessary coupling.
+// ---------------------------------------------------------------------------
+function hoursUntilSession(sessionDate: string, sessionTime: string): number {
+  const noonUTC = new Date(`${sessionDate}T12:00:00Z`);
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Europe/Athens',
+    hour: '2-digit',
+    hour12: false,
+  }).formatToParts(noonUTC);
+  const athensHour = Number.parseInt(parts.find((p) => p.type === 'hour')!.value, 10);
+  const offsetHours = athensHour - 12;
+  const [hh, mm] = sessionTime.split(':').map(Number);
+  const sessionUTCMs =
+    Date.parse(
+      `${sessionDate}T${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:00Z`
+    ) -
+    offsetHours * 3_600_000;
+  return (sessionUTCMs - Date.now()) / 3_600_000;
 }
 
 // ---------------------------------------------------------------------------
@@ -199,6 +239,227 @@ export async function handleBookSessionExecute(
 }
 
 // ---------------------------------------------------------------------------
+// Plan 18-03: My Bookings, Cancel flow, My Balance (CMENU-03, CMENU-04)
+// ---------------------------------------------------------------------------
+
+/**
+ * Shows the client's active bookings (pending_owner_approval + confirmed).
+ * If empty: informational message + back button.
+ * If non-empty: formatted list + Cancel and Back buttons.
+ */
+export async function showClientBookings(chatId: string, business: Business): Promise<void> {
+  const clientBookings = await listClientBookings(business.id, chatId);
+
+  const backButton = { text: '« Πίσω', callback_data: 'cmenu:root' };
+  assertCallbackDataSize(backButton.callback_data);
+
+  if (clientBookings.length === 0) {
+    await sendTelegramMessageWithKeyboard(
+      chatId,
+      'Δεν έχετε ενεργές κρατήσεις.',
+      [[backButton]]
+    );
+    return;
+  }
+
+  const lines = clientBookings.map((b) => `${b.calendarDate} ${b.calendarTime}`);
+  const text = 'Ενεργές κρατήσεις σας:\n\n' + lines.join('\n');
+
+  const cancelData = 'cmenu:cancel';
+  assertCallbackDataSize(cancelData);
+
+  const keyboard: InlineKeyboard = [
+    [
+      { text: 'Ακύρωση κράτησης', callback_data: cancelData },
+      backButton,
+    ],
+  ];
+
+  await sendTelegramMessageWithKeyboard(chatId, text, keyboard);
+}
+
+/**
+ * Shows the list of bookings the client can cancel (up to 10), one button each.
+ */
+export async function showCancelBookingList(
+  chatId: string,
+  business: Business,
+  senderTelegramId: string
+): Promise<void> {
+  const clientBookings = await listClientBookings(business.id, senderTelegramId);
+
+  const backButton = { text: '« Πίσω', callback_data: 'cmenu:root' };
+  assertCallbackDataSize(backButton.callback_data);
+
+  if (clientBookings.length === 0) {
+    await sendTelegramMessageWithKeyboard(
+      chatId,
+      'Δεν έχετε κρατήσεις προς ακύρωση.',
+      [[backButton]]
+    );
+    return;
+  }
+
+  const capped = clientBookings.slice(0, 10);
+
+  const rows: InlineKeyboard = capped.map((b) => {
+    const callbackData = `cmenu:cancel:confirm:${b.id}`;
+    assertCallbackDataSize(callbackData);
+    return [{ text: `${b.calendarDate} ${b.calendarTime}`, callback_data: callbackData }];
+  });
+  rows.push([backButton]);
+
+  await sendTelegramMessageWithKeyboard(chatId, 'Επίλεξε κράτηση για ακύρωση:', rows);
+}
+
+/**
+ * Shows a Ναι/Όχι confirmation prompt before cancelling a booking.
+ */
+export async function showCancelConfirm(chatId: string, bookingId: number): Promise<void> {
+  const yesData = `cmenu:cancel:yes:${bookingId}`;
+  const noData = 'cmenu:root';
+  assertCallbackDataSize(yesData);
+  assertCallbackDataSize(noData);
+
+  const keyboard: InlineKeyboard = [
+    [
+      { text: 'Ναι', callback_data: yesData },
+      { text: 'Όχι', callback_data: noData },
+    ],
+  ];
+
+  await sendTelegramMessageWithKeyboard(chatId, 'Να ακυρωθεί αυτή η κράτηση;', keyboard);
+}
+
+/**
+ * Executes cancellation after client confirms (CMENU-04):
+ * ownership guard → status check → cutoff check → cancel → credit restore →
+ * calendar delete (best-effort) → owner notification (best-effort) → confirm.
+ */
+export async function handleCancelExecute(
+  chatId: string,
+  business: Business,
+  senderTelegramId: string,
+  bookingId: number
+): Promise<void> {
+  const booking = await findBookingByIdUnscoped(bookingId);
+  if (!booking) {
+    await sendTelegramMessage(chatId, 'Κράτηση δεν βρέθηκε.');
+    return;
+  }
+
+  // Ownership guard — must be before any DB mutation
+  if (booking.clientPhone !== senderTelegramId) {
+    logger.warn(
+      { bookingId, senderTelegramId, clientPhone: booking.clientPhone },
+      'client cancel ownership mismatch'
+    );
+    await sendTelegramMessage(chatId, 'Δεν έχετε δικαίωμα ακύρωσης αυτής της κράτησης.');
+    return;
+  }
+
+  // Status check — only pending_owner_approval and confirmed can be cancelled
+  if (
+    booking.bookingStatus !== 'pending_owner_approval' &&
+    booking.bookingStatus !== 'confirmed'
+  ) {
+    await sendTelegramMessage(chatId, 'Αυτή η κράτηση δεν μπορεί να ακυρωθεί.');
+    return;
+  }
+
+  // Cutoff check — if cutoff is enabled and we are within the window, refuse
+  if (
+    business.cancellationCutoffEnabled &&
+    booking.calendarDate &&
+    booking.calendarTime
+  ) {
+    const hours = hoursUntilSession(booking.calendarDate, booking.calendarTime);
+    if (hours < business.cancellationCutoffHours) {
+      await sendTelegramMessage(
+        chatId,
+        `Η ακύρωση δεν είναι δυνατή εντός ${business.cancellationCutoffHours} ωρών από το μάθημα.`
+      );
+      return;
+    }
+  }
+
+  // Cancel the booking
+  await updateBookingStatus(booking.id, 'cancelled');
+
+  // Credit restore (idempotent — safe to call even if no session was deducted)
+  const membershipId = await findMembershipByBooking(booking.id);
+  if (membershipId !== null) {
+    await restoreCredit(membershipId, booking.id, `booking:${booking.id}:credit`);
+  }
+
+  // Calendar delete — best-effort
+  try {
+    await deleteBookingFromCalendar(booking, business);
+  } catch (err) {
+    logger.error({ err, bookingId: booking.id }, 'Calendar deletion failed (best-effort, client cancel)');
+  }
+
+  // Owner notification — best-effort
+  try {
+    if (business.ownerTelegramId && business.botToken) {
+      const ownerText =
+        'Ακύρωση κράτησης από πελάτη:\nΗμερομηνία: ' +
+        booking.calendarDate +
+        '\nΏρα: ' +
+        booking.calendarTime +
+        '\nΠελάτης: ' +
+        booking.clientPhone;
+      await botTokenStore.run(business.botToken, async () => {
+        await sendTelegramMessage(business.ownerTelegramId!, ownerText);
+      });
+    }
+  } catch (err) {
+    logger.error({ err, bookingId: booking.id }, 'Owner cancel notification failed (best-effort)');
+  }
+
+  // Confirm to client
+  await sendTelegramMessage(chatId, 'Η κράτησή σας ακυρώθηκε.');
+
+  const backKeyboard: InlineKeyboard = [
+    [{ text: '« Αρχικό μενού', callback_data: 'cmenu:root' }],
+  ];
+  await sendTelegramMessageWithKeyboard(chatId, 'Τι άλλο θέλεις να κάνεις;', backKeyboard);
+
+  logger.info({ businessId: business.id, senderTelegramId, bookingId }, 'client booking cancelled');
+}
+
+/**
+ * Shows the client's active membership balance, or a "no membership" message.
+ */
+export async function showClientBalance(chatId: string, business: Business): Promise<void> {
+  const membership = await getClientActiveMembership(business.id, chatId);
+
+  const backButton = { text: '« Πίσω', callback_data: 'cmenu:root' };
+  assertCallbackDataSize(backButton.callback_data);
+
+  if (!membership) {
+    await sendTelegramMessageWithKeyboard(
+      chatId,
+      'Δεν υπάρχει ενεργή συνδρομή.',
+      [[backButton]]
+    );
+    return;
+  }
+
+  const expiryStr = membership.expiresAt.toLocaleDateString('el-GR');
+  let text: string;
+  if (membership.isUnlimited) {
+    text =
+      `Πακέτο: ${membership.packageName}\nΑπεριόριστες συνεδρίες\nΛήξη: ${expiryStr}`;
+  } else {
+    text =
+      `Πακέτο: ${membership.packageName}\nΥπόλοιπο: ${membership.sessionsRemaining} μαθήματα\nΛήξη: ${expiryStr}`;
+  }
+
+  await sendTelegramMessageWithKeyboard(chatId, text, [[backButton]]);
+}
+
+// ---------------------------------------------------------------------------
 // Central dispatcher (Plan 18-01 skeleton; 18-02, 18-03, 18-04 add cases)
 // ---------------------------------------------------------------------------
 
@@ -234,6 +495,35 @@ export async function handleClientMenuCallback(
         // chatId === senderTelegramId for private Telegram chats
         await handleBookSessionExecute(chatId, business, chatId, result.id);
       }
+      break;
+
+    // Plan 18-03: my bookings, cancel flow, balance
+    case clientMenuAction === 'bookings':
+      await showClientBookings(chatId, business);
+      break;
+
+    case clientMenuAction === 'cancel':
+      await showCancelBookingList(chatId, business, chatId);
+      break;
+
+    case clientMenuAction === 'cancel:confirm':
+      if (result.id === undefined) {
+        await sendTelegramMessage(chatId, 'Σφάλμα: δεν βρέθηκε η κράτηση.');
+      } else {
+        await showCancelConfirm(chatId, result.id);
+      }
+      break;
+
+    case clientMenuAction === 'cancel:yes':
+      if (result.id === undefined) {
+        await sendTelegramMessage(chatId, 'Σφάλμα: δεν βρέθηκε η κράτηση.');
+      } else {
+        await handleCancelExecute(chatId, business, chatId, result.id);
+      }
+      break;
+
+    case clientMenuAction === 'balance':
+      await showClientBalance(chatId, business);
       break;
 
     default:
