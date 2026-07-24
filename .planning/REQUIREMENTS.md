@@ -34,10 +34,10 @@
 ### CMENU — Client Menu
 
 - [x] **CMENU-01**: Client sees a welcome menu on `/start` with options: Book a class, My bookings, Cancel booking, My balance
-- [ ] **CMENU-02**: Client booking flow shows available classes as inline buttons (date → class → slot selection)
-- [ ] **CMENU-03**: Client cancellation flow shows active bookings as inline buttons to cancel
-- [ ] **CMENU-04**: All binary client decisions (confirm booking, confirm cancellation) show yes/no inline keyboard buttons
-- [ ] **CMENU-05**: Client can type freely in Greek at any point; AI agent interprets and routes to the right flow
+- [x] **CMENU-02**: Client booking flow shows available classes as inline buttons (date → class → slot selection)
+- [x] **CMENU-03**: Client cancellation flow shows active bookings as inline buttons to cancel
+- [x] **CMENU-04**: All binary client decisions (confirm booking, confirm cancellation) show yes/no inline keyboard buttons
+- [x] **CMENU-05**: Client can type freely in Greek at any point; AI agent interprets and routes to the right flow
 
 ### CLSS — Class Schedule Setup in Onboarding
 
@@ -95,11 +95,11 @@
 | AMENU-04 | Phase 17 | TBD | Complete |
 | AMENU-05 | Phase 17 | TBD | Complete |
 | AMENU-06 | Phase 17 | TBD | Complete |
-| CMENU-01 | Phase 18 | TBD | Pending |
-| CMENU-02 | Phase 18 | TBD | Pending |
-| CMENU-03 | Phase 18 | TBD | Pending |
-| CMENU-04 | Phase 18 | TBD | Pending |
-| CMENU-05 | Phase 18 | TBD | Pending |
+| CMENU-01 | Phase 18 | 18-01 | Complete |
+| CMENU-02 | Phase 18 | 18-02 | Complete |
+| CMENU-03 | Phase 18 | 18-03 | Complete |
+| CMENU-04 | Phase 18 | 18-02 | Complete |
+| CMENU-05 | Phase 18 | 18-01 | Complete |
 | CLSS-01 | Phase 19 | TBD | Complete |
 | CLSS-02 | Phase 19 | TBD | Complete |
 | CLSS-03 | Phase 19 | TBD | Complete |
@@ -108,6 +108,6 @@
 | I18N-01 | Phase 19 | TBD | Complete |
 | I18N-02 | Phase 19 | TBD | Complete |
 | I18N-03 | Phase 19 | TBD | Complete |
-| ESCL-01 | Phase 20 | TBD | Pending |
-| ESCL-02 | Phase 20 | TBD | Pending |
-| ESCL-03 | Phase 20 | TBD | Pending |
+| ESCL-01 | Phase 20 | 20-01 | Complete |
+| ESCL-02 | Phase 20 | 20-01 | Complete |
+| ESCL-03 | Phase 20 | 20-02 | Partial (approve-exception works; reply-relay deferred, see ROADMAP.md Backlog 999.1) |
