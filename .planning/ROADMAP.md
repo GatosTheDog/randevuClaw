@@ -142,7 +142,14 @@ See: `.planning/milestones/v1.4-ROADMAP.md`
 **Plans:** 3 plans
 
 Plans:
+**Wave 1**
 
 - [ ] 21-01-PLAN.md — Build the new Gemini tool-calling onboarding agent (ai-onboarding-agent.ts) in isolation, with unit tests
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 21-02-PLAN.md — Wire the new agent into both Telegram entry points (message + callback_query) that route onboarding-incomplete owners
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 21-03-PLAN.md — Delete the old step-machine (steps.ts, router.ts) and dead session-lifecycle code; clean up tests
