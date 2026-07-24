@@ -183,7 +183,22 @@ Plans:
 Plans:
 
 - [x] 20-01-PLAN.md — Escalation engine (sendEscalationToAdmin + EscalationReason) + wire into handleBookSessionExecute enforcement and full-capacity blocks (ESCL-01, ESCL-02)
-- [ ] 20-02-PLAN.md — EscalationCallbackResult type + parseCallbackData escl: arm + approve-exception and reply-prompt handlers in handleCallbackQuery + integration tests (ESCL-03)
+- [x] 20-02-PLAN.md — EscalationCallbackResult type + parseCallbackData escl: arm + approve-exception and reply-prompt handlers in handleCallbackQuery + integration tests (ESCL-03)
+
+**Note:** ESCL-03 is partially satisfied — the "approve exception" button works fully; the "reply to client" button only prompts the admin, no relay wired yet. Deferred to backlog (see below), accepted by user 2026-07-24.
+
+## Backlog
+
+### Phase 999.1: Follow-up — Admin reply relay to escalating client (ESCL-03 completion)
+
+**Goal:** Wire the admin's "Απάντηση πελάτη" reply into an actual message delivered to the escalating client
+**Source phase:** 20 (Client Escalation)
+**Deferred at:** 2026-07-24 — accepted deferral after phase 20 verification (see `.planning/phases/20-client-escalation/20-VERIFICATION.md`)
+**Scope:**
+- [ ] Track pending reply target (e.g. `pendingReplyTarget: Map<ownerTelegramId, clientTelegramId>`) when admin taps "Απάντηση πελάτη"
+- [ ] Intercept the admin's next free-text message in `handleFoundBusiness` before it reaches `aiOwnerAgent`, forward it to `escl.clientTelegramId` instead
+- [ ] Tests for the full reply flow (admin sends message → client receives it)
+- Likely depends on/overlaps with CMENU-05 free-text routing work
 
 ## Progress
 
@@ -208,4 +223,4 @@ Plans:
 | 17. Admin Menu | v1.4 | 4/4 | Complete   | 2026-07-23 |
 | 18. Client Menu | v1.4 | 4/4 | Complete | 2026-07-24 |
 | 19. Class Setup in Onboarding & Terminology Fix | v1.4 | 3/3 | Complete   | 2026-07-24 |
-| 20. Client Escalation | v1.4 | 2/2 | Complete | 2026-07-24 |
+| 20. Client Escalation | v1.4 | 2/2 | Complete    | 2026-07-24 |
