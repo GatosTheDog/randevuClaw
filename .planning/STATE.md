@@ -21,10 +21,10 @@ current_phase_name: Client Escalation
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-07-17 after v1.1 milestone close)
+See: .planning/PROJECT.md (updated 2026-07-24 after v1.4 milestone close)
 
 **Core value:** A client can book or cancel an appointment with a Greek business entirely through a chat conversation, in Greek, with zero friction — and the owner's calendar updates automatically.
-**Current focus:** Phase 09 — expiry-notifications-client-balance
+**Current focus:** Awaiting next milestone — run `/gsd-new-milestone`
 
 ## Current Position
 
@@ -272,8 +272,8 @@ Items acknowledged and deferred at v1.4 milestone close on 2026-07-24:
 
 ## Session Continuity
 
-Last session: 2026-07-24T10:46:31.000Z
-Stopped at: Completed 20-02-PLAN.md (escl: callback routing + 17 integration tests)
+Last session: 2026-07-24T15:20:00.000Z
+Stopped at: v1.4 milestone closed and archived (phases 16/17/19 retroactively code-reviewed and verified; 3 bugs found and fixed: dead onboarding-routing code, ambiguous cross-tenant business lookup in callback routing, accidental Gemini model-id swap)
 Resume file: None
 
 **Phase 12 Plan 01 completed:** a940588, 6c5830e, 7d64f85
