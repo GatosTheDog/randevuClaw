@@ -99,7 +99,7 @@ export async function pollSessionCancellations(): Promise<number> {
 
         for (const client of bookedClients) {
           try {
-            const msg = `Η σεζόν σας στις ${cancelled.sessionDate} ${cancelled.sessionTime} ακυρώθηκε. Παρακαλώ επικοινωνήστε μαζί μας για νέο ραντεβού.`;
+            const msg = `Το μάθημά σας στις ${cancelled.sessionDate} ${cancelled.sessionTime} ακυρώθηκε. Παρακαλώ επικοινωνήστε μαζί μας για νέο ραντεβού.`;
             // botTokenStore.run() is mandatory — callTelegramApi will throw without it.
             // botToken must never appear in logger calls (T-10-17).
             await botTokenStore.run(business.botToken, async () => {

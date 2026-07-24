@@ -34,7 +34,7 @@ import { sendTelegramMessage, sendTelegramMessageWithKeyboard } from '../telegra
 import { createSessionCatalogWithExpansion, bookSessionInstance, cancelSession, listSessions, buildRRuleString } from '../session/manager';
 
 const ai = new GoogleGenAI({ apiKey: config.geminiApiKey });
-const GEMINI_MODEL = 'gemini-2.5-flash-lite';
+const GEMINI_MODEL = 'gemini-3.5-flash-lite';
 const MAX_TOOL_ROUNDS = 5;
 
 const GREEK_WEEKDAYS = ['Κυριακή', 'Δευτέρα', 'Τρίτη', 'Τετάρτη', 'Πέμπτη', 'Παρασκευή', 'Σάββατο'];
@@ -230,7 +230,7 @@ export const OWNER_TOOLS = [
     type: 'function' as const,
     name: 'set_cancellation_cutoff',
     description:
-      'Ορίζει το παράθυρο ακύρωσης: αν ένας πελάτης ακυρώσει εντός X ωρών πριν τη σεζόν, χάνει το session. Χρησιμοποίησε enabled=true για ενεργοποίηση, enabled=false για απενεργοποίηση.',
+      'Ορίζει το παράθυρο ακύρωσης: αν ένας πελάτης ακυρώσει εντός X ωρών πριν το μάθημα, χάνει το session. Χρησιμοποίησε enabled=true για ενεργοποίηση, enabled=false για απενεργοποίηση.',
     parameters: {
       type: 'object',
       properties: {
@@ -240,7 +240,7 @@ export const OWNER_TOOLS = [
         },
         hours: {
           type: 'integer',
-          description: 'Ώρες πριν τη σεζόν (1-168). Απαιτείται όταν enabled=true.',
+          description: 'Ώρες πριν το μάθημα (1-168). Απαιτείται όταν enabled=true.',
         },
       },
       required: ['enabled', 'hours'],
@@ -252,7 +252,7 @@ export const OWNER_TOOLS = [
   {
     type: 'function' as const,
     name: 'create_recurring_session',
-    description: 'Δημιουργεί επαναλαμβανόμενη σεζόν για κάθε εβδομάδα. Σε μία ενέργεια δημιουργεί ~90 ημέρες σεζόν αυτόματα. Χρησιμοποίησε όταν ο ιδιοκτήτης θέλει να ορίσει εβδομαδιαίο πρόγραμμα.',
+    description: 'Δημιουργεί επαναλαμβανόμενο μάθημα για κάθε εβδομάδα. Σε μία ενέργεια δημιουργεί ~90 ημέρες μαθήματα αυτόματα. Χρησιμοποίησε όταν ο ιδιοκτήτης θέλει να ορίσει εβδομαδιαίο πρόγραμμα.',
     parameters: {
       type: 'object',
       properties: {
@@ -280,7 +280,7 @@ export const OWNER_TOOLS = [
   {
     type: 'function' as const,
     name: 'list_sessions',
-    description: 'Εμφανίζει τις επερχόμενες σεζόν με αριθμό κρατήσεων και χωρητικότητα.',
+    description: 'Εμφανίζει τα επερχόμενα μαθήματα με αριθμό κρατήσεων και χωρητικότητα.',
     parameters: {
       type: 'object',
       properties: {},
@@ -290,17 +290,17 @@ export const OWNER_TOOLS = [
   {
     type: 'function' as const,
     name: 'cancel_session',
-    description: 'Ακυρώνει συγκεκριμένη σεζόν. Όλοι οι κρατημένοι πελάτες ειδοποιούνται αυτόματα.',
+    description: 'Ακυρώνει συγκεκριμένο μάθημα. Όλοι οι κρατημένοι πελάτες ειδοποιούνται αυτόματα.',
     parameters: {
       type: 'object',
       properties: {
         session_date: {
           type: 'string',
-          description: 'Ημερομηνία σεζόν σε μορφή YYYY-MM-DD',
+          description: 'Ημερομηνία μαθήματος σε μορφή YYYY-MM-DD',
         },
         session_time: {
           type: 'string',
-          description: 'Ώρα σεζόν σε μορφή HH:MM',
+          description: 'Ώρα μαθήματος σε μορφή HH:MM',
         },
       },
       required: ['session_date', 'session_time'],
@@ -309,7 +309,7 @@ export const OWNER_TOOLS = [
   {
     type: 'function' as const,
     name: 'assign_client_to_session',
-    description: 'Ορίζει συγκεκριμένο πελάτη σε σεζόν απευθείας, χωρίς να χρειάζεται να κάνει ο πελάτης κράτηση μόνος του.',
+    description: 'Ορίζει συγκεκριμένο πελάτη σε μάθημα απευθείας, χωρίς να χρειάζεται να κάνει ο πελάτης κράτηση μόνος του.',
     parameters: {
       type: 'object',
       properties: {
@@ -319,11 +319,11 @@ export const OWNER_TOOLS = [
         },
         session_date: {
           type: 'string',
-          description: 'Ημερομηνία σεζόν YYYY-MM-DD',
+          description: 'Ημερομηνία μαθήματος YYYY-MM-DD',
         },
         session_time: {
           type: 'string',
-          description: 'Ώρα σεζόν HH:MM',
+          description: 'Ώρα μαθήματος HH:MM',
         },
       },
       required: ['client_phone', 'session_date', 'session_time'],
@@ -701,14 +701,14 @@ async function executeOwnerTool(
         start_time,
         capacity
       );
-      return `Δημιουργήθηκαν ${instanceCount} σεζόν για "${matchedService.name}" (${start_time}) τις επόμενες ~90 ημέρες.`;
+      return `Δημιουργήθηκαν ${instanceCount} μαθήματα για "${matchedService.name}" (${start_time}) τις επόμενες ~90 ημέρες.`;
     }
 
     case 'list_sessions': {
       // WR-01: listSessions scoped to business.id via sessionCatalog.businessId guard
       const sessions = await listSessions(business.id);
       if (sessions.length === 0) {
-        return 'Δεν υπάρχουν επερχόμενες σεζόν.';
+        return 'Δεν υπάρχουν επερχόμενα μαθήματα.';
       }
       const total = sessions.length;
       const display = sessions.slice(0, 20);
@@ -716,7 +716,7 @@ async function executeOwnerTool(
         (s) => `${s.sessionDate} ${s.sessionTime} — ${s.bookedCount}/${s.capacity} θέσεις`
       );
       if (total > 20) {
-        lines.push(`... και ${total - 20} ακόμα σεζόν.`);
+        lines.push(`... και ${total - 20} ακόμα μαθήματα.`);
       }
       return lines.join('\n');
     }
@@ -733,15 +733,15 @@ async function executeOwnerTool(
         (s) => s.sessionDate === session_date && s.sessionTime === session_time
       );
       if (!target) {
-        return `Δεν βρέθηκε σεζόν στις ${session_date} ${session_time}.`;
+        return `Δεν βρέθηκε μάθημα στις ${session_date} ${session_time}.`;
       }
       // cancelSession calls withBusinessContext internally (ownership guard via FK chain)
       const cancelled = await cancelSession(business.id, target.instanceId);
       if (!cancelled) {
-        return `Η σεζόν στις ${session_date} ${session_time} ήταν ήδη ακυρωμένη.`;
+        return `Το μάθημα στις ${session_date} ${session_time} ήταν ήδη ακυρωμένο.`;
       }
       // NOTE: do NOT call sendTelegramMessage here — async notification poller handles it
-      return `Η σεζόν στις ${session_date} ${session_time} ακυρώθηκε. Οι κρατημένοι πελάτες θα ειδοποιηθούν αυτόματα.`;
+      return `Το μάθημα στις ${session_date} ${session_time} ακυρώθηκε. Οι κρατημένοι πελάτες θα ειδοποιηθούν αυτόματα.`;
     }
 
     case 'assign_client_to_session': {
@@ -757,7 +757,7 @@ async function executeOwnerTool(
         (s) => s.sessionDate === session_date && s.sessionTime === session_time
       );
       if (!target) {
-        return `Δεν βρέθηκε σεζόν στις ${session_date} ${session_time}.`;
+        return `Δεν βρέθηκε μάθημα στις ${session_date} ${session_time}.`;
       }
       // T-10-12: businessId ownership guard enforced inside bookSessionInstance via FK subquery
       const idempotencyKey = `owner-assign:${business.id}:${session_date}:${session_time}:${client_phone}`;
@@ -769,18 +769,18 @@ async function executeOwnerTool(
         idempotencyKey
       );
       if (bookResult.status === 'full') {
-        return 'Η σεζόν είναι γεμάτη. Δεν είναι δυνατή η ανάθεση.';
+        return 'Το μάθημα είναι γεμάτο. Δεν είναι δυνατή η ανάθεση.';
       }
       if (bookResult.status === 'conflict') {
-        return 'Σφάλμα: η σεζόν δεν είναι διαθέσιμη (ακυρωμένη ή δεν βρέθηκε).';
+        return 'Σφάλμα: το μάθημα δεν είναι διαθέσιμο (ακυρωμένο ή δεν βρέθηκε).';
       }
       // D-11 pattern: sendTelegramMessage NOT wrapped in try/catch — failure propagates
       // to top-level catch which returns Greek error to Gemini (T-10-13 accepted risk).
       await sendTelegramMessage(
         client_phone,
-        `Ο ιδιοκτήτης σε όρισε στη σεζόν ${session_date} στις ${session_time}. Σε περιμένουμε!`
+        `Ο ιδιοκτήτης σε όρισε στο μάθημα ${session_date} στις ${session_time}. Σε περιμένουμε!`
       );
-      return `Ο πελάτης ${client_phone} ορίστηκε στη σεζόν ${session_date} ${session_time} και ειδοποιήθηκε.`;
+      return `Ο πελάτης ${client_phone} ορίστηκε στο μάθημα ${session_date} ${session_time} και ειδοποιήθηκε.`;
     }
 
     case 'list_slotless_requests': {
@@ -829,9 +829,9 @@ async function executeOwnerTool(
         if (sessions.length > 0) {
           await setBookingMode(business.id, mode);
           return (
-            `⚠️ Προσοχή: υπάρχουν ${sessions.length} υπάρχουσες σεζόν. ` +
+            `⚠️ Προσοχή: υπάρχουν ${sessions.length} υπάρχοντα μαθήματα. ` +
             'Ο τρόπος κράτησης άλλαξε σε "πρόγραμμα τάξεων". ' +
-            'Οι πελάτες θα βλέπουν πλέον μόνο τις ορισμένες σεζόν.'
+            'Οι πελάτες θα βλέπουν πλέον μόνο τα ορισμένα μαθήματα.'
           );
         }
       }

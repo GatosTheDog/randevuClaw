@@ -353,7 +353,7 @@ async function cancelAppointmentTool(
           success: false,
           pending_confirmation: true,
           booking_id: booking.id,
-          warning: `Θα χάσετε 1 session από τη συνδρομή σας αν ακυρώσετε τώρα (εντός ${cutoffHours} ωρών πριν τη σεζόν). Απαντήστε "ναι" για επιβεβαίωση ή "όχι" για ακύρωση.`,
+          warning: `Θα χάσετε 1 session από τη συνδρομή σας αν ακυρώσετε τώρα (εντός ${cutoffHours} ωρών πριν το μάθημα). Απαντήστε "ναι" για επιβεβαίωση ή "όχι" για ακύρωση.`,
         };
       }
       // confirmed=true: cancel without restoring credit (CANC-04)
@@ -541,7 +541,7 @@ async function listSessionsForClientTool(
   const sessions = await listSessions(context.business.id);
 
   if (sessions.length === 0) {
-    return { sessions: [], message: 'Δεν υπάρχουν επερχόμενες σεζόν αυτή τη στιγμή.' };
+    return { sessions: [], message: 'Δεν υπάρχουν επερχόμενα μαθήματα αυτή τη στιγμή.' };
   }
 
   return {
@@ -584,7 +584,7 @@ async function bookSessionTool(
       return {
         success: false,
         error: 'no_membership',
-        message: enfResult.message ?? 'Χρειάζεστε ενεργή συνδρομή για να κλείσετε σεζόν. Επικοινωνήστε με ' + context.business.name + ' για ανανέωση.',
+        message: enfResult.message ?? 'Χρειάζεστε ενεργή συνδρομή για να κλείσετε μάθημα. Επικοινωνήστε με ' + context.business.name + ' για ανανέωση.',
       };
     }
 
@@ -628,7 +628,7 @@ async function bookSessionTool(
     return {
       success: false,
       error: 'missing_session_instance_id',
-      message: 'Δεν δόθηκε αναγνωριστικό σεζόν. Χρησιμοποίησε list_sessions_for_client για να δεις τις διαθέσιμες σεζόν.',
+      message: 'Δεν δόθηκε αναγνωριστικό μαθήματος. Χρησιμοποίησε list_sessions_for_client για να δεις τα διαθέσιμα μαθήματα.',
     };
   }
 
@@ -637,14 +637,14 @@ async function bookSessionTool(
     return {
       success: false,
       error: 'no_membership',
-      message: enfResult.message ?? 'Χρειάζεστε ενεργή συνδρομή για να κλείσετε σεζόν. Επικοινωνήστε με ' + context.business.name + ' για ανανέωση.',
+      message: enfResult.message ?? 'Χρειάζεστε ενεργή συνδρομή για να κλείσετε μάθημα. Επικοινωνήστε με ' + context.business.name + ' για ανανέωση.',
     };
   }
 
   const sessions = await listSessions(context.business.id);
   const session = sessions.find((s) => s.instanceId === parsed.session_instance_id);
   if (!session) {
-    return { success: false, error: 'session_not_found', message: 'Η σεζόν δεν βρέθηκε ή δεν είναι πλέον διαθέσιμη.' };
+    return { success: false, error: 'session_not_found', message: 'Το μάθημα δεν βρέθηκε ή δεν είναι πλέον διαθέσιμο.' };
   }
 
   const result = await bookSessionInstance(
@@ -657,10 +657,10 @@ async function bookSessionTool(
   );
 
   if (result.status === 'full') {
-    return { success: false, error: 'session_full', message: 'Η σεζόν είναι πλήρης. Δεν υπάρχουν διαθέσιμες θέσεις.' };
+    return { success: false, error: 'session_full', message: 'Το μάθημα είναι πλήρες. Δεν υπάρχουν διαθέσιμες θέσεις.' };
   }
   if (result.status === 'conflict') {
-    return { success: false, error: 'session_not_available', message: 'Η σεζόν δεν είναι διαθέσιμη (ακυρωμένη ή δεν βρέθηκε).' };
+    return { success: false, error: 'session_not_available', message: 'Το μάθημα δεν είναι διαθέσιμο (ακυρωμένο ή δεν βρέθηκε).' };
   }
 
   // Best-effort owner alert — session bookings are auto-confirmed; no approve/reject keyboard needed
@@ -668,7 +668,7 @@ async function bookSessionTool(
     if (context.business.ownerTelegramId) {
       await sendTelegramMessage(
         context.business.ownerTelegramId,
-        'Νέα κράτηση σεζόν ' + session.sessionDate + ' ' + session.sessionTime + ' — πελάτης: ' + context.clientPhone
+        'Νέα κράτηση μαθήματος ' + session.sessionDate + ' ' + session.sessionTime + ' — πελάτης: ' + context.clientPhone
       );
     }
   } catch (err) {
@@ -699,7 +699,7 @@ async function rescheduleSessionTool(
     return {
       success: false,
       error: 'not_a_session_booking',
-      message: 'Αυτή η κράτηση δεν αφορά σεζόν. Χρησιμοποίησε reschedule_appointment αντί για reschedule_session.',
+      message: 'Αυτή η κράτηση δεν αφορά μάθημα. Χρησιμοποίησε reschedule_appointment αντί για reschedule_session.',
     };
   }
 
@@ -716,7 +716,7 @@ async function rescheduleSessionTool(
         success: false,
         error: 'past_membership_expiry',
         message:
-          'Η νέα σεζόν (' +
+          'Το νέο μάθημα (' +
           newSession.sessionDate +
           ') είναι μετά τη λήξη της συνδρομής σας (' +
           formatExpiryDateGreek(membership.expiresAt) +
@@ -754,7 +754,7 @@ async function rescheduleSessionTool(
     return {
       success: false,
       error: 'reschedule_failed_' + result.status,
-      message: result.status === 'full' ? 'Η νέα σεζόν είναι πλήρης.' : 'Η νέα σεζόν δεν είναι διαθέσιμη.',
+      message: result.status === 'full' ? 'Το νέο μάθημα είναι πλήρες.' : 'Το νέο μάθημα δεν είναι διαθέσιμο.',
     };
   }
 

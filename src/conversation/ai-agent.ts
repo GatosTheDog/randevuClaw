@@ -7,7 +7,7 @@ import { logger } from '../utils/logger';
 
 const ai = new GoogleGenAI({ apiKey: config.geminiApiKey });
 
-const GEMINI_MODEL = 'gemini-2.5-flash-lite';
+const GEMINI_MODEL = 'gemini-3.5-flash-lite';
 
 // CR-01: generous upper bound for a single conversation turn; prevents a
 // stuck Gemini tool-call loop from hanging the webhook request that awaits it.
@@ -122,7 +122,7 @@ const BOOKING_TOOLS = [
   {
     type: 'function' as const,
     name: 'list_sessions_for_client',
-    description: 'Επιστρέφει τις επερχόμενες διαθέσιμες σεζόν της επιχείρησης που μπορεί να κλείσει ο πελάτης. Κάλεσέ το πριν από το book_session αν ο πελάτης δεν γνωρίζει τις ακριβείς λεπτομέρειες της σεζόν.',
+    description: 'Επιστρέφει τα επερχόμενα διαθέσιμα μαθήματα της επιχείρησης που μπορεί να κλείσει ο πελάτης. Κάλεσέ το πριν από το book_session αν ο πελάτης δεν γνωρίζει τις ακριβείς λεπτομέρειες του μαθήματος.',
     parameters: {
       type: 'object',
       properties: {
@@ -134,12 +134,12 @@ const BOOKING_TOOLS = [
   {
     type: 'function' as const,
     name: 'book_session',
-    description: 'Κλείνει συγκεκριμένη σεζόν για τον πελάτη. Χρησιμοποίησε list_sessions_for_client αν χρειάζεσαι να βρεις το ακριβές session_instance_id. Αν allow_multi_booking είναι ενεργό, μπορείς να στείλεις λίστα session_instance_ids για πολλαπλές κρατήσεις μαζί.',
+    description: 'Κλείνει συγκεκριμένο μάθημα για τον πελάτη. Χρησιμοποίησε list_sessions_for_client αν χρειάζεσαι να βρεις το ακριβές session_instance_id. Αν allow_multi_booking είναι ενεργό, μπορείς να στείλεις λίστα session_instance_ids για πολλαπλές κρατήσεις μαζί.',
     parameters: {
       type: 'object',
       properties: {
         business_id: { type: 'integer' },
-        session_instance_id: { type: 'integer', description: 'ID της συγκεκριμένης σεζόν από list_sessions_for_client' },
+        session_instance_id: { type: 'integer', description: 'ID του συγκεκριμένου μαθήματος από list_sessions_for_client' },
         session_instance_ids: { type: 'array', items: { type: 'integer' }, description: 'Λίστα session instance IDs για πολλαπλές κρατήσεις (μόνο αν allow_multi_booking=true)' },
       },
       required: ['business_id'],
@@ -148,13 +148,13 @@ const BOOKING_TOOLS = [
   {
     type: 'function' as const,
     name: 'reschedule_session',
-    description: 'Αλλάζει μια κράτηση σεζόν σε διαφορετική σεζόν. Ελέγχει αν η νέα σεζόν είναι εντός ισχύος της συνδρομής του πελάτη.',
+    description: 'Αλλάζει μια κράτηση μαθήματος σε διαφορετικό μάθημα. Ελέγχει αν το νέο μάθημα είναι εντός ισχύος της συνδρομής του πελάτη.',
     parameters: {
       type: 'object',
       properties: {
         business_id: { type: 'integer' },
         booking_id: { type: 'integer', description: 'ID της υπάρχουσας κράτησης' },
-        new_session_instance_id: { type: 'integer', description: 'ID της νέας σεζόν' },
+        new_session_instance_id: { type: 'integer', description: 'ID του νέου μαθήματος' },
       },
       required: ['business_id', 'booking_id', 'new_session_instance_id'],
     },
@@ -206,10 +206,10 @@ function buildSystemInstruction(
   // Phase 11 (CLSS-01/SBOK-01): fixed_sessions mode — redirect Gemini to session tools
   if (business.bookingMode === 'fixed_sessions') {
     const sessionRules = [
-      '- Αυτή η επιχείρηση λειτουργεί με ΣΤΑΘΕΡΕΣ ΣΕΖΟΝ. Χρησιμοποίησε list_sessions_for_client για να δεις τις διαθέσιμες σεζόν και book_session για να κλείσεις.',
+      '- Αυτή η επιχείρηση λειτουργεί με ΣΤΑΘΕΡΑ ΜΑΘΗΜΑΤΑ. Χρησιμοποίησε list_sessions_for_client για να δεις τα διαθέσιμα μαθήματα και book_session για να κλείσεις.',
       '- ΜΗΝ χρησιμοποιείς check_availability ή book_appointment για κρατήσεις — χρησιμοποίησε ΜΟΝΟ book_session.',
       ...(business.allowMultiBooking
-        ? ['- Ο πελάτης μπορεί να κλείσει ΠΟΛΛΑΠΛΕΣ σεζόν σε ένα μήνυμα — χρησιμοποίησε session_instance_ids (λίστα) αντί για session_instance_id.']
+        ? ['- Ο πελάτης μπορεί να κλείσει ΠΟΛΛΑΠΛΑ μαθήματα σε ένα μήνυμα — χρησιμοποίησε session_instance_ids (λίστα) αντί για session_instance_id.']
         : []),
     ];
     rules.push(...sessionRules);
