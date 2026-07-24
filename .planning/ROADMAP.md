@@ -79,7 +79,7 @@ Plans:
 
 - [x] 18-01-PLAN.md — /start pre-emption + ClientMenuCallbackResult union + showClientRootMenu + handleCallbackQuery business threading (CMENU-01, CMENU-05)
 - [x] 18-02-PLAN.md — Book a class flow: session list → Ναι/Όχι confirm → bookSessionInstance with enforcement gate (CMENU-02, CMENU-04)
-- [ ] 18-03-PLAN.md — My Bookings display + Cancel flow with cutoff + credit restore + Balance display (CMENU-03, CMENU-04)
+- [x] 18-03-PLAN.md — My Bookings display + Cancel flow with cutoff + credit restore + Balance display (CMENU-03, CMENU-04)
 - [ ] 18-04-PLAN.md — Integration tests: /start intercept, CMENU-05 free-text, parseCallbackData union, booking/cancel/ownership/cutoff coverage
 - [ ] **Phase 19: Class Setup in Onboarding & Terminology Fix** - Onboarding class schedule step with recurrence and capacity; σεζόν replaced with μάθημα across all bot messages and copy
 - [ ] **Phase 20: Client Escalation** - Blocked client triggers Greek apology + admin notification with context and inline reply option
@@ -137,10 +137,10 @@ Plans:
   4. Any binary confirmation (confirm booking, confirm cancellation) shows Ναι/Όχι inline buttons — no free-text confirmation prompt
   5. Client ignores the menu and types a Greek sentence instead; the AI agent interprets it and routes to the correct flow without error
 
-**Plans**: 2/4 plans executed
+**Plans**: 3/4 plans executed
 
 - [x] 18-01-PLAN.md — /start pre-emption + ClientMenuCallbackResult union + showClientRootMenu + handleCallbackQuery business threading (CMENU-01, CMENU-05)
-- [ ] 18-02-PLAN.md — Book a class flow: session list → Ναι/Όχι confirm → bookSessionInstance with enforcement gate (CMENU-02, CMENU-04)
+- [x] 18-02-PLAN.md — Book a class flow: session list → Ναι/Όχι confirm → bookSessionInstance with enforcement gate (CMENU-02, CMENU-04)
 - [ ] 18-03-PLAN.md — My Bookings display + Cancel flow with cutoff + credit restore + Balance display (CMENU-03, CMENU-04)
 - [ ] 18-04-PLAN.md — Integration tests: /start intercept, CMENU-05 free-text, parseCallbackData union, booking/cancel/ownership/cutoff coverage
 
@@ -195,6 +195,6 @@ Plans:
 | 15. Onboarding Extensions | v1.3 | 2/2 | Complete | 2026-07-23 |
 | 16. Single-Bot Architecture | v1.4 | 3/3 | Complete | 2026-07-23 |
 | 17. Admin Menu | v1.4 | 4/4 | Complete   | 2026-07-23 |
-| 18. Client Menu | v1.4 | 2/4 | In Progress|  |
+| 18. Client Menu | v1.4 | 3/4 | In Progress|  |
 | 19. Class Setup in Onboarding & Terminology Fix | v1.4 | 0/TBD | Not started | - |
 | 20. Client Escalation | v1.4 | 0/TBD | Not started | - |
