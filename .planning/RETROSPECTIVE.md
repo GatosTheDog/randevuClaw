@@ -147,6 +147,65 @@
 
 ---
 
+## Milestone: v1.3 — Studio Session Scheduling & Slotless Bookings
+
+**Shipped:** 2026-07-23 (retroactive entry — v1.3 never got a proper `/gsd-complete-milestone` close; no archive files exist, no retrospective was written at the time. Reconstructed from ROADMAP.md phase descriptions and git history during the v1.4 close.)
+
+**Phases:** 6 (10-15) | **Plans:** ~20 (exact count lost with the missing archive)
+
+### What Was Built
+
+Session catalog + RRule-based recurring class scheduling (Phase 10), client session booking with atomic capacity enforcement (Phase 11), opt-in cancellation cutoff policy (Phase 12), slotless booking requests with owner approve/reject (Phase 13), renewal notification extensions (Phase 14), onboarding extensions for the new optional features (Phase 15).
+
+### Key Lesson (the one that matters)
+
+**A milestone can silently skip its close.** v1.3 shipped real, working code (confirmed — all downstream v1.4 phases depend on it and function correctly) but the `/gsd-complete-milestone` archival step never ran: no `v1.3-ROADMAP.md`, no `v1.3-REQUIREMENTS.md`, no retrospective entry. When v1.4 started, its `/gsd-new-milestone` flow created a fresh `REQUIREMENTS.md` that overwrote v1.3's live requirements file without archiving it first — permanently losing v1.3's exact requirement IDs and completion evidence. The only reason this was caught at all was the v1.4 milestone-close verification sweep cross-checking `init.manager` against actual phase directories.
+
+**Actionable fix for future milestones:** `/gsd-new-milestone` (or `/gsd-new-project`) should hard-block starting a new milestone's REQUIREMENTS.md if the current one has unshipped-but-marked-complete phases without a corresponding milestone archive — don't let a new milestone silently begin on top of an unclosed one.
+
+---
+
+## Milestone: v1.4 — Single-Bot UX Overhaul
+
+**Shipped:** 2026-07-24
+
+**Phases:** 5 (16-20) | **Plans:** 16
+
+### What Was Built
+
+Platform bot removed — single per-business bot handles both admin and client traffic, routed by Telegram-ID match (Phase 16). Admin `/menu` with Settings/Classes/Clients/Today's-Agenda sub-menus, all binary decisions via Ναι/Όχι inline keyboards (Phase 17). Client `/start` menu with Book/My-Bookings/Cancel/Balance inline flows, free Greek chat still available (Phase 18). Class-schedule setup wired into owner onboarding + σεζόν→μάθημα terminology fix across 45 strings (Phase 19). Blocked-client escalation: Greek apology to client, inline admin notification with approve-exception button (Phase 20, reply-relay half deferred).
+
+### What Worked
+
+- The user's decision to verify phases 16/17/19 retroactively (they'd been executed but never code-reviewed or goal-verified) before closing the milestone — caught 3 real bugs that would otherwise have shipped silently
+- Parallel background code-review + verifier subagents across independent phases cut wall-clock time significantly versus running them sequentially
+- Cross-checking `gsd-tools query init.manager`'s `ALL_PHASES_VERIFIED` computed field against what ROADMAP.md claimed surfaced the phase 16/17/19 verification gap that would otherwise have been invisible
+
+### What Was Inefficient
+
+- Phases 16, 17, 19 were marked "complete" in ROADMAP.md/STATE.md during execution without ever running code review or goal-backward verification — the gap sat undetected until milestone close, three phases and one full day later
+- Discovered mid-close that v1.3 never got a proper milestone archive either (see v1.3 entry above) — doc-integrity debt compounds when one milestone's close is skipped
+
+### Patterns Established
+
+- Retroactive verification sweep at milestone close: for any phase with `disk_status: executed` but no `VERIFICATION.md`, spawn code-review + verify agents before allowing the milestone to close, not just checking the currently-active phase
+- Cross-tenant guard pattern: callback_query handlers must reuse the webhook-scoped `business` param (HMAC-verified upstream) rather than re-deriving via `findBusinessByOwnerTelegramId(senderTelegramId)`, which has no uniqueness guarantee across multiple businesses per Telegram account
+- When an accepted/deferred gap survives verification (like ESCL-03's reply-relay), record it as an `override` block in the phase's VERIFICATION.md frontmatter (decision, decided_by, decided_at, note) rather than silently flipping status to passed — keeps the deferral auditable
+
+### Key Lessons
+
+1. **Run code review + verify-work per phase during execution, not deferred to milestone close.** All 3 bugs found this session (dead onboarding-routing code, ambiguous cross-tenant lookup, wrong Gemini model id) would have been caught immediately after the phase that introduced them, with much smaller blast radius, if verification had run when the phase was actually executed instead of accumulating across 3 phases and surfacing all at once weeks... well, hours later.
+2. A model-id or config-value change hidden inside an unrelated commit (the σεζόν→μάθημα i18n commit that also silently bumped `gemini-2.5-flash-lite` to `gemini-3.5-flash-lite`) is exactly the kind of thing a scoped code review catches and a "looks like a strings-only diff" skim does not.
+3. `git log --all --grep` for phase-scoped commit ranges is unreliable for computing diff bases — prefer reading actual commit messages/timestamps over pattern-matching grep when precision matters for stats.
+
+### Cost Observations
+
+- Sessions: 1 session covering phases 19-20 execution, code review, verification, and full v1.4 milestone close
+- Model: Claude Sonnet 5 throughout, with Haiku for verifier subagents
+- Notable: 3 real production bugs found and fixed during the milestone-close verification sweep alone — none would have been caught by the standard "did the tests pass" check, since all 3 had passing tests around the broken behavior
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -156,6 +215,8 @@
 | v1.0 | 3 | 19 | Initial build — established all core patterns |
 | v1.1 | 2 | 13 | Per-bot routing + DB-backed onboarding state machine |
 | v1.2 | 3 | 16 | Billing layer + enforcement + proactive notifications; Wave 0 scaffolding mature |
+| v1.3 | 6 | ~20 | Session scheduling + slotless bookings — close never ran, exact count lost |
+| v1.4 | 5 | 16 | Single-bot merge + menus + escalation; first milestone with a retroactive verification sweep at close |
 
 ### Cumulative Quality
 
@@ -164,6 +225,8 @@
 | v1.0 | 208 | Clean | All 3 phases Nyquist-compliant |
 | v1.1 | 28 test files | Clean | Full mock isolation; no real Telegram API or DB in CI |
 | v1.2 | 320 (42 suites) | Clean | SELECT FOR UPDATE + UNIQUE dedup pattern established |
+| v1.3 | unknown | unknown | No archive — figures lost |
+| v1.4 | 344 total, 247 passing | Clean (src/) | 94 pre-existing test failures unrelated to v1.4 (stale fixtures, TS6200 collisions) — test-suite health debt flagged, not fixed |
 
 ### Top Lessons (Verified Across Milestones)
 
@@ -173,3 +236,5 @@
 4. Run `milestone.complete` CLI before archiving phase docs manually — the CLI needs SUMMARY.md files in place for accurate stats.
 5. Wave 0 it.todo scaffolding pays off across 3+ phases — invest in stubs early, implement late, keep ts-jest green throughout.
 6. UAT → gap plan → re-verify cycle catches real UX regressions that static code review cannot surface.
+7. A milestone's `/gsd-complete-milestone` close can be silently skipped (v1.3) with no forcing function to catch it — the next milestone's fresh REQUIREMENTS.md just overwrites the unshipped one's history. Verify the archive step actually ran, don't just trust the ROADMAP.md "SHIPPED" badge.
+8. Phases executed without per-phase code review + verification accumulate risk invisibly — a milestone-close sweep that retroactively verifies every phase (not just the currently active one) is the last safety net, but it's much cheaper to catch bugs per-phase than to batch-discover 3 of them at once during close.
