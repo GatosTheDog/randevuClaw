@@ -4,6 +4,7 @@ import { db } from '../database/db';
 import { businesses, businessHours, services } from '../database/schema';
 import { generateSlug } from '../database/seed';
 import type { Business } from '../database/queries';
+import { listServicesForBusiness, findServiceById } from '../database/queries';
 import { updateOnboardingStep, activateBusiness } from './queries';
 import type { OnboardingSession } from './queries';
 import {
@@ -12,6 +13,7 @@ import {
   unregisterBotWebhook,
   registerBotWebhook,
 } from '../telegram/client';
+import { buildRRuleString, createSessionCatalogWithExpansion } from '../session/manager';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 
@@ -43,6 +45,12 @@ export type OnboardingStep =
   | 'config_cancellation_cutoff'
   | 'config_slotless_requests'
   | 'config_last_session_threshold'
+  | 'class_setup_query'
+  | 'class_setup_service'
+  | 'class_setup_weekdays'
+  | 'class_setup_time'
+  | 'class_setup_capacity'
+  | 'class_setup_more'
   | 'done';
 
 /**
@@ -62,6 +70,12 @@ export const GREEK_DAY_NAMES: Record<number, string> = {
 /** Partial state stored in onboarding_sessions.collected_data. */
 export interface CollectedData {
   currentService?: { name?: string; price?: number };
+  classSetup?: {
+    serviceId?: number;
+    weekdays?: string[];
+    startTime?: string;
+    capacity?: number;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -70,6 +84,9 @@ export interface CollectedData {
 
 /** HH:MM-HH:MM range format validator. */
 const RANGE_REGEX = /^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$/;
+
+/** HH:MM single time format validator (24-hour). */
+const TIME_ONLY_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 function timeToMinutes(t: string): number {
   const [h, m] = t.split(':').map(Number);
@@ -567,5 +584,286 @@ export async function handleConfigLastSessionThresholdStep(
       .where(eq(businesses.id, business.id));
   }
 
-  await handleActivate(session, business, ownerTelegramId);
+  // CLSS-01: fixed_sessions owners enter class setup flow; open_slots owners go straight to done.
+  if (business.bookingMode === 'fixed_sessions') {
+    await updateOnboardingStep(session.id, 'class_setup_query', null);
+    await sendTelegramMessageWithKeyboard(
+      ownerTelegramId,
+      'Θέλετε να ορίσετε τώρα τo πρόγραμμα μαθημάτων; (μπορείτε να το κάνετε αργότερα από το μενού)',
+      YES_NO_BUTTONS
+    );
+  } else {
+    await handleActivate(session, business, ownerTelegramId);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Class schedule setup step handlers (CLSS-01/02/03/04)
+// ---------------------------------------------------------------------------
+
+/**
+ * handleClassSetupQuery — asks the fixed_sessions owner if they want to set up
+ * a recurring class schedule now.
+ *
+ * CLSS-04: Ναι → class_setup_service; Όχι → handleActivate (skip path, zero DB rows).
+ */
+export async function handleClassSetupQuery(
+  session: OnboardingSession,
+  business: Business,
+  ownerTelegramId: string,
+  text: string
+): Promise<void> {
+  const normalized = text.trim().toLowerCase();
+  const isYes = normalized.includes('ναι') || normalized.includes('yes');
+  const isNo = normalized.includes('όχι') || normalized.includes('no');
+
+  if (isYes) {
+    // List existing services so the owner knows what to pick next
+    const svcList = await listServicesForBusiness(business.id);
+    const listText = svcList.length > 0
+      ? svcList.map((s, i) => `${i + 1}. ${s.name}`).join('\n')
+      : '(δεν βρέθηκαν υπηρεσίες)';
+    await updateOnboardingStep(session.id, 'class_setup_service', null);
+    await sendTelegramMessage(
+      ownerTelegramId,
+      `Για ποιο μάθημα/υπηρεσία θέλετε να ορίσετε πρόγραμμα;\n\nΔιαθέσιμες υπηρεσίες:\n${listText}\n\n(π.χ. Reformer Pilates)`
+    );
+  } else if (isNo) {
+    // CLSS-04: skip — go directly to activation without creating any session catalog rows
+    await handleActivate(session, business, ownerTelegramId);
+  } else {
+    // Unrecognized input — re-send Ναι/Όχι keyboard
+    await sendTelegramMessageWithKeyboard(
+      ownerTelegramId,
+      'Θέλετε να ορίσετε τώρα τo πρόγραμμα μαθημάτων; (μπορείτε να το κάνετε αργότερα από το μενού)',
+      YES_NO_BUTTONS
+    );
+  }
+}
+
+/**
+ * handleClassSetupServiceStep — owner names the service for the class.
+ *
+ * CLSS-02: case-insensitive substring match on service names; also accepts
+ * numeric index ("1", "2", …) from the service list.
+ * T-19-02: listServicesForBusiness uses businessId from session context — never
+ * from user text, preventing cross-tenant lookup.
+ */
+export async function handleClassSetupServiceStep(
+  session: OnboardingSession,
+  business: Business,
+  ownerTelegramId: string,
+  text: string
+): Promise<void> {
+  const svcList = await listServicesForBusiness(business.id);
+  const trimmed = text.trim();
+  const numericIndex = parseInt(trimmed, 10);
+
+  let matched = null;
+
+  if (!isNaN(numericIndex) && numericIndex >= 1 && numericIndex <= svcList.length) {
+    // Numeric selection (1-based)
+    matched = svcList[numericIndex - 1];
+  } else {
+    // Case-insensitive substring match
+    const lower = trimmed.toLowerCase();
+    matched = svcList.find((s) => s.name.toLowerCase().includes(lower)) ?? null;
+  }
+
+  if (!matched) {
+    const listText = svcList.map((s, i) => `${i + 1}. ${s.name}`).join('\n');
+    await sendTelegramMessage(
+      ownerTelegramId,
+      `Διαθέσιμες υπηρεσίες:\n${listText}\n\nΠοια υπηρεσία;`
+    );
+    return;
+  }
+
+  const collectedData = parseCollectedData(session.collectedData);
+  if (!collectedData.classSetup) collectedData.classSetup = {};
+  collectedData.classSetup.serviceId = matched.id;
+
+  await updateOnboardingStep(session.id, 'class_setup_weekdays', serializeCollectedData(collectedData));
+  await sendTelegramMessage(
+    ownerTelegramId,
+    `Ποιες μέρες; (π.χ. Δευτέρα, Τετάρτη, Παρασκευή ή "καθημερινά" για Δευτ-Παρ)`
+  );
+}
+
+/** Weekday names from GREEK_DAY_NAMES values (Mon-Sun). Used for parsing weekday input. */
+const WEEKDAY_NAMES_SET = new Set(Object.values(GREEK_DAY_NAMES));
+
+/** 'καθημερινά' expands to the 5 Greek weekday names (Mon-Fri, indices 1-5 in GREEK_DAY_NAMES). */
+const WEEKDAYS_MONDAY_TO_FRIDAY = [
+  GREEK_DAY_NAMES[1]!, // Δευτέρα
+  GREEK_DAY_NAMES[2]!, // Τρίτη
+  GREEK_DAY_NAMES[3]!, // Τετάρτη
+  GREEK_DAY_NAMES[4]!, // Πέμπτη
+  GREEK_DAY_NAMES[5]!, // Παρασκευή
+];
+
+/**
+ * handleClassSetupWeekdaysStep — parses comma-separated Greek weekday names.
+ *
+ * CLSS-03: accepts 'καθημερινά' as shorthand for Mon-Fri.
+ * Uses GREEK_DAY_NAMES constant (already declared in this file) for name recognition.
+ */
+export async function handleClassSetupWeekdaysStep(
+  session: OnboardingSession,
+  _business: Business,
+  ownerTelegramId: string,
+  text: string
+): Promise<void> {
+  const trimmed = text.trim().toLowerCase();
+
+  let weekdays: string[];
+
+  if (trimmed.includes('καθημερινά') || trimmed === 'daily') {
+    weekdays = WEEKDAYS_MONDAY_TO_FRIDAY;
+  } else {
+    // Split on comma or space, filter for recognized Greek day names
+    const parts = text.split(/[,\s]+/).map((p) => p.trim()).filter(Boolean);
+    weekdays = parts.filter((p) => WEEKDAY_NAMES_SET.has(p));
+  }
+
+  if (weekdays.length === 0) {
+    await sendTelegramMessage(
+      ownerTelegramId,
+      'Δεν αναγνωρίστηκαν μέρες. Παρακαλώ γράψτε π.χ. Δευτέρα, Τετάρτη, Παρασκευή:'
+    );
+    return;
+  }
+
+  const collectedData = parseCollectedData(session.collectedData);
+  if (!collectedData.classSetup) collectedData.classSetup = {};
+  collectedData.classSetup.weekdays = weekdays;
+
+  await updateOnboardingStep(session.id, 'class_setup_time', serializeCollectedData(collectedData));
+  await sendTelegramMessage(ownerTelegramId, 'Τι ώρα; (π.χ. 09:00)');
+}
+
+/**
+ * handleClassSetupTimeStep — validates HH:MM 24-hour format.
+ *
+ * CLSS-03: stores startTime in collectedData.classSetup.startTime.
+ */
+export async function handleClassSetupTimeStep(
+  session: OnboardingSession,
+  _business: Business,
+  ownerTelegramId: string,
+  text: string
+): Promise<void> {
+  const trimmed = text.trim();
+
+  if (!TIME_ONLY_REGEX.test(trimmed)) {
+    await sendTelegramMessage(
+      ownerTelegramId,
+      'Μη έγκυρη ώρα. Χρησιμοποιήστε μορφή ΩΩ:ΛΛ (π.χ. 09:00):'
+    );
+    return;
+  }
+
+  const collectedData = parseCollectedData(session.collectedData);
+  if (!collectedData.classSetup) collectedData.classSetup = {};
+  collectedData.classSetup.startTime = trimmed;
+
+  await updateOnboardingStep(session.id, 'class_setup_capacity', serializeCollectedData(collectedData));
+  await sendTelegramMessage(ownerTelegramId, 'Πόσες θέσεις; (π.χ. 4)');
+}
+
+/**
+ * handleClassSetupCapacityStep — validates capacity 1-99, calls
+ * buildRRuleString + createSessionCatalogWithExpansion, advances to class_setup_more.
+ *
+ * T-19-01: capacity validated 1-99 before any DB write.
+ * Defensive guard: missing classSetup fields reset to class_setup_query.
+ */
+export async function handleClassSetupCapacityStep(
+  session: OnboardingSession,
+  business: Business,
+  ownerTelegramId: string,
+  text: string
+): Promise<void> {
+  const parsed = parseInt(text.trim(), 10);
+
+  if (isNaN(parsed) || parsed < 1 || parsed > 99) {
+    await sendTelegramMessage(ownerTelegramId, 'Μη έγκυρος αριθμός. Εισάγετε 1-99:');
+    return;
+  }
+
+  const collectedData = parseCollectedData(session.collectedData);
+  const { serviceId, weekdays, startTime } = collectedData.classSetup ?? {};
+
+  // Defensive guard: if any required field is missing, reset to class_setup_query
+  if (serviceId == null || !weekdays || weekdays.length === 0 || !startTime) {
+    logger.warn({ sessionId: session.id }, 'handleClassSetupCapacityStep: missing classSetup fields; resetting to class_setup_query');
+    await updateOnboardingStep(session.id, 'class_setup_query', null);
+    await sendTelegramMessageWithKeyboard(
+      ownerTelegramId,
+      'Σφάλμα: λείπουν δεδομένα. Ξεκινήστε ξανά τη ρύθμιση μαθήματος.',
+      YES_NO_BUTTONS
+    );
+    return;
+  }
+
+  const rruleString = buildRRuleString(weekdays, startTime);
+  const { instanceCount } = await createSessionCatalogWithExpansion(
+    business.id,
+    serviceId,
+    rruleString,
+    startTime,
+    parsed
+  );
+
+  // Look up service name for confirmation message
+  const svc = await findServiceById(business.id, serviceId);
+  const serviceName = svc?.name ?? `υπηρεσία #${serviceId}`;
+
+  await updateOnboardingStep(session.id, 'class_setup_more', null);
+  await sendTelegramMessageWithKeyboard(
+    ownerTelegramId,
+    `Δημιουργήθηκαν ${instanceCount} μαθήματα για ${serviceName} ${startTime} — ${weekdays.join(', ')}. Θέλετε να προσθέσετε άλλο μάθημα;`,
+    YES_NO_BUTTONS
+  );
+}
+
+/**
+ * handleClassSetupMoreStep — asks if the owner wants to add another class.
+ *
+ * CLSS-04: Ναι → resets classSetup and returns to class_setup_service.
+ *          Όχι → handleActivate (completes onboarding).
+ */
+export async function handleClassSetupMoreStep(
+  session: OnboardingSession,
+  business: Business,
+  ownerTelegramId: string,
+  text: string
+): Promise<void> {
+  const normalized = text.trim().toLowerCase();
+  const isYes = normalized.includes('ναι') || normalized.includes('yes');
+  const isNo = normalized.includes('όχι') || normalized.includes('no');
+
+  if (isYes) {
+    // Reset classSetup so the next class starts fresh
+    const collectedData = parseCollectedData(session.collectedData);
+    collectedData.classSetup = {};
+    await updateOnboardingStep(session.id, 'class_setup_service', serializeCollectedData(collectedData));
+    // List services again for context
+    const svcList = await listServicesForBusiness(business.id);
+    const listText = svcList.length > 0
+      ? svcList.map((s, i) => `${i + 1}. ${s.name}`).join('\n')
+      : '(δεν βρέθηκαν υπηρεσίες)';
+    await sendTelegramMessage(
+      ownerTelegramId,
+      `Για ποιο μάθημα/υπηρεσία θέλετε να ορίσετε πρόγραμμα;\n\nΔιαθέσιμες υπηρεσίες:\n${listText}\n\n(π.χ. Reformer Pilates)`
+    );
+  } else if (isNo) {
+    await handleActivate(session, business, ownerTelegramId);
+  } else {
+    await sendTelegramMessageWithKeyboard(
+      ownerTelegramId,
+      'Θέλετε να προσθέσετε άλλο μάθημα;',
+      YES_NO_BUTTONS
+    );
+  }
 }

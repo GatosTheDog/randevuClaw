@@ -98,6 +98,14 @@ function makeBusiness(overrides: Partial<Business> = {}): Business {
     googleRefreshToken: null,
     agendaSentDate: null,
     enforcementPolicy: 'allow',
+    bookingMode: 'open_slots',
+    allowMultiBooking: false,
+    cancellationCutoffEnabled: false,
+    cancellationCutoffHours: 0,
+    slotlessRequestsEnabled: false,
+    lastSessionThresholdEnabled: false,
+    lastSessionThresholdCount: 0,
+    onboardingCompleted: false,
     createdAt: new Date(),
     ...overrides,
   };
@@ -270,15 +278,15 @@ describe('Service steps', () => {
     expect(mockedUpdateOnboardingStep).toHaveBeenCalledWith(1, 'svc_more', null);
   });
 
-  it('svc_more "όχι": calls handleActivate — advances session to done, sends activation message', async () => {
+  it('svc_more "όχι": advances to config_booking_mode (next config step)', async () => {
     await dispatchOnboardingStep(makeSession('svc_more'), makeBusiness(), OWNER_ID, 'όχι');
 
-    // Session reaches terminal state
-    expect(mockedUpdateOnboardingStep).toHaveBeenCalledWith(1, 'done', null);
-    // Last sent message confirms activation
+    // svc_more → Όχι advances to booking mode config, not directly to done
+    expect(mockedUpdateOnboardingStep).toHaveBeenCalledWith(1, 'config_booking_mode', null);
+    // A message asking about booking mode must be sent
     const calls = mockedSendTelegramMessage.mock.calls;
     const lastText = calls[calls.length - 1]?.[1] ?? '';
-    expect(lastText).toContain('ενεργ');
+    expect(lastText.toLowerCase()).toMatch(/πρόγραμμα|ελεύθερ|booking/);
   });
 
   it('svc_more "ναι": clears currentService stub, advances back to svc_name', async () => {

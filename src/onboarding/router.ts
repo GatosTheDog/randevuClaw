@@ -14,6 +14,12 @@ import {
   handleConfigCancellationCutoffStep,
   handleConfigSlotlessRequestsStep,
   handleConfigLastSessionThresholdStep,
+  handleClassSetupQuery,
+  handleClassSetupServiceStep,
+  handleClassSetupWeekdaysStep,
+  handleClassSetupTimeStep,
+  handleClassSetupCapacityStep,
+  handleClassSetupMoreStep,
 } from './steps';
 import { updateOnboardingStep } from './queries';
 
@@ -93,6 +99,18 @@ export async function dispatchOnboardingStep(
       await handleConfigSlotlessRequestsStep(session, business, ownerTelegramId, messageText);
     } else if (step === 'config_last_session_threshold') {
       await handleConfigLastSessionThresholdStep(session, business, ownerTelegramId, messageText);
+    } else if (step === 'class_setup_query') {
+      await handleClassSetupQuery(session, business, ownerTelegramId, messageText);
+    } else if (step === 'class_setup_service') {
+      await handleClassSetupServiceStep(session, business, ownerTelegramId, messageText);
+    } else if (step === 'class_setup_weekdays') {
+      await handleClassSetupWeekdaysStep(session, business, ownerTelegramId, messageText);
+    } else if (step === 'class_setup_time') {
+      await handleClassSetupTimeStep(session, business, ownerTelegramId, messageText);
+    } else if (step === 'class_setup_capacity') {
+      await handleClassSetupCapacityStep(session, business, ownerTelegramId, messageText);
+    } else if (step === 'class_setup_more') {
+      await handleClassSetupMoreStep(session, business, ownerTelegramId, messageText);
     } else if (step === 'done') {
       // Terminal state — should not normally receive messages, but handle gracefully
       await sendTelegramMessage(ownerTelegramId, 'Η επιχείρησή σας είναι ήδη ενεργή.');
