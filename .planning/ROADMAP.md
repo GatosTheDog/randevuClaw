@@ -119,4 +119,14 @@ See: `.planning/milestones/v1.4-ROADMAP.md`
 - [ ] Renewal callback routing (Phase 14, `'businessId' in parsed` block) — same pattern (partially mitigated by its own `ownerBusiness.id !== renewalResult.businessId` check, but still resolves the wrong owner's business first if one Telegram account owns multiple businesses)
 - Root cause: `findBusinessByOwnerTelegramId` has no unique constraint on `owner_telegram_id` and no `ORDER BY`, so with multiple businesses under one Telegram account it can return the wrong one
 - Fix pattern: thread the webhook-scoped `business` param (already HMAC-verified) through instead of re-deriving, same as the v1.4 fix
+
+### Phase 999.3: Follow-up — no self-serve entry point to create a new business (v1.4 architectural gap)
+
+**Goal:** Build a real "add a new business" flow now that the platform bot is gone
+**Source:** Discovered 2026-07-24 during post-v1.4 local testing (DB was truncated for a clean test, revealing zero code path creates a `businesses` row)
+**Scope:**
+- [ ] Phase 16 deleted `src/webhooks/platform.ts`, the only caller of `createBusinessForOnboarding` — nothing replaced its role as the entry point for a brand-new business
+- [ ] `npm run create-business -- --bot-token <token> --owner-telegram-id <id>` (added 2026-07-24, commit 3eff213) is a manual CLI stopgap the platform operator runs per new business — not self-serve, not chat-driven
+- [ ] Decide the real v1.4+ story: does a new business owner talk to *some* bot to register their own bot token (bringing back a minimal platform-bot-like intake), or does the platform operator always bootstrap manually for a single-operator PoC?
+- Low urgency while there's one operator onboarding a handful of pilot businesses by hand; blocking if this needs to scale to self-serve signups
 - Low urgency: requires a single Telegram account to own multiple businesses, an edge case not yet supported by onboarding
