@@ -349,15 +349,17 @@ async function handleCallbackQuery(
   // ---------------------------------------------------------------------------
   // Phase 20: Escalation callback routing (ESCL-03)
   // Discriminant: 'escalationAction' in result → EscalationCallbackResult
-  // Cross-tenant guard: business re-derived from senderTelegramId via findBusinessByOwnerTelegramId.
+  // Cross-tenant guard: reuse the webhook-scoped `business` (HMAC-verified upstream,
+  // one business per bot) rather than re-deriving via findBusinessByOwnerTelegramId,
+  // which has no uniqueness guarantee if one Telegram account owns multiple businesses.
   // ---------------------------------------------------------------------------
   if ('escalationAction' in parsed) {
     const escl = parsed as EscalationCallbackResult;
-    const ownerBusiness = await findBusinessByOwnerTelegramId(senderTelegramId);
-    if (!ownerBusiness) {
-      logger.warn({ senderTelegramId }, 'escl callback from unregistered owner, ignoring');
+    if (business.ownerTelegramId !== senderTelegramId) {
+      logger.warn({ senderTelegramId }, 'escl callback from non-owner, ignoring');
       return;
     }
+    const ownerBusiness = business;
 
     if (escl.escalationAction === 'approve') {
       // Approve-exception: book instanceId for clientTelegramId bypassing enforcement,
@@ -433,23 +435,24 @@ async function handleCallbackQuery(
   // ---------------------------------------------------------------------------
   // Phase 17: Admin menu callback routing (AMENU-01, AMENU-06)
   // Discriminant: 'menuAction' in result → MenuCallbackResult
-  // Cross-tenant guard: business re-derived from senderTelegramId, not from callback_data.
+  // Cross-tenant guard: reuse the webhook-scoped `business` (HMAC-verified upstream,
+  // one business per bot) rather than re-deriving via findBusinessByOwnerTelegramId,
+  // which has no uniqueness guarantee if one Telegram account owns multiple businesses.
   // Placed BEFORE the 'action' check so TypeScript narrows cleanly —
   // MenuCallbackResult has no 'action' field; checking it first excludes it
   // from the union before any 'parsed.action' reference below.
   // ---------------------------------------------------------------------------
   if ('menuAction' in parsed) {
     const menuResult = parsed as MenuCallbackResult;
-    const ownerBusiness = await findBusinessByOwnerTelegramId(senderTelegramId);
-    if (!ownerBusiness) {
-      logger.warn({ senderTelegramId }, 'menu callback from unregistered owner, ignoring');
+    if (business.ownerTelegramId !== senderTelegramId) {
+      logger.warn({ senderTelegramId }, 'menu callback from non-owner, ignoring');
       return;
     }
     // Clear old keyboard before sending sub-menu (RESEARCH.md Pitfall 6)
     if (callbackQuery.message?.message_id) {
       await editTelegramMessageReplyMarkup(senderTelegramId, callbackQuery.message.message_id, []);
     }
-    await handleMenuCallback(menuResult, ownerBusiness, senderTelegramId);
+    await handleMenuCallback(menuResult, business, senderTelegramId);
     return;
   }
 
