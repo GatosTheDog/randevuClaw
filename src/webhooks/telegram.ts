@@ -33,6 +33,10 @@ import { findMembershipByBooking, restoreCredit } from '../billing/queries';
 import { isoDateInAthens } from '../utils/timezone';
 import { approveSlotlessRequest, rejectSlotlessRequest } from '../session/slotless-requests';
 import { pendingRenewalBatches } from '../scheduler/membership-expiry';
+import { bookSessionInstance } from '../session/manager';
+import { db } from '../database/db';
+import { sessionInstances, sessionCatalog } from '../database/schema';
+import { eq } from 'drizzle-orm';
 
 interface TelegramFrom {
   id: number;
@@ -139,10 +143,17 @@ export type RenewalCallbackResult = {
   action: 'renewal:approve' | 'renewal:skip';
   businessId: number;
 };
+export type EscalationCallbackResult = {
+  escalationAction: 'approve' | 'reply';
+  /** instanceId — present only for approve */
+  instanceId?: number;
+  /** clientTelegramId to notify or approve for */
+  clientTelegramId: string;
+};
 
 export function parseCallbackData(
   data: string | undefined
-): BookingCallbackResult | BillingCallbackResult | SlotlessCallbackResult | RenewalCallbackResult | MenuCallbackResult | ClientMenuCallbackResult | null {
+): BookingCallbackResult | BillingCallbackResult | SlotlessCallbackResult | RenewalCallbackResult | EscalationCallbackResult | MenuCallbackResult | ClientMenuCallbackResult | null {
   // Existing booking action pattern (unchanged — T-02-17)
   const bookingMatch = data?.match(/^(approve|reject|client_cancel)_(\d+)$/);
   if (bookingMatch) {
@@ -180,6 +191,28 @@ export function parseCallbackData(
       action: `renewal:${renewalMatch[1]}` as RenewalCallbackResult['action'],
       businessId: Number(renewalMatch[2]),
     };
+  }
+
+  // Phase 20: escalation callback pattern
+  // escl:approve:<instanceId>:<clientTelegramId>  — approve exception (instanceId present)
+  // escl:reply:<clientTelegramId>                 — send reply prompt to admin
+  const escalationMatch = data?.match(/^escl:(approve|reply):(\d+)(?::(\d+))?$/);
+  if (escalationMatch) {
+    const action = escalationMatch[1] as 'approve' | 'reply';
+    if (action === 'approve') {
+      // approve form: escl:approve:<instanceId>:<clientTelegramId>
+      return {
+        escalationAction: 'approve',
+        instanceId: Number(escalationMatch[2]),
+        clientTelegramId: escalationMatch[3] ?? '',
+      };
+    } else {
+      // reply form: escl:reply:<clientTelegramId>
+      return {
+        escalationAction: 'reply',
+        clientTelegramId: String(escalationMatch[2]),
+      };
+    }
   }
 
   // Phase 17: admin menu callback pattern — menu:<action>[:<numericId>]
@@ -281,6 +314,89 @@ async function handleCallbackQuery(
 
   if (!parsed) {
     logger.warn({ data: callbackQuery.data }, 'Malformed callback_query data, ignoring');
+    return;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Phase 20: Escalation callback routing (ESCL-03)
+  // Discriminant: 'escalationAction' in result → EscalationCallbackResult
+  // Cross-tenant guard: business re-derived from senderTelegramId via findBusinessByOwnerTelegramId.
+  // ---------------------------------------------------------------------------
+  if ('escalationAction' in parsed) {
+    const escl = parsed as EscalationCallbackResult;
+    const ownerBusiness = await findBusinessByOwnerTelegramId(senderTelegramId);
+    if (!ownerBusiness) {
+      logger.warn({ senderTelegramId }, 'escl callback from unregistered owner, ignoring');
+      return;
+    }
+
+    if (escl.escalationAction === 'approve') {
+      // Approve-exception: book instanceId for clientTelegramId bypassing enforcement,
+      // still subject to capacity DB lock (bookSessionInstance's SELECT FOR UPDATE).
+      if (!escl.instanceId || !escl.clientTelegramId) {
+        await sendTelegramMessage(senderTelegramId, 'Σφάλμα: ελλιπή δεδομένα εξαίρεσης.');
+        return;
+      }
+
+      // Resolve serviceId from instanceId (same pattern as handleBookSessionExecute)
+      const instanceRow = await db
+        .select({ serviceId: sessionCatalog.serviceId })
+        .from(sessionInstances)
+        .innerJoin(sessionCatalog, eq(sessionInstances.catalogId, sessionCatalog.id))
+        .where(eq(sessionInstances.id, escl.instanceId))
+        .limit(1);
+      const serviceId = instanceRow[0]?.serviceId;
+
+      if (serviceId === undefined) {
+        await sendTelegramMessage(senderTelegramId, 'Το μάθημα δεν βρέθηκε.');
+        return;
+      }
+
+      const idempotencyKey = `escl:approve:${escl.clientTelegramId}:${escl.instanceId}`;
+      const result = await bookSessionInstance(
+        ownerBusiness.id,
+        escl.instanceId,
+        escl.clientTelegramId,
+        serviceId,
+        idempotencyKey,
+        null   // activeMembership=null: bypass enforcement, use no-deduction path
+      );
+
+      if (!result || result.status === 'full') {
+        await sendTelegramMessage(
+          senderTelegramId,
+          'Δεν ήταν δυνατή η εξαίρεση: το μάθημα παραμένει πλήρες.'
+        );
+        return;
+      }
+
+      // Notify client of approval
+      try {
+        await botTokenStore.run(ownerBusiness.botToken!, async () => {
+          await sendTelegramMessage(
+            escl.clientTelegramId,
+            'Η κράτησή σας εγκρίθηκε από τον διαχειριστή! Θα σας δούμε σύντομα.'
+          );
+        });
+      } catch (err) {
+        logger.error({ err }, 'escl approve: client notification failed (best-effort)');
+      }
+      await sendTelegramMessage(senderTelegramId, 'Εξαίρεση εγκρίθηκε. Η κράτηση δημιουργήθηκε.');
+
+    } else {
+      // Reply action: prompt the admin to type a message to the client.
+      // The actual message relay is handled by the existing free-text flow (CMENU-05).
+      // This plan delivers only the reply prompt — future wiring can intercept the
+      // next admin message and forward it.
+      await sendTelegramMessage(
+        senderTelegramId,
+        `Γράψε το μήνυμα που θέλεις να στείλεις στον πελάτη (${escl.clientTelegramId}) και αποστολή.`
+      );
+    }
+
+    if (callbackQuery.message?.message_id) {
+      await editTelegramMessageReplyMarkup(senderTelegramId, callbackQuery.message.message_id, []);
+    }
     return;
   }
 
