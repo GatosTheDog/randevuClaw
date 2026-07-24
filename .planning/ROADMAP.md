@@ -200,6 +200,18 @@ Plans:
 - [ ] Tests for the full reply flow (admin sends message → client receives it)
 - Likely depends on/overlaps with CMENU-05 free-text routing work
 
+### Phase 999.2: Follow-up — findBusinessByOwnerTelegramId ambiguous-owner risk in billing/slotless/renewal callbacks
+
+**Goal:** Same cross-tenant risk fixed in the menuAction/escalationAction callback handlers (v1.4 close, 17-REVIEW.md CR-01) still exists in three older callback blocks in `src/webhooks/telegram.ts`
+**Source:** Discovered during v1.4 milestone-close verification sweep, 2026-07-24 (not part of v1.4 scope — these blocks predate it)
+**Scope:**
+- [ ] Billing callback routing (Phase 7, `'firstId' in parsed` block) — re-derives business via `findBusinessByOwnerTelegramId(senderTelegramId)`
+- [ ] Slotless request callback routing (Phase 13, `'slotlessRequestId' in parsed` block) — same pattern
+- [ ] Renewal callback routing (Phase 14, `'businessId' in parsed` block) — same pattern (partially mitigated by its own `ownerBusiness.id !== renewalResult.businessId` check, but still resolves the wrong owner's business first if one Telegram account owns multiple businesses)
+- Root cause: `findBusinessByOwnerTelegramId` has no unique constraint on `owner_telegram_id` and no `ORDER BY`, so with multiple businesses under one Telegram account it can return the wrong one
+- Fix pattern: thread the webhook-scoped `business` param (already HMAC-verified) through instead of re-deriving, same as the v1.4 fix
+- Low urgency: requires a single Telegram account to own multiple businesses, an edge case not yet supported by onboarding
+
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
