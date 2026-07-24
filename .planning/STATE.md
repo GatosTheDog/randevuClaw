@@ -1,18 +1,17 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.4
-milestone_name: Single-Bot UX Overhaul
+milestone_name: architectural gap)
 status: Awaiting next milestone
-stopped_at: "Completed 20-02-PLAN.md (escl: callback routing + 17 integration tests)"
-last_updated: "2026-07-24T12:08:46.765Z"
+stopped_at: Phase 21 context gathered
+last_updated: "2026-07-24T14:25:36.659Z"
 last_activity: 2026-07-24
 last_activity_desc: Milestone v1.4 completed and archived
 progress:
-  total_phases: 5
-  completed_phases: 5
-  total_plans: 16
-  completed_plans: 16
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
 current_phase: 20
 current_phase_name: Client Escalation
 ---
@@ -272,9 +271,9 @@ Items acknowledged and deferred at v1.4 milestone close on 2026-07-24:
 
 ## Session Continuity
 
-Last session: 2026-07-24T15:20:00.000Z
-Stopped at: v1.4 milestone closed and archived (phases 16/17/19 retroactively code-reviewed and verified; 3 bugs found and fixed: dead onboarding-routing code, ambiguous cross-tenant business lookup in callback routing, accidental Gemini model-id swap)
-Resume file: None
+Last session: 2026-07-24T14:25:36.653Z
+Stopped at: Phase 21 context gathered
+Resume file: .planning/phases/21-ai-driven-owner-onboarding-replace-the-deterministic-step-ma/21-CONTEXT.md
 
 **Phase 12 Plan 01 completed:** a940588, 6c5830e, 7d64f85
 
