@@ -16,6 +16,7 @@ import {
   findBookingByIdUnscoped,
   updateBookingStatus,
 } from '../../database/queries';
+import { sendEscalationToAdmin, EscalationReason } from '../escalation';
 import {
   InlineKeyboard,
   sendTelegramMessage,
@@ -192,7 +193,9 @@ export async function handleBookSessionExecute(
     senderTelegramId
   );
   if (!enforcementResult.allowed) {
-    await sendTelegramMessage(chatId, enforcementResult.message ?? 'Δεν επιτρέπεται η κράτηση.');
+    await sendTelegramMessage(chatId, 'Δυστυχώς δεν ήταν δυνατή η κράτησή σας. Ο διαχειριστής ειδοποιήθηκε.');
+    await sendEscalationToAdmin(business, senderTelegramId, 'κράτηση μαθήματος', 'membership_expired');
+    logger.info({ businessId: business.id, senderTelegramId, reason: 'membership_expired' }, 'escalation triggered');
     return;
   }
 
@@ -221,10 +224,9 @@ export async function handleBookSessionExecute(
   );
 
   if (!bookResult || bookResult.status === 'full') {
-    await sendTelegramMessage(
-      chatId,
-      'Δυστυχώς αυτό το μάθημα έχει γεμίσει. Δοκιμάστε άλλη ώρα.'
-    );
+    await sendTelegramMessage(chatId, 'Δυστυχώς δεν ήταν δυνατή η κράτησή σας. Ο διαχειριστής ειδοποιήθηκε.');
+    await sendEscalationToAdmin(business, senderTelegramId, 'κράτηση μαθήματος', 'class_full', instanceId);
+    logger.info({ businessId: business.id, senderTelegramId, instanceId, reason: 'class_full' }, 'escalation triggered');
     return;
   }
 

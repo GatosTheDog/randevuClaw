@@ -40,6 +40,10 @@ jest.mock('../../src/onboarding/router');
 jest.mock('../../src/onboarding/ai-owner-agent');
 jest.mock('../../src/billing/enforcement');
 jest.mock('../../src/session/manager');
+jest.mock('../../src/telegram/escalation', () => ({
+  sendEscalationToAdmin: jest.fn().mockResolvedValue(undefined),
+  buildEscalationKeyboard: jest.fn().mockReturnValue([[{ text: 'Απάντηση πελάτη', callback_data: 'escl:reply:test' }]]),
+}));
 
 // Mock the client-menu module for Suite B: only mock showClientRootMenu
 // so that supertest calls through the webhook can detect it was called,
@@ -382,7 +386,7 @@ describe('Suite C: booking flow via handleClientMenuCallback', () => {
     );
   });
 
-  it('book:yes — enforcement blocks → refusal message sent, bookSessionInstance NOT called', async () => {
+  it('book:yes — enforcement blocks → standardised apology sent, sendEscalationToAdmin called, bookSessionInstance NOT called', async () => {
     mockedCheckEnforcementAndGetMembership.mockResolvedValue({
       allowed: false,
       message: 'Για να κάνετε κράτηση, χρειάζεστε ενεργή συνδρομή.',
@@ -393,11 +397,21 @@ describe('Suite C: booking flow via handleClientMenuCallback', () => {
     const result: ClientMenuCallbackResult = { clientMenuAction: 'book:yes', id: instanceId };
     await handleClientMenuCallback(result, BASE_BUSINESS as any, senderTelegramId);
 
+    // ESCL-01: standardised apology replaces enforcement-specific message
     expect(mockedSendTelegramMessage).toHaveBeenCalledWith(
       senderTelegramId,
-      'Για να κάνετε κράτηση, χρειάζεστε ενεργή συνδρομή.'
+      'Δυστυχώς δεν ήταν δυνατή η κράτησή σας. Ο διαχειριστής ειδοποιήθηκε.'
     );
     expect(mockedBookSessionInstance).not.toHaveBeenCalled();
+
+    // Escalation engine called with membership_expired (no instanceId at enforcement stage)
+    const { sendEscalationToAdmin } = require('../../src/telegram/escalation');
+    expect(sendEscalationToAdmin).toHaveBeenCalledWith(
+      BASE_BUSINESS,
+      senderTelegramId,
+      'κράτηση μαθήματος',
+      'membership_expired'
+    );
   });
 
   it('book — business.bookingMode === open_slots → fallback message sent, listSessions NOT called', async () => {
