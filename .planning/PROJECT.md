@@ -1,23 +1,16 @@
 # RandevuClaw
 
-## Current Milestone: v1.4 Single-Bot UX Overhaul
+## Current State
 
-**Goal:** Merge platform and business bots into one; add rich inline-keyboard menus for both admin and clients; wire class-schedule setup into onboarding; rename confusing Greek terminology; add client escalation to admin when requests fail.
-
-**Target features:**
-- Single-Bot Architecture (ARCH) — platform bot deleted; business bot handles admin onboarding, admin management, and client booking from one bot
-- Admin/Client Recognition (AUTH) — Telegram ID identifies admin vs client; no passwords; sessions persist by Telegram identity
-- Admin Menu (AMENU) — persistent inline keyboard: Settings, Classes, Clients, Today; quick yes/no buttons on all binary decisions
-- Client Menu (CMENU) — /start shows Book, My Bookings, Cancel, Balance; yes/no buttons on confirmations
-- Class Schedule in Onboarding (CLSS) — onboarding step to define recurring classes (day/time/capacity); admin sets e.g. weekday Pilates slots with 4-person capacity
-- Greek Terminology Fix (I18N) — "σεζόν" → "μάθημα" (class/lesson) throughout bot messages and DB labels
-- Client Escalation (ESCL) — when client is blocked (full class, expired membership, etc.) bot forwards context to admin with one-tap reply
+**Shipped through v1.4 (Single-Bot UX Overhaul, 2026-07-24).** A single per-business Telegram bot now handles both admin and client traffic — the old separate platform bot is gone. Admin gets a `/menu` command (Settings/Classes/Clients/Today's Agenda) and clients get a `/start` menu (Book/My Bookings/Cancel/Balance), both with Ναι/Όχι inline-keyboard confirmations; free-form Greek chat still works at any point on either side. Owner onboarding now includes a class-schedule step and auto-starts the moment an owner with incomplete onboarding messages the bot. Blocked clients get a Greek apology and the admin gets an inline escalation with an approve-exception button (the "reply to client" half is prompt-only for now — see Backlog Phase 999.1).
 
 ## What This Is
 
-A WhatsApp-native appointment booking platform for Greek service businesses (pilates studios, gyms, hair salons, etc.). Clients book, cancel, or ask questions by chatting with a shared number; an AI agent understands the request, figures out which business they mean, and handles the booking. Business owners run everything — accepting/rejecting bookings, cancellations, daily agenda — through chat too, no separate app or dashboard required.
+A Telegram-native appointment booking platform for Greek service businesses (pilates studios, gyms, hair salons, etc.). Clients book, cancel, or ask questions by chatting with their business's own bot; an AI agent understands the request and handles the booking. Business owners run everything — setup, accepting/rejecting bookings, cancellations, daily agenda, billing — through chat too, no separate app or dashboard required.
 
-**PoC state (v1.3):** Each business runs its own Telegram bot. Owners register, configure their business, set billing packages, and record client payments entirely through guided Telegram chat. The bot tracks session balances, enforces membership policies on booking, and proactively notifies before memberships expire. WhatsApp is shelved pending Meta Business Verification (1-6 week external process); the same booking and billing logic wires to WhatsApp once verification clears.
+**PoC state (v1.4):** Each business runs its own Telegram bot, single entry point for both owner and clients. Owners onboard themselves (including class schedule), configure billing packages, and record client payments entirely through guided chat. The bot tracks session balances, enforces membership policies, books/cancels specific class sessions with atomic capacity locking, and proactively notifies before memberships expire. WhatsApp is shelved pending Meta Business Verification (1-6 week external process); the same booking/billing logic wires to WhatsApp once verification clears.
+
+**⚠ Documentation gap discovered at v1.4 close:** v1.3 (Studio Session Scheduling & Slotless Bookings) was marked shipped in ROADMAP.md but its `/gsd-complete-milestone` archival step never actually ran — no `.planning/milestones/v1.3-ROADMAP.md` or `v1.3-REQUIREMENTS.md` exists, and v1.3's original requirement IDs were lost when v1.4's REQUIREMENTS.md overwrote the live file without archiving v1.3 first. The Validated section below reconstructs v1.3's shipped scope from ROADMAP.md phase descriptions (reliable) rather than exact REQ-IDs (lost). Not fixed here — flagging for awareness; a full retroactive v1.3 archive would need to be reconstructed from git history if ever needed.
 
 ## Core Value
 
