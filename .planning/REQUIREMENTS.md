@@ -45,13 +45,13 @@
 - [x] **CLSS-02**: Admin can specify recurrence as: daily, specific weekdays (Mon/Wed/Fri etc.), or monthly
 - [x] **CLSS-03**: Each class slot has a configurable capacity (number of clients that can book)
 - [x] **CLSS-04**: Admin can skip class setup during onboarding and set up classes later via the admin menu
-- [ ] **CLSS-05**: Post-onboarding, admin can create new recurring class series from the admin menu
+- [x] **CLSS-05**: Post-onboarding, admin can create new recurring class series from the admin menu
 
 ### I18N — Greek Terminology
 
-- [ ] **I18N-01**: All bot messages replace "σεζόν" with "μάθημα" (class/lesson) in every Greek-facing text
-- [ ] **I18N-02**: DB enum/label values for session-related concepts updated where user-facing (display strings, not column names)
-- [ ] **I18N-03**: Onboarding copy uses "μάθημα" / "τάξη" consistently; no mixed terminology
+- [x] **I18N-01**: All bot messages replace "σεζόν" with "μάθημα" (class/lesson) in every Greek-facing text
+- [x] **I18N-02**: DB enum/label values for session-related concepts updated where user-facing (display strings, not column names)
+- [x] **I18N-03**: Onboarding copy uses "μάθημα" / "τάξη" consistently; no mixed terminology
 
 ### ESCL — Client Escalation to Admin
 

@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Billing & Membership System
-current_phase: 18
-current_phase_name: client-menu
-status: Awaiting next milestone
-stopped_at: Completed 14-01-PLAN.md
-last_updated: "2026-07-24T10:17:20.970Z"
+current_phase: 19
+current_phase_name: class-setup-onboarding
+status: In progress
+stopped_at: Completed 19-02-PLAN.md
+last_updated: "2026-07-24T10:24:31Z"
 last_activity: 2026-07-24
-last_activity_desc: Phase 18 Plan 04 complete (client menu integration tests — 24 tests passing)
+last_activity_desc: Phase 19 Plan 02 complete (I18N — replaced σεζόν with μάθημα across 4 files, 45 occurrences)
 progress:
   total_phases: 5
   completed_phases: 3
   total_plans: 16
-  completed_plans: 12
-  percent: 60
+  completed_plans: 13
+  percent: 65
 ---
 
 # Project State
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-07-17 after v1.1 milestone close)
 
 ## Current Position
 
-Phase: 18 — client-menu
-Plan: 04 (complete)
+Phase: 19 — class-setup-onboarding
+Plan: 02 (complete)
 Status: In progress
-Last activity: 2026-07-24 — Phase 18 Plan 04 complete (client menu integration tests — 24 tests passing)
+Last activity: 2026-07-24 — Phase 19 Plan 02 complete (I18N — replaced σεζόν with μάθημα across 4 files, 45 occurrences)
 
 ## Performance Metrics
 
@@ -95,6 +95,7 @@ Last activity: 2026-07-24 — Phase 18 Plan 04 complete (client menu integration
 | Phase 07 P06 | 4 | 2 tasks | 5 files |
 | Phase 07 P07 | 2 | 1 tasks | 2 files |
 | Phase 18-client-menu P01 | 5 | 2 tasks | 2 files |
+| Phase 19-class-setup P02 | 15 | 3 tasks | 4 files |
 
 ## Accumulated Context
 
