@@ -26,7 +26,14 @@ import { Business } from '../src/database/queries';
 
 jest.mock('../src/database/queries');
 jest.mock('../src/telegram/client');
-jest.mock('../src/utils/logger');
+jest.mock('../src/utils/logger', () => ({
+  logger: {
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn(),
+  },
+}));
 
 // ---------------------------------------------------------------------------
 // Test fixtures
