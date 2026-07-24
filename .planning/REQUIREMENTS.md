@@ -41,10 +41,10 @@
 
 ### CLSS — Class Schedule Setup in Onboarding
 
-- [ ] **CLSS-01**: Onboarding includes a class schedule step where admin defines recurring classes (e.g., "Pilates Reformer weekdays 9-10, 10-11, 17-18 with 4 slots each")
-- [ ] **CLSS-02**: Admin can specify recurrence as: daily, specific weekdays (Mon/Wed/Fri etc.), or monthly
-- [ ] **CLSS-03**: Each class slot has a configurable capacity (number of clients that can book)
-- [ ] **CLSS-04**: Admin can skip class setup during onboarding and set up classes later via the admin menu
+- [x] **CLSS-01**: Onboarding includes a class schedule step where admin defines recurring classes (e.g., "Pilates Reformer weekdays 9-10, 10-11, 17-18 with 4 slots each")
+- [x] **CLSS-02**: Admin can specify recurrence as: daily, specific weekdays (Mon/Wed/Fri etc.), or monthly
+- [x] **CLSS-03**: Each class slot has a configurable capacity (number of clients that can book)
+- [x] **CLSS-04**: Admin can skip class setup during onboarding and set up classes later via the admin menu
 - [ ] **CLSS-05**: Post-onboarding, admin can create new recurring class series from the admin menu
 
 ### I18N — Greek Terminology

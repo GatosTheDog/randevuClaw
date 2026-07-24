@@ -159,10 +159,11 @@ Plans:
   4. Post-onboarding, owner creates a new recurring class series from the admin menu (AMENU-03 flow) and it is fully equivalent to what onboarding would have created
   5. Every bot message, onboarding prompt, and user-visible label uses μάθημα or τάξη — no occurrence of σεζόν remains in any Greek-facing text path
 
-**Plans**: 3 plans
+**Plans**: 1/3 plans executed
 
 Plans:
-- [ ] 19-01-PLAN.md — class_setup_* step handlers in steps.ts + dispatchOnboardingStep wiring in router.ts (CLSS-01, CLSS-02, CLSS-03, CLSS-04)
+
+- [x] 19-01-PLAN.md — class_setup_* step handlers in steps.ts + dispatchOnboardingStep wiring in router.ts (CLSS-01, CLSS-02, CLSS-03, CLSS-04)
 - [ ] 19-02-PLAN.md — Replace σεζόν with μάθημα/μαθήματα in ai-agent.ts, function-executor.ts, ai-owner-agent.ts, session-cancellation.ts (I18N-01, I18N-02, I18N-03, CLSS-05 note)
 - [ ] 19-03-PLAN.md — Unit tests for class setup step handlers: 14 cases covering skip, happy path, weekday parsing, invalid inputs (CLSS-01–05)
 
@@ -180,6 +181,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
+
 - [ ] 20-01-PLAN.md — Escalation engine (sendEscalationToAdmin + EscalationReason) + wire into handleBookSessionExecute enforcement and full-capacity blocks (ESCL-01, ESCL-02)
 - [ ] 20-02-PLAN.md — EscalationCallbackResult type + parseCallbackData escl: arm + approve-exception and reply-prompt handlers in handleCallbackQuery + integration tests (ESCL-03)
 
@@ -205,5 +207,5 @@ Plans:
 | 16. Single-Bot Architecture | v1.4 | 3/3 | Complete | 2026-07-23 |
 | 17. Admin Menu | v1.4 | 4/4 | Complete   | 2026-07-23 |
 | 18. Client Menu | v1.4 | 4/4 | Complete | 2026-07-24 |
-| 19. Class Setup in Onboarding & Terminology Fix | v1.4 | 0/TBD | Not started | - |
+| 19. Class Setup in Onboarding & Terminology Fix | v1.4 | 1/3 | In Progress|  |
 | 20. Client Escalation | v1.4 | 0/TBD | Not started | - |
