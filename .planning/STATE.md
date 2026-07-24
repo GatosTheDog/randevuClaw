@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Single-Bot UX Overhaul
-current_phase: 20
-current_phase_name: Client Escalation
-status: planning
+status: Awaiting next milestone
 stopped_at: "Completed 20-02-PLAN.md (escl: callback routing + 17 integration tests)"
-last_updated: "2026-07-24T12:06:05.698Z"
+last_updated: "2026-07-24T12:08:46.765Z"
 last_activity: 2026-07-24
-last_activity_desc: Phase 19 complete, transitioned to Phase 20
+last_activity_desc: Milestone v1.4 completed and archived
 progress:
   total_phases: 5
   completed_phases: 5
   total_plans: 16
   completed_plans: 16
   percent: 100
+current_phase: 20
+current_phase_name: Client Escalation
 ---
 
 # Project State
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-07-17 after v1.1 milestone close)
 
 ## Current Position
 
-Phase: 20 — Client Escalation
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-07-24 — Phase 19 complete, transitioned to Phase 20
+Phase: Milestone v1.4 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-07-24 — Milestone v1.4 completed and archived
 
 ## Performance Metrics
 
@@ -308,4 +308,4 @@ Resume file: None
 
 ## Operator Next Steps
 
-- Phase 18 complete (all 4 plans done) — start next phase or new milestone with /gsd-new-milestone
+- Start the next milestone with /gsd-new-milestone

@@ -1,5 +1,22 @@
 # Milestones
 
+## v1.4 Single-Bot UX Overhaul (Shipped: 2026-07-24)
+
+**Phases completed:** 5 phases, 16 plans, 11 tasks
+
+**Key accomplishments:**
+
+- Platform bot fully removed — a single per-business bot now handles both admin and client traffic, routed purely by Telegram-ID match against `business.ownerTelegramId` (no password/PIN)
+- Owner onboarding auto-starts: an owner with `onboarding_completed=false` messaging their bot is routed straight into the onboarding state machine (resume or fresh session), no manual trigger
+- Admin `/menu` command: Settings/Classes/Clients/Today's-Agenda sub-menus, all binary decisions (cancel class, confirm) via Ναι/Όχι inline keyboards, no free-text ambiguity
+- Client `/start` welcome menu (Book a class / My Bookings / Cancel / Balance) with full inline-button flows, while free Greek chat remains available at any point (CMENU-05)
+- Class-schedule setup added directly into owner onboarding (recurrence + capacity via 6 new `class_setup_*` steps), plus a terminology sweep replacing σεζόν→μάθημα across 45 Greek string literals with zero TypeScript identifier changes
+- Blocked-client escalation: client gets a graceful Greek apology, admin gets an inline notification (client name, attempted action, failure reason) with an "approve exception" button that re-attempts the booking under capacity lock
+- **Verification sweep caught and fixed 3 real bugs before shipping** (phases 16/17/19 had been executed but never code-reviewed or goal-verified until milestone close): dead onboarding-routing code silently dropped by a merge conflict (Phase 16), an ambiguous cross-tenant business lookup in admin-menu/escalation callback routing that could route actions against the wrong tenant (Phase 17), and an accidental Gemini model-id swap (`2.5`→`3.5`) hidden inside an unrelated i18n commit that would have broken every AI call in the app (Phase 19)
+- Known gap accepted and deferred: the escalation "reply to client" button prompts the admin but doesn't yet relay the message (ESCL-03 partial — tracked as ROADMAP.md Backlog Phase 999.1)
+
+---
+
 ## v1.2 Billing & Membership System (Shipped: 2026-07-22)
 
 **Phases completed:** 3 phases, 16 plans, 19 tasks
