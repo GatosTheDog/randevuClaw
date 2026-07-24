@@ -6,9 +6,9 @@ current_phase: 14
 current_phase_name: renewal-notification-extensions
 status: Awaiting next milestone
 stopped_at: Completed 14-01-PLAN.md
-last_updated: "2026-07-24T09:43:25.832Z"
-last_activity: 2026-07-23
-last_activity_desc: Phase 14 Plan 01 complete (renewal nudge schema + query layer + tool handler)
+last_updated: "2026-07-24T09:48:42.000Z"
+last_activity: 2026-07-24
+last_activity_desc: Phase 18 Plan 04 complete (client menu integration tests — 24 tests passing)
 progress:
   total_phases: 3
   completed_phases: 2
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-07-17 after v1.1 milestone close)
 
 ## Current Position
 
-Phase: 14 — renewal-notification-extensions
-Plan: 01 (complete)
+Phase: 18 — client-menu
+Plan: 04 (complete)
 Status: In progress
-Last activity: 2026-07-23 — Phase 14 Plan 01 complete (renewal nudge schema + query layer + tool handler)
+Last activity: 2026-07-24 — Phase 18 Plan 04 complete (client menu integration tests — 24 tests passing)
 
 ## Performance Metrics
 
@@ -250,8 +250,8 @@ Items acknowledged and deferred at v1.2 milestone close on 2026-07-22:
 
 ## Session Continuity
 
-Last session: 2026-07-24T09:43:25.823Z
-Stopped at: Completed 12-03-PLAN.md (cancellation cutoff integration tests)
+Last session: 2026-07-24T09:48:42.000Z
+Stopped at: Completed 18-04-PLAN.md (client menu integration tests)
 Resume file: None
 
 **Phase 12 Plan 01 completed:** a940588, 6c5830e, 7d64f85
@@ -274,6 +274,16 @@ Resume file: None
 - src/session/manager.ts: session query layer (worktree Rule 3 fix)
 - All 6 tests passing against Neon DB
 
+**Phase 18 Plan 04 completed:** 3aa52d0
+
+- tests/webhooks/client-menu.test.ts: 24 integration tests (Suites A-E)
+- Suite A: parseCallbackData union parsing (10 tests, all cmenu:/existing arms/edge cases)
+- Suite B: /start intercept + CMENU-05 free-text routing (4 tests via supertest)
+- Suite C: booking flow via handleClientMenuCallback (3 tests — enforcement allow/block, open_slots fallback)
+- Suite D: cancel flow (5 tests — happy path, credit restore, no-restore, ownership guard, cutoff guard)
+- Suite E: existing parseCallbackData arms billing/renewal (2 tests)
+- All 24 tests passing
+
 ## Operator Next Steps
 
-- Phase 12 complete (all 3 plans done) — start next phase or new milestone with /gsd-new-milestone
+- Phase 18 complete (all 4 plans done) — start next phase or new milestone with /gsd-new-milestone
