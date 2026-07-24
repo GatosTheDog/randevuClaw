@@ -137,10 +137,12 @@ See: `.planning/milestones/v1.4-ROADMAP.md`
 ### Phase 21: AI-Driven Owner Onboarding
 
 **Goal:** Replace the deterministic step-machine onboarding flow (src/onboarding/steps.ts, router.ts) with a Gemini tool-calling agent, matching the pattern aiOwnerAgent already uses for post-onboarding conversation. Motivated by a bug where handleHoursRangeStep rejected valid free-text Greek hours input because it only accepts strict HH:MM-HH:MM regex format.
-**Requirements**: TBD
+**Requirements**: TBD (see plan frontmatter — D-01/D-02/D-03 from 21-CONTEXT.md)
 **Depends on:** Phase 20
-**Plans:** 0 plans
+**Plans:** 3 plans
 
 Plans:
 
-- [ ] TBD (run /gsd-plan-phase 21 to break down)
+- [ ] 21-01-PLAN.md — Build the new Gemini tool-calling onboarding agent (ai-onboarding-agent.ts) in isolation, with unit tests
+- [ ] 21-02-PLAN.md — Wire the new agent into both Telegram entry points (message + callback_query) that route onboarding-incomplete owners
+- [ ] 21-03-PLAN.md — Delete the old step-machine (steps.ts, router.ts) and dead session-lifecycle code; clean up tests
