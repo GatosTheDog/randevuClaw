@@ -73,14 +73,14 @@ Plans:
 - [x] 17-02-PLAN.md — Settings sub-menu (read-only display + binary toggles) + Today's Agenda on-demand (AMENU-02, AMENU-05)
 - [x] 17-03-PLAN.md — Classes sub-menu: list, cancel with Ναι/Όχι confirmation, create-via-chat redirect (AMENU-03)
 - [x] 17-04-PLAN.md — Clients sub-menu: list, balance, renewal nudge + integration tests (AMENU-04)
-- [ ] **Phase 18: Client Menu** - `/start` welcome menu with Book/My Bookings/Cancel/Balance inline flows; free Greek chat remains available at all times
+- [x] **Phase 18: Client Menu** - `/start` welcome menu with Book/My Bookings/Cancel/Balance inline flows; free Greek chat remains available at all times (completed 2026-07-24)
 
 Plans:
 
 - [x] 18-01-PLAN.md — /start pre-emption + ClientMenuCallbackResult union + showClientRootMenu + handleCallbackQuery business threading (CMENU-01, CMENU-05)
 - [x] 18-02-PLAN.md — Book a class flow: session list → Ναι/Όχι confirm → bookSessionInstance with enforcement gate (CMENU-02, CMENU-04)
 - [x] 18-03-PLAN.md — My Bookings display + Cancel flow with cutoff + credit restore + Balance display (CMENU-03, CMENU-04)
-- [ ] 18-04-PLAN.md — Integration tests: /start intercept, CMENU-05 free-text, parseCallbackData union, booking/cancel/ownership/cutoff coverage
+- [x] 18-04-PLAN.md — Integration tests: /start intercept, CMENU-05 free-text, parseCallbackData union, booking/cancel/ownership/cutoff coverage
 - [ ] **Phase 19: Class Setup in Onboarding & Terminology Fix** - Onboarding class schedule step with recurrence and capacity; σεζόν replaced with μάθημα across all bot messages and copy
 - [ ] **Phase 20: Client Escalation** - Blocked client triggers Greek apology + admin notification with context and inline reply option
 
@@ -195,6 +195,6 @@ Plans:
 | 15. Onboarding Extensions | v1.3 | 2/2 | Complete | 2026-07-23 |
 | 16. Single-Bot Architecture | v1.4 | 3/3 | Complete | 2026-07-23 |
 | 17. Admin Menu | v1.4 | 4/4 | Complete   | 2026-07-23 |
-| 18. Client Menu | v1.4 | 3/4 | In Progress|  |
+| 18. Client Menu | v1.4 | 4/4 | Complete | 2026-07-24 |
 | 19. Class Setup in Onboarding & Terminology Fix | v1.4 | 0/TBD | Not started | - |
 | 20. Client Escalation | v1.4 | 0/TBD | Not started | - |
