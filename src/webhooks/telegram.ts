@@ -19,7 +19,12 @@ import { getOrCreateBotInstance } from '../telegram/registry';
 import { routeConversationMessage } from '../conversation/router';
 import { deleteBookingFromCalendar, syncBookingToCalendar } from '../calendar/sync';
 import { aiOwnerAgent } from '../onboarding/ai-owner-agent';
-import { findBusinessByOwnerTelegramId } from '../onboarding/queries';
+import {
+  findBusinessByOwnerTelegramId,
+  findActiveSessionByOwnerTelegramId,
+  createOrResetOnboardingSession,
+} from '../onboarding/queries';
+import { dispatchOnboardingStep } from '../onboarding/router';
 import {
   handleConfirmMembership,
   handleCancelPackage,
@@ -72,10 +77,34 @@ async function handleFoundBusiness(
   messageText: string
 ): Promise<void> {
   try {
-    // Owner intercept: any message from the business owner goes to the AI
-    // owner management agent (not the client booking AI). Identity check only —
-    // no keyword gating — so the owner is recognized from their very first message.
-    if (business.ownerTelegramId === senderTelegramId) {
+    // T-16-04: explicit null guard before comparison — a business with no owner
+    // set (ownerTelegramId=null) must never match any sender.
+    if (business.ownerTelegramId !== null && business.ownerTelegramId === senderTelegramId) {
+      if (!business.onboardingCompleted) {
+        // ARCH-03: owner messages bot before onboarding is complete — route to
+        // the onboarding state machine. Resume an existing active session or
+        // start a fresh one.
+        const activeResult = await findActiveSessionByOwnerTelegramId(senderTelegramId);
+        if (activeResult) {
+          // Resume mid-onboarding session (AUTH-03: session persistence)
+          await dispatchOnboardingStep(
+            activeResult.session,
+            activeResult.business,
+            senderTelegramId,
+            messageText
+          );
+        } else {
+          // First-contact owner: create (or reset) session and send welcome message
+          await createOrResetOnboardingSession(business.id, 'name');
+          await sendTelegramMessage(
+            senderTelegramId,
+            'Καλωσήρθατε! Πώς ονομάζεται η επιχείρησή σας;'
+          );
+        }
+        await markTelegramUpdateProcessed(updateId, business.id);
+        return;
+      }
+
       // AMENU-01: /menu command — structured keyboard, no Gemini round-trip.
       // Pre-empt aiOwnerAgent to avoid wasting Gemini API quota on a known command.
       if (messageText.trim() === '/menu') {
