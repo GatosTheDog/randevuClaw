@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Billing & Membership System
-current_phase: 19
-current_phase_name: class-setup-onboarding
+current_phase: 20
+current_phase_name: client-escalation
 status: In progress
-stopped_at: Completed 19-02-PLAN.md
-last_updated: "2026-07-24T10:40:23.511Z"
+stopped_at: Completed 20-02-PLAN.md
+last_updated: "2026-07-24T10:46:31.000Z"
 last_activity: 2026-07-24
-last_activity_desc: Phase 19 Plan 02 complete (I18N — replaced σεζόν with μάθημα across 4 files, 45 occurrences)
+last_activity_desc: Phase 20 Plan 02 complete (escl: parse arm + approve/reply handlers + 17 integration tests, ESCL-03)
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 16
-  completed_plans: 15
-  percent: 80
+  completed_plans: 16
+  percent: 100
 ---
 
 # Project State
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-07-17 after v1.1 milestone close)
 
 ## Current Position
 
-Phase: 19 — class-setup-onboarding
+Phase: 20 — client-escalation
 Plan: 02 (complete)
 Status: In progress
-Last activity: 2026-07-24 — Phase 19 Plan 02 complete (I18N — replaced σεζόν with μάθημα across 4 files, 45 occurrences)
+Last activity: 2026-07-24 — Phase 20 Plan 02 complete (escl: parse arm + approve/reply handlers + 17 integration tests, ESCL-03)
 
 ## Performance Metrics
 
@@ -97,6 +97,7 @@ Last activity: 2026-07-24 — Phase 19 Plan 02 complete (I18N — replaced σε�
 | Phase 18-client-menu P01 | 5 | 2 tasks | 2 files |
 | Phase 19-class-setup P02 | 15 | 3 tasks | 4 files |
 | Phase 20 P01 | 390 | 2 tasks | 4 files |
+| Phase 20 P02 | 5 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -198,6 +199,10 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 18-01: Renamed local business var to bookingBusiness in handleCallbackQuery to avoid parameter shadow
 - [Phase ?]: Escalation is best-effort: sendEscalationToAdmin never throws; errors are caught and logged
 - [Phase ?]: clientName resolved via findClientBusinessRelationship, falls back to clientTelegramId
+- [Phase 20-02]: EscalationCallbackResult type defined in telegram.ts (not escalation.ts) — co-located with all other callback result types
+- [Phase 20-02]: escalationAction discriminant checked BEFORE menuAction in handleCallbackQuery to maintain consistent guard order
+- [Phase 20-02]: activeMembership=null in bookSessionInstance bypasses enforcement gate while capacity SELECT FOR UPDATE still applies (T-20-05)
+- [Phase 20-02]: Idempotency key escl:approve:<clientId>:<instanceId> prevents duplicate bookings from repeated button taps (T-20-07)
 
 ### Pending Todos
 
@@ -254,8 +259,8 @@ Items acknowledged and deferred at v1.2 milestone close on 2026-07-22:
 
 ## Session Continuity
 
-Last session: 2026-07-24T10:40:15.435Z
-Stopped at: Completed 18-04-PLAN.md (client menu integration tests)
+Last session: 2026-07-24T10:46:31.000Z
+Stopped at: Completed 20-02-PLAN.md (escl: callback routing + 17 integration tests)
 Resume file: None
 
 **Phase 12 Plan 01 completed:** a940588, 6c5830e, 7d64f85
