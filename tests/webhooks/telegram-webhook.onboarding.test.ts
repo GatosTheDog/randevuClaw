@@ -4,9 +4,8 @@ import * as queries from '../../src/database/queries';
 import * as telegramClient from '../../src/telegram/client';
 import * as conversationRouter from '../../src/conversation/router';
 import * as registryModule from '../../src/telegram/registry';
-import * as onboardingQueries from '../../src/onboarding/queries';
-import * as onboardingRouter from '../../src/onboarding/router';
 import * as aiOwnerAgentModule from '../../src/onboarding/ai-owner-agent';
+import * as aiOnboardingAgentModule from '../../src/onboarding/ai-onboarding-agent';
 
 jest.mock('../../src/database/queries');
 jest.mock('../../src/telegram/client');
@@ -15,8 +14,8 @@ jest.mock('../../src/calendar/sync');
 jest.mock('../../src/telegram/registry');
 jest.mock('../../src/billing/queries');
 jest.mock('../../src/onboarding/queries');
-jest.mock('../../src/onboarding/router');
 jest.mock('../../src/onboarding/ai-owner-agent');
+jest.mock('../../src/onboarding/ai-onboarding-agent');
 
 const OWNER_TELEGRAM_ID = 'owner-123';
 const CLIENT_TELEGRAM_ID = 'client-456';
@@ -45,15 +44,6 @@ const BASE_BUSINESS = {
   createdAt: new Date(),
 };
 
-const ACTIVE_ONBOARDING_SESSION = {
-  id: 1,
-  businessId: 42,
-  currentStep: 'name',
-  collectedData: null,
-  createdAt: new Date(),
-  updatedAt: new Date(),
-};
-
 const mockBot = { handleUpdate: jest.fn().mockResolvedValue(undefined) };
 
 const mockedFindBusinessByWebhookId = queries.findBusinessByWebhookId as jest.MockedFunction<
@@ -74,25 +64,23 @@ const mockedWithBusinessContext = queries.withBusinessContext as jest.MockedFunc
 const mockedSendTelegramMessage = telegramClient.sendTelegramMessage as jest.MockedFunction<
   typeof telegramClient.sendTelegramMessage
 >;
+const mockedAnswerCallbackQuery = telegramClient.answerCallbackQuery as jest.MockedFunction<
+  typeof telegramClient.answerCallbackQuery
+>;
+const mockedEditTelegramMessageReplyMarkup = telegramClient.editTelegramMessageReplyMarkup as jest.MockedFunction<
+  typeof telegramClient.editTelegramMessageReplyMarkup
+>;
 const mockedRouteConversationMessage = conversationRouter.routeConversationMessage as jest.MockedFunction<
   typeof conversationRouter.routeConversationMessage
 >;
 const mockedGetOrCreateBotInstance = registryModule.getOrCreateBotInstance as jest.MockedFunction<
   typeof registryModule.getOrCreateBotInstance
 >;
-const mockedFindActiveSessionByOwnerTelegramId =
-  onboardingQueries.findActiveSessionByOwnerTelegramId as jest.MockedFunction<
-    typeof onboardingQueries.findActiveSessionByOwnerTelegramId
-  >;
-const mockedCreateOrResetOnboardingSession =
-  onboardingQueries.createOrResetOnboardingSession as jest.MockedFunction<
-    typeof onboardingQueries.createOrResetOnboardingSession
-  >;
-const mockedDispatchOnboardingStep = onboardingRouter.dispatchOnboardingStep as jest.MockedFunction<
-  typeof onboardingRouter.dispatchOnboardingStep
->;
 const mockedAiOwnerAgent = aiOwnerAgentModule.aiOwnerAgent as jest.MockedFunction<
   typeof aiOwnerAgentModule.aiOwnerAgent
+>;
+const mockedAiOnboardingAgent = aiOnboardingAgentModule.aiOnboardingAgent as jest.MockedFunction<
+  typeof aiOnboardingAgentModule.aiOnboardingAgent
 >;
 
 function makeMessageUpdate(updateId: number, fromId: string | number, text = 'hello') {
@@ -104,6 +92,18 @@ function makeMessageUpdate(updateId: number, fromId: string | number, text = 'he
       chat: { id: fromId, type: 'private' },
       date: 1234567890,
       text,
+    },
+  };
+}
+
+function makeCallbackQueryUpdate(updateId: number, fromId: number | string, data: string) {
+  return {
+    update_id: updateId,
+    callback_query: {
+      id: 'cbq-1',
+      from: { id: fromId, is_bot: false, first_name: 'Owner' },
+      message: { message_id: 500 + updateId, chat: { id: fromId, type: 'private' } },
+      data,
     },
   };
 }
@@ -121,9 +121,10 @@ function setupCommonMocks() {
   mockedMarkTelegramUpdateProcessed.mockResolvedValue(undefined);
   mockedInsertClientBusinessRelationship.mockResolvedValue({ id: 1, businessId: 42, clientPhone: CLIENT_TELEGRAM_ID, clientName: 'TestUser', consentTimestamp: new Date(), createdAt: new Date() } as any);
   mockedSendTelegramMessage.mockResolvedValue({ messageId: 999 });
+  mockedAnswerCallbackQuery.mockResolvedValue(undefined);
+  mockedEditTelegramMessageReplyMarkup.mockResolvedValue(undefined);
   mockedRouteConversationMessage.mockResolvedValue(undefined);
-  mockedDispatchOnboardingStep.mockResolvedValue(undefined);
-  mockedCreateOrResetOnboardingSession.mockResolvedValue(ACTIVE_ONBOARDING_SESSION as any);
+  mockedAiOnboardingAgent.mockResolvedValue('Γεια σου, ξεκινάμε!');
   mockedAiOwnerAgent.mockResolvedValue('Γεια σου');
   mockedGetOrCreateBotInstance.mockReturnValue(mockBot as any);
   (telegramClient.botTokenStore.run as jest.Mock).mockImplementation(
@@ -136,57 +137,83 @@ function setupCommonMocks() {
 
 // ---------------------------------------------------------------------------
 // SCENARIO A — ARCH-03 / AUTH-01
-// Owner with onboarding incomplete AND active session → dispatchOnboardingStep
+// Owner with onboarding incomplete → aiOnboardingAgent (message path)
 // ---------------------------------------------------------------------------
-describe('Scenario A: owner with incomplete onboarding, active session → dispatchOnboardingStep', () => {
+describe('Scenario A: owner with incomplete onboarding -> aiOnboardingAgent', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     setupCommonMocks();
     mockedFindBusinessByWebhookId.mockResolvedValue({ ...BASE_BUSINESS, onboardingCompleted: false });
-    mockedFindActiveSessionByOwnerTelegramId.mockResolvedValue({
-      session: ACTIVE_ONBOARDING_SESSION,
-      business: BASE_BUSINESS,
-    });
   });
 
-  it('calls dispatchOnboardingStep with session and step name, does not call aiOwnerAgent', async () => {
+  it('calls aiOnboardingAgent with business, senderTelegramId, messageText, today (no legacy step-machine call)', async () => {
     const res = await postToWebhook(makeMessageUpdate(1, OWNER_TELEGRAM_ID, 'Pilates Studio'));
 
     expect(res.status).toBe(200);
-    expect(mockedDispatchOnboardingStep).toHaveBeenCalledTimes(1);
-    expect(mockedDispatchOnboardingStep).toHaveBeenCalledWith(
-      ACTIVE_ONBOARDING_SESSION,
-      BASE_BUSINESS,
-      OWNER_TELEGRAM_ID,
-      'Pilates Studio'
-    );
+    expect(mockedAiOnboardingAgent).toHaveBeenCalledTimes(1);
+    const [business, senderId, messageText, today] = mockedAiOnboardingAgent.mock.calls[0];
+    expect(business).toMatchObject({ id: 42, ownerTelegramId: OWNER_TELEGRAM_ID, onboardingCompleted: false });
+    expect(senderId).toBe(OWNER_TELEGRAM_ID);
+    expect(messageText).toBe('Pilates Studio');
+    expect(typeof today).toBe('string');
     expect(mockedAiOwnerAgent).not.toHaveBeenCalled();
+    expect(mockedSendTelegramMessage).toHaveBeenCalledWith(OWNER_TELEGRAM_ID, 'Γεια σου, ξεκινάμε!');
     expect(mockedMarkTelegramUpdateProcessed).toHaveBeenCalledWith('1', 42);
   });
 });
 
 // ---------------------------------------------------------------------------
-// SCENARIO B — ARCH-03
-// Owner with onboarding incomplete AND NO active session → createOrResetOnboardingSession + welcome
+// SCENARIO B2
+// Owner inline-keyboard tap (callback_query) with onboarding incomplete → aiOnboardingAgent
 // ---------------------------------------------------------------------------
-describe('Scenario B: owner with incomplete onboarding, no session → create session + welcome message', () => {
+describe('Scenario B2: owner callback_query tap with incomplete onboarding -> aiOnboardingAgent', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     setupCommonMocks();
     mockedFindBusinessByWebhookId.mockResolvedValue({ ...BASE_BUSINESS, onboardingCompleted: false });
-    mockedFindActiveSessionByOwnerTelegramId.mockResolvedValue(null);
   });
 
-  it('calls createOrResetOnboardingSession with name step and sends welcome message', async () => {
-    const res = await postToWebhook(makeMessageUpdate(2, OWNER_TELEGRAM_ID));
+  it('calls aiOnboardingAgent with the tap data as messageText, after answerCallbackQuery + keyboard-clear', async () => {
+    const res = await postToWebhook(makeCallbackQueryUpdate(6, OWNER_TELEGRAM_ID, 'ναι'));
 
     expect(res.status).toBe(200);
-    expect(mockedCreateOrResetOnboardingSession).toHaveBeenCalledWith(42, 'name');
-    const welcomeCall = mockedSendTelegramMessage.mock.calls[0];
-    expect(welcomeCall[0]).toBe(OWNER_TELEGRAM_ID);
-    expect(welcomeCall[1]).toContain('Καλωσήρθατε');
-    expect(mockedDispatchOnboardingStep).not.toHaveBeenCalled();
-    expect(mockedAiOwnerAgent).not.toHaveBeenCalled();
+    expect(mockedAnswerCallbackQuery).toHaveBeenCalledWith('cbq-1');
+    expect(mockedEditTelegramMessageReplyMarkup).toHaveBeenCalledWith(OWNER_TELEGRAM_ID, 506, []);
+    expect(mockedAiOnboardingAgent).toHaveBeenCalledTimes(1);
+    const [business, senderId, messageText] = mockedAiOnboardingAgent.mock.calls[0];
+    expect(business).toMatchObject({ id: 42, ownerTelegramId: OWNER_TELEGRAM_ID, onboardingCompleted: false });
+    expect(senderId).toBe(OWNER_TELEGRAM_ID);
+    expect(messageText).toBe('ναι');
+    expect(mockedMarkTelegramUpdateProcessed).toHaveBeenCalledWith('6', 42);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SCENARIO B3
+// aiOnboardingAgent returns '' → no reply sent (message path + callback_query path)
+// ---------------------------------------------------------------------------
+describe('Scenario B3: aiOnboardingAgent returns empty string -> no reply sent', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    setupCommonMocks();
+    mockedFindBusinessByWebhookId.mockResolvedValue({ ...BASE_BUSINESS, onboardingCompleted: false });
+    mockedAiOnboardingAgent.mockResolvedValue('');
+  });
+
+  it('message path: does not call sendTelegramMessage when reply is empty', async () => {
+    const res = await postToWebhook(makeMessageUpdate(7, OWNER_TELEGRAM_ID, 'κλείσε τη δραστηριοτητα'));
+
+    expect(res.status).toBe(200);
+    expect(mockedAiOnboardingAgent).toHaveBeenCalledTimes(1);
+    expect(mockedSendTelegramMessage).not.toHaveBeenCalled();
+  });
+
+  it('callback_query path: does not call sendTelegramMessage when reply is empty', async () => {
+    const res = await postToWebhook(makeCallbackQueryUpdate(8, OWNER_TELEGRAM_ID, 'όχι'));
+
+    expect(res.status).toBe(200);
+    expect(mockedAiOnboardingAgent).toHaveBeenCalledTimes(1);
+    expect(mockedSendTelegramMessage).not.toHaveBeenCalled();
   });
 });
 
@@ -201,12 +228,12 @@ describe('Scenario C: owner with completed onboarding → aiOwnerAgent called', 
     mockedFindBusinessByWebhookId.mockResolvedValue({ ...BASE_BUSINESS, onboardingCompleted: true });
   });
 
-  it('routes to aiOwnerAgent and sends reply, does not call dispatchOnboardingStep', async () => {
+  it('routes to aiOwnerAgent and sends reply, does not call aiOnboardingAgent', async () => {
     const res = await postToWebhook(makeMessageUpdate(3, OWNER_TELEGRAM_ID, 'Τι έχω σήμερα;'));
 
     expect(res.status).toBe(200);
     expect(mockedAiOwnerAgent).toHaveBeenCalledTimes(1);
-    expect(mockedDispatchOnboardingStep).not.toHaveBeenCalled();
+    expect(mockedAiOnboardingAgent).not.toHaveBeenCalled();
     const [recipientId, replyText] = mockedSendTelegramMessage.mock.calls[0];
     expect(recipientId).toBe(OWNER_TELEGRAM_ID);
     expect(replyText).toBe('Γεια σου');
@@ -230,7 +257,7 @@ describe('Scenario D: client (non-owner) → routeConversationMessage + insertCl
     expect(res.status).toBe(200);
     expect(mockedRouteConversationMessage).toHaveBeenCalledTimes(1);
     expect(mockedAiOwnerAgent).not.toHaveBeenCalled();
-    expect(mockedDispatchOnboardingStep).not.toHaveBeenCalled();
+    expect(mockedAiOnboardingAgent).not.toHaveBeenCalled();
     expect(mockedInsertClientBusinessRelationship).toHaveBeenCalledWith(
       42,
       CLIENT_TELEGRAM_ID,
@@ -250,7 +277,7 @@ describe('Scenario D: client (non-owner) → routeConversationMessage + insertCl
     expect(res.status).toBe(200);
     expect(mockedRouteConversationMessage).toHaveBeenCalledTimes(1);
     expect(mockedAiOwnerAgent).not.toHaveBeenCalled();
-    expect(mockedDispatchOnboardingStep).not.toHaveBeenCalled();
+    expect(mockedAiOnboardingAgent).not.toHaveBeenCalled();
   });
 });
 
@@ -274,7 +301,6 @@ describe('Scenario E: /webhooks/telegram/platform route no longer exists (ARCH-0
 
     expect(res.status).not.toBe(200);
     expect([400, 404]).toContain(res.status);
-    expect(mockedDispatchOnboardingStep).not.toHaveBeenCalled();
     expect(mockedAiOwnerAgent).not.toHaveBeenCalled();
   });
 });
