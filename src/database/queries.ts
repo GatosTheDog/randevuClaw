@@ -4,7 +4,6 @@ import { db, appDb } from './db';
 import {
   businesses,
   clientBusinessRelationships,
-  messages,
   services,
   businessHours,
   bookings,
@@ -111,34 +110,6 @@ export async function withBusinessContext<T>(
   });
 }
 
-export async function insertOrIgnoreMessage(
-  whatsappMessageId: string,
-  businessId: number,
-  senderPhone: string,
-  messageBody: string
-): Promise<'inserted' | 'ignored'> {
-  const result = await getConn()
-    .insert(messages)
-    .values({
-      whatsappMessageId,
-      businessId,
-      senderPhone,
-      messageBody,
-      status: 'received',
-    })
-    .onConflictDoNothing()
-    .returning({ id: messages.id });
-
-  return result.length > 0 ? 'inserted' : 'ignored';
-}
-
-export async function markMessageProcessed(whatsappMessageId: string): Promise<void> {
-  await getConn()
-    .update(messages)
-    .set({ status: 'processed' })
-    .where(eq(messages.whatsappMessageId, whatsappMessageId));
-}
-
 export async function findLatestBusinessForClient(
   senderPhone: string
 ): Promise<Business | null> {
@@ -222,17 +193,6 @@ export async function insertClientBusinessRelationship(
     .returning();
 
   return rows[0];
-}
-
-export async function findMessageByWhatsappId(
-  whatsappMessageId: string
-): Promise<{ id: number } | null> {
-  const rows = await getConn()
-    .select({ id: messages.id })
-    .from(messages)
-    .where(eq(messages.whatsappMessageId, whatsappMessageId))
-    .limit(1);
-  return rows[0] ?? null;
 }
 
 // --- Phase 2: AI Booking Conversations & Owner Alerts ---
