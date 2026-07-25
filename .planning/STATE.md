@@ -1,18 +1,18 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.4
-milestone_name: architectural gap)
-current_phase: 21
-status: completed
+milestone: v1.5
+milestone_name: ai-driven-owner-onboarding
+status: Awaiting next milestone
 stopped_at: Completed 21-03-PLAN.md
-last_updated: "2026-07-25T05:37:25.644Z"
+last_updated: "2026-07-25T08:50:09.224Z"
 last_activity: 2026-07-25
-last_activity_desc: Phase 21 complete
+last_activity_desc: Milestone v1.5 completed and archived
 progress:
-  total_phases: 0
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_phases: 1
+  completed_phases: 1
+  total_plans: 3
+  completed_plans: 3
+current_phase: 21
 current_phase_name: ai-driven-owner-onboarding-replace-the-deterministic-step-ma
 ---
 
@@ -27,10 +27,10 @@ See: .planning/PROJECT.md (updated 2026-07-24 after v1.4 milestone close)
 
 ## Current Position
 
-Phase: 21
-Plan: Not started
-Status: All phases complete
-Last activity: 2026-07-25 — Phase 21 complete
+Phase: Milestone v1.5 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-07-25 — Milestone v1.5 completed and archived
 
 ## Performance Metrics
 
@@ -276,6 +276,14 @@ Items acknowledged and deferred at v1.4 milestone close on 2026-07-24:
 | todo | meta-business-verification-not-submitted.md | phase-1 (carry-forward from v1.0/v1.2, blocked on external Meta process, moot under Telegram-first pivot) |
 | requirement | ESCL-03: reply-to-client relay | Partially satisfied — approve-exception works; reply prompt doesn't relay yet. Tracked in ROADMAP.md Backlog Phase 999.1 |
 | known_deferred: 3 (see above) | | |
+
+Items acknowledged and deferred at v1.5 milestone close on 2026-07-25:
+
+| Category | Item | Status |
+|----------|------|--------|
+| todo | pivot-to-per-business-whatsapp-numbers-post-poc.md | planning (carry-forward from v1.0/v1.2/v1.4, still moot under Telegram-first pivot) |
+| todo | meta-business-verification-not-submitted.md | phase-1 (carry-forward from v1.0/v1.2/v1.4, blocked on external Meta process, moot under Telegram-first pivot) |
+| known_deferred: 2 (see above) | | |
 
 ## Session Continuity
 

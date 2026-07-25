@@ -1,5 +1,17 @@
 # Milestones
 
+## v1.5 AI-Driven Owner Onboarding (Shipped: 2026-07-25)
+
+**Phases completed:** 1 phases, 3 plans, 6 tasks
+
+**Key accomplishments:**
+
+- A standalone, fully unit-tested Gemini tool-calling onboarding agent (10 tools, stateless DB-derived system prompt, MAX_TOOL_ROUNDS=5 loop) that replaces the old regex-based hours parser — not yet wired into the live Telegram webhook.
+- Both Telegram entry points that reach an onboarding-incomplete owner (typed message and inline-keyboard tap) now call the new stateless `aiOnboardingAgent` instead of the deleted deterministic step machine, with zero remaining references to `dispatchOnboardingStep`/`onboarding/router`.
+- Deleted `src/onboarding/steps.ts`/`router.ts` and the dead session-lifecycle functions in `queries.ts`, completing the migration to `aiOnboardingAgent`; also fixed two test files whose stale `jest.mock('.../onboarding/router')` calls would have broken module resolution after the deletion.
+
+---
+
 ## v1.4 Single-Bot UX Overhaul (Shipped: 2026-07-24)
 
 **Phases completed:** 5 phases, 16 plans, 11 tasks

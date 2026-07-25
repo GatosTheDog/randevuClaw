@@ -2,13 +2,13 @@
 
 ## Current State
 
-**Shipped through v1.4 (Single-Bot UX Overhaul, 2026-07-24) + Phase 21 backlog follow-up (2026-07-25).** A single per-business Telegram bot now handles both admin and client traffic — the old separate platform bot is gone. Admin gets a `/menu` command (Settings/Classes/Clients/Today's Agenda) and clients get a `/start` menu (Book/My Bookings/Cancel/Balance), both with Ναι/Όχι inline-keyboard confirmations; free-form Greek chat still works at any point on either side. Owner onboarding is now a fully freeform Gemini tool-calling agent (`ai-onboarding-agent.ts`, Phase 21) that re-derives completeness from live DB state every turn — replacing the old regex-gated deterministic step machine, which rejected valid free-text Greek hours input. Blocked clients get a Greek apology and the admin gets an inline escalation with an approve-exception button (the "reply to client" half is prompt-only for now — see Backlog Phase 999.1).
+**Shipped through v1.5 (AI-Driven Owner Onboarding, 2026-07-25).** A single per-business Telegram bot now handles both admin and client traffic — the old separate platform bot is gone. Admin gets a `/menu` command (Settings/Classes/Clients/Today's Agenda) and clients get a `/start` menu (Book/My Bookings/Cancel/Balance), both with Ναι/Όχι inline-keyboard confirmations; free-form Greek chat still works at any point on either side. Owner onboarding is now a fully freeform Gemini tool-calling agent (`ai-onboarding-agent.ts`, v1.5 Phase 21) that re-derives completeness from live DB state every turn — replacing the old regex-gated deterministic step machine, which rejected valid free-text Greek hours input. Blocked clients get a Greek apology and the admin gets an inline escalation with an approve-exception button (the "reply to client" half is prompt-only for now — see Backlog Phase 999.1).
 
 ## What This Is
 
 A Telegram-native appointment booking platform for Greek service businesses (pilates studios, gyms, hair salons, etc.). Clients book, cancel, or ask questions by chatting with their business's own bot; an AI agent understands the request and handles the booking. Business owners run everything — setup, accepting/rejecting bookings, cancellations, daily agenda, billing — through chat too, no separate app or dashboard required.
 
-**PoC state (v1.4):** Each business runs its own Telegram bot, single entry point for both owner and clients. Owners onboard themselves (including class schedule), configure billing packages, and record client payments entirely through guided chat. The bot tracks session balances, enforces membership policies, books/cancels specific class sessions with atomic capacity locking, and proactively notifies before memberships expire. WhatsApp is shelved pending Meta Business Verification (1-6 week external process); the same booking/billing logic wires to WhatsApp once verification clears.
+**PoC state (v1.5):** Each business runs its own Telegram bot, single entry point for both owner and clients. Owners onboard themselves via a freeform Gemini tool-calling conversation (including class schedule), configure billing packages, and record client payments entirely through guided chat. The bot tracks session balances, enforces membership policies, books/cancels specific class sessions with atomic capacity locking, and proactively notifies before memberships expire. WhatsApp is shelved pending Meta Business Verification (1-6 week external process); the same booking/billing logic wires to WhatsApp once verification clears.
 
 **⚠ Documentation gap discovered at v1.4 close:** v1.3 (Studio Session Scheduling & Slotless Bookings) was marked shipped in ROADMAP.md but its `/gsd-complete-milestone` archival step never actually ran — no `.planning/milestones/v1.3-ROADMAP.md` or `v1.3-REQUIREMENTS.md` exists, and v1.3's original requirement IDs were lost when v1.4's REQUIREMENTS.md overwrote the live file without archiving v1.3 first. The Validated section below reconstructs v1.3's shipped scope from ROADMAP.md phase descriptions (reliable) rather than exact REQ-IDs (lost). Not fixed here — flagging for awareness; a full retroactive v1.3 archive would need to be reconstructed from git history if ever needed.
 
@@ -53,7 +53,7 @@ A client can book or cancel an appointment with a Greek business entirely throug
 - ✓ Client `/start` menu: Book/My Bookings/Cancel/Balance via inline flows; free Greek chat still works — v1.4 (CMENU-01..05)
 - ✓ Class schedule setup added to onboarding (recurrence + capacity); σεζόν→μάθημα terminology fixed — v1.4 (CLSS-01..05, I18N-01..03)
 - ✓ Blocked client gets Greek apology; admin gets escalation notification with context + approve-exception button — v1.4 (ESCL-01, ESCL-02)
-- ✓ Owner onboarding is a stateless Gemini tool-calling agent that parses freeform Greek input (multi-field, split-range hours) instead of a regex-gated step machine; old step machine deleted — Phase 21 backlog (D-01, D-02, D-03)
+- ✓ Owner onboarding is a stateless Gemini tool-calling agent that parses freeform Greek input (multi-field, split-range hours) instead of a regex-gated step machine; old step machine deleted — v1.5 (D-01, D-02, D-03)
 
 ### Active
 
@@ -79,6 +79,7 @@ A client can book or cancel an appointment with a Greek business entirely throug
 - v1.1 shipped 2026-07-17: 2 phases, 13 plans, 25 tasks, +3,571/-654 lines, 5,162 total src/ LOC
 - v1.2 shipped 2026-07-22: 3 phases, 16 plans, 19 tasks, +5,364/-59 lines, 7,364 total src/ LOC, 320 tests
 - v1.3 + v1.4 shipped 2026-07-23/24 (combined — v1.3 never got a proper milestone close, see gap note above): 11 phases (10-20), +9,953/-303 lines since v1.2 close, 11,262 total src/ LOC, 344 tests in suite
+- v1.5 shipped 2026-07-25: 1 phase (21), 3 plans, 6 tasks, 27 commits since v1.4 tag, 36/36 onboarding tests passing
 - Tech stack: Node.js/TypeScript, Neon/Drizzle (Postgres + RLS), Telegraf (per-bot Telegram, now the sole bot per business as of v1.4), WhatsApp Cloud API (wired, pending Meta BV), @google/genai (Gemini 2.5 Flash-Lite), Google Calendar API, date-fns (rolling windows), rrule (v1.3 session recurrence), fly.io
 - Billing layer: billingPackages, memberships, membershipLedger, membershipExpiryNotifications tables; SELECT FOR UPDATE atomic deduction; in-process 6-hour expiry sweep
 - Session layer (v1.3): sessionCatalog, sessionInstances, slotlessRequests tables; RRule-expanded recurring classes; atomic capacity + credit deduction
@@ -128,6 +129,9 @@ A client can book or cancel an appointment with a Greek business entirely throug
 | activeMembership=null passed to bookSessionInstance for admin-approved exceptions | Bypasses the membership enforcement gate while capacity SELECT FOR UPDATE still applies — admin override never overbooks | ✓ Good |
 | Escalation idempotency key escl:approve:<clientId>:<instanceId> | Prevents duplicate bookings from repeated admin button taps | ✓ Good |
 | Phase code review + goal-backward verification run retroactively at milestone close (not per-phase during execution) | v1.4's phases 16/17/19 were executed but never reviewed/verified until the milestone-close sweep — caught 3 real bugs (dead routing code, cross-tenant lookup ambiguity, wrong Gemini model id) that would have shipped silently | ⚠️ Revisit — run code-review + verify-work per phase during execution next milestone, not deferred to close |
+| Onboarding agent (v1.5) mirrors aiOwnerAgent's tool-calling shape exactly, including reusing its GEMINI_MODEL export | One model constant, one pattern to maintain across both agents; avoids drift between owner-chat and onboarding-chat Gemini config | ✓ Good |
+| `return await withBusinessContext(...)` (not bare `return withBusinessContext(...)`) inside try/catch in the new onboarding executor | Bare `return` on a promise silently defeats the enclosing catch — a real JS async gotcha caught in code review (CR-01); ai-owner-agent.ts's pre-existing bare form left untouched as out-of-scope for this phase | ✓ Good — fixed in new code; flagged as pre-existing debt elsewhere |
+| onboarding_sessions DB table and edit-router.ts left inert (unused, not migrated away) after step-machine deletion | D-02 stateless resume made both unnecessary, but dropping the table/wiring was out of scope for a mechanical replacement phase | — Pending — future housekeeping pass can drop the table and either wire or delete edit-router.ts |
 
 ## Evolution
 
@@ -144,4 +148,4 @@ A client can book or cancel an appointment with a Greek business entirely throug
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-25 — Phase 21 (AI-driven owner onboarding) shipped*
+*Last updated: 2026-07-25 after v1.5 milestone*

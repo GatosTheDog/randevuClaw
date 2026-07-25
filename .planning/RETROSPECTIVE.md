@@ -206,6 +206,45 @@ Platform bot removed — single per-business bot handles both admin and client t
 
 ---
 
+## Milestone: v1.5 — AI-Driven Owner Onboarding
+
+**Shipped:** 2026-07-25
+
+**Phases:** 1 (21) | **Plans:** 3
+
+### What Was Built
+
+The deterministic step-machine onboarding flow (`steps.ts`, `router.ts`) was replaced with `ai-onboarding-agent.ts` — a Gemini tool-calling agent matching `aiOwnerAgent`'s existing pattern. Owners can now answer multiple fields in one free-text Greek message (name + hours + services in a single turn); the old regex-gated hours parser (`HH:MM-HH:MM` only) that rejected valid colloquial input like "9 το πρωι με 9 το βραδυ και ενα διαλυμα απο 1 μεχρι 5" is gone. Resume is now stateless — the agent re-derives what's configured from live DB state (`computeOnboardingCompleteness`) every turn instead of tracking a step index in `onboarding_sessions`. Both Telegram entry points (typed message + callback_query) route to the new agent; old step-machine files and dead session-lifecycle query functions deleted.
+
+### What Worked
+
+- Building the new agent as a fully isolated, unit-tested module (Wave 1) before touching any live wiring (Wave 2) meant the risky "does Gemini tool-calling actually replace this flow" question was answered with 24 unit tests before a single production entry point changed
+- Mirroring `aiOwnerAgent`'s existing tool-calling shape (same `MAX_TOOL_ROUNDS=5` cap, same `GEMINI_MODEL` export reused rather than duplicated) meant no new architectural pattern had to be invented — just applied to a second domain
+- Code review caught one CRITICAL (CR-01: cross-tenant slug-uniqueness lookup silently defeated by RLS scoping) and four WARNING-level findings before verification, all fixed in a single follow-up commit — none shipped
+
+### What Was Inefficient
+
+- STATE.md's `milestone`/`milestone_name` frontmatter fields were stale/wrong going into this close (`v1.4`, garbled name fragment `"architectural gap)"` copy-pasted from a backlog item title) — required manual correction before `/gsd-audit-milestone` and `/gsd-complete-milestone` could run against a coherent version. Phase 21 had been executed as an ad-hoc "backlog follow-up" without ever going through `/gsd-new-milestone`, so it never got a real version number until close time.
+- No `REQUIREMENTS.md` traceability table existed for this milestone — D-01/D-02/D-03 were tracked only in `21-CONTEXT.md`. The 3-source cross-reference audit step had to fall back to CONTEXT-vs-VERIFICATION comparison instead of the normal REQUIREMENTS-vs-VERIFICATION-vs-SUMMARY matrix.
+
+### Patterns Established
+
+- A phase executed outside the formal milestone lifecycle (no `/gsd-new-milestone` → roadmap → requirements chain) can still be closed cleanly by minting a new version number at close time and pointing `STATE.md` at it — but the audit and archive steps degrade gracefully rather than fully (no REQUIREMENTS.md traceability, single-phase "integration check" is a no-op since there's nothing to cross-wire)
+- When `STATE.md`'s milestone frontmatter looks wrong (name fragment doesn't match current phase, version doesn't match ROADMAP.md's shipped list), stop and fix it before running audit/close tooling — the tooling trusts STATE.md as the source of truth for "which milestone am I closing"
+
+### Key Lessons
+
+1. Ad-hoc single-phase fixes that grow into full phases (this one started as "fix a regex bug," became a full step-machine replacement) should get a version number assigned at the point they're scoped as a phase, not retroactively at close time — avoids the STATE.md drift seen here.
+2. Reusing an existing agent's exact shape (tool schema style, round cap, model constant) for a second agent is cheap insurance against config drift between the two — enforced here by literally importing `GEMINI_MODEL` rather than redefining it.
+
+### Cost Observations
+
+- Sessions: 1 session covering phase 21 execution (3 plans) + milestone versioning correction + audit + close
+- Model: Claude Sonnet 5 throughout
+- Notable: single CRITICAL code-review finding (RLS-scoping bypass on cross-tenant lookup) caught and fixed before verification — same category of bug class as v1.4's CR-01, suggesting "does this query run before or after entering `withBusinessContext`" deserves a standing code-review checklist item
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
