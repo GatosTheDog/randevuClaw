@@ -17,10 +17,6 @@ if (!process.env.JEST_WORKER_ID) {
 }
 
 const EnvSchema = z.object({
-  APP_SECRET: z.string().min(1),
-  WEBHOOK_VERIFY_TOKEN: z.string().min(1),
-  WHATSAPP_ACCESS_TOKEN: z.string().min(1),
-  WHATSAPP_PHONE_NUMBER_ID: z.string().min(1),
   DATABASE_URL: z.string().min(1),
   GEMINI_API_KEY: z.string().min(1),
   // TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET removed (D-08, Phase 04):
@@ -49,10 +45,6 @@ const EnvSchema = z.object({
 });
 
 export interface Config {
-  appSecret: string;
-  webhookVerifyToken: string;
-  whatsappAccessToken: string;
-  whatsappPhoneNumberId: string;
   databaseUrl: string;
   // Phase 04 (D-11): optional connection string for randevuclaw_app role.
   // Used by appDb (db.ts) for RLS-enforced conversation queries.
@@ -76,10 +68,6 @@ export interface Config {
 const env = EnvSchema.parse(process.env);
 
 export const config: Config = {
-  appSecret: env.APP_SECRET,
-  webhookVerifyToken: env.WEBHOOK_VERIFY_TOKEN,
-  whatsappAccessToken: env.WHATSAPP_ACCESS_TOKEN,
-  whatsappPhoneNumberId: env.WHATSAPP_PHONE_NUMBER_ID,
   databaseUrl: env.DATABASE_URL,
   databaseAppUrl: env.DATABASE_APP_URL,
   geminiApiKey: env.GEMINI_API_KEY,
