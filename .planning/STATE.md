@@ -4,11 +4,11 @@ milestone: v1.4
 milestone_name: architectural gap)
 current_phase: 21
 current_phase_name: ai-driven-owner-onboarding-replace-the-deterministic-step-ma
-status: executing
-stopped_at: Completed 21-02-PLAN.md
-last_updated: "2026-07-25T04:10:00.000Z"
+status: verifying
+stopped_at: Completed 21-03-PLAN.md
+last_updated: "2026-07-25T02:57:38.356Z"
 last_activity: 2026-07-25
-last_activity_desc: Phase 21 — 21-02 complete, starting 21-03
+last_activity_desc: Phase 21, 21-02 complete
 progress:
   total_phases: 0
   completed_phases: 0
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-24 after v1.4 milestone close)
 
 Phase: 21 (ai-driven-owner-onboarding-replace-the-deterministic-step-ma) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-25 — Phase 21, 21-02 complete
 
 ## Performance Metrics
@@ -102,6 +102,7 @@ Last activity: 2026-07-25 — Phase 21, 21-02 complete
 | Phase 20 P01 | 390 | 2 tasks | 4 files |
 | Phase 20 P02 | 5 | 2 tasks | 2 files |
 | Phase 21 P01 | 55 | 2 tasks | 3 files |
+| Phase 21 P03 | 20min | 2 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -209,6 +210,9 @@ Recent decisions affecting current work:
 - [Phase 20-02]: Idempotency key escl:approve:<clientId>:<instanceId> prevents duplicate bookings from repeated button taps (T-20-07)
 - [Phase ?]: [Phase 21-01]: GEMINI_MODEL exported from ai-owner-agent.ts (value unchanged) so ai-onboarding-agent.ts reuses the exact same model constant
 - [Phase ?]: [Phase 21-01]: return await withBusinessContext(...) required inside try/catch for the catch to observe async rejections — bare 'return withBusinessContext(...)' silently defeats the outer catch (JS async gotcha); fixed in the new file only, ai-owner-agent.ts's existing bare form left untouched (out of scope)
+- [Phase ?]: [Phase 21-03]: edit-router.ts left untouched/unwired (dead code, zero call sites) — only isOwnerEditCommand test coverage relocated to tests/onboarding/edit-router.test.ts
+- [Phase ?]: [Phase 21-03]: onboarding_sessions DB table left inert, no schema.ts migration — future housekeeping pass can drop it once desired
+- [Phase ?]: [Phase 21-03]: Rule 3 fix — removed stale jest.mock('.../onboarding/router') from tests/admin-menu.test.ts and tests/webhooks/client-menu.test.ts, which would have broken module resolution once router.ts was deleted
 
 ### Pending Todos
 
@@ -274,8 +278,8 @@ Items acknowledged and deferred at v1.4 milestone close on 2026-07-24:
 
 ## Session Continuity
 
-Last session: 2026-07-25T00:28:43.083Z
-Stopped at: Completed 21-01-PLAN.md
+Last session: 2026-07-25T02:57:38.349Z
+Stopped at: Completed 21-03-PLAN.md
 Resume file: None
 
 **Phase 12 Plan 01 completed:** a940588, 6c5830e, 7d64f85

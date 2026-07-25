@@ -139,7 +139,7 @@ See: `.planning/milestones/v1.4-ROADMAP.md`
 **Goal:** Replace the deterministic step-machine onboarding flow (src/onboarding/steps.ts, router.ts) with a Gemini tool-calling agent, matching the pattern aiOwnerAgent already uses for post-onboarding conversation. Motivated by a bug where handleHoursRangeStep rejected valid free-text Greek hours input because it only accepts strict HH:MM-HH:MM regex format.
 **Requirements**: TBD (see plan frontmatter — D-01/D-02/D-03 from 21-CONTEXT.md)
 **Depends on:** Phase 20
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans executed
 
 Plans:
 **Wave 1**
@@ -152,4 +152,4 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 21-03-PLAN.md — Delete the old step-machine (steps.ts, router.ts) and dead session-lifecycle code; clean up tests
+- [x] 21-03-PLAN.md — Delete the old step-machine (steps.ts, router.ts) and dead session-lifecycle code; clean up tests
