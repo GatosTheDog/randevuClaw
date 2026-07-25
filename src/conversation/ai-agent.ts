@@ -280,8 +280,24 @@ async function callGeminiWithRetry(
   const maxAttempts = 4;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
+      // NOTE: the 25s httpOptions.timeout passed at `new GoogleGenAI({...})`
+      // construction (cbb7310) does NOT bound this call — @google/genai's
+      // `ai.interactions` getter builds a separate internal client that never
+      // inherits client-level httpOptions (verified against
+      // node_modules/@google/genai/dist/node/index.mjs: only
+      // getNextGenClient(), which .interactions never calls, forwards it).
+      // The per-call RequestOptions below IS honored by this SDK's
+      // interactions.create() request path (empirically verified against a
+      // hanging local server) — this is what actually bounds the call.
+      // maxRetries: 0 is required alongside timeout: without it, the SDK's
+      // own internal retry-with-backoff re-attempts a timed-out request
+      // several times (observed 5 attempts / ~16.5s wall time for a
+      // configured 2s timeout), which would defeat the purpose of bounding a
+      // webhook-request-scoped call. This app already has its own retry
+      // layer above (callGeminiWithRetry, for 429s only) — a single bounded
+      // attempt here keeps the total worst-case latency deterministic.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const result = await ai.interactions.create(params as any);
+      const result = await ai.interactions.create(params as any, { timeout: 25000, maxRetries: 0 });
       return result as unknown as GeminiInteractionResult;
     } catch (err) {
       if (!is429(err)) throw err;

@@ -648,6 +648,13 @@ export async function aiOnboardingAgent(
 
     let interaction: GeminiInteractionResult;
     try {
+      // NOTE: client-level httpOptions.timeout (cbb7310) does not bound
+      // ai.interactions.create() in this SDK version — see ai-agent.ts for
+      // the full explanation and empirical verification. maxRetries: 0 is
+      // required alongside timeout, otherwise the SDK's own internal
+      // retry-with-backoff re-attempts a timed-out request several times
+      // (observed ~16.5s wall time for a configured 2s timeout), defeating
+      // the point of bounding a webhook-scoped call.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       interaction = await (ai.interactions.create as any)({
         model: GEMINI_MODEL,
@@ -656,7 +663,7 @@ export async function aiOnboardingAgent(
         system_instruction: systemInstruction,
         previous_interaction_id: currentInteractionId,
         generation_config: { temperature: 0.4, max_output_tokens: 512, top_p: 0.95 },
-      } as GeminiCreateParams) as GeminiInteractionResult;
+      } as GeminiCreateParams, { timeout: 25000, maxRetries: 0 }) as GeminiInteractionResult;
     } catch (err) {
       logger.error({ err, businessId: business.id }, 'aiOnboardingAgent Gemini call failed');
       return 'Το σύστημα δεν απόκρινε. Δοκιμάστε ξανά σε λίγο.';
