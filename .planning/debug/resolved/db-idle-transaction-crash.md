@@ -1,8 +1,10 @@
 ---
-status: awaiting_human_verify
+status: resolved
 trigger: "DB crash issue — Node process crashes on Postgres idle-in-transaction timeout after DB idle period, following up on CYCLE 4 CANDIDATE flagged in .planning/debug/resolved/webhook-hang-no-reply.md (or .planning/debug/webhook-hang-no-reply.md if not yet resolved)"
 created: 2026-07-25T18:10:00Z
-updated: 2026-07-25T19:15:00Z
+updated: 2026-07-25T18:50:00Z
+resolved: 2026-07-25T18:50:00Z
+commit: 2b70a74fb37106c1a78f86ab3aa4e1696ae9eea9
 ---
 
 ## Current Focus
@@ -86,15 +88,26 @@ reasoning_checkpoint:
     crash, and out of scope for a minimal fix — flagged for follow-up).
 
 next_action: |
-  Fix applied and self-verified (see Resolution). Awaiting human confirmation
-  that the crash no longer occurs in the real fly.io deployment before
-  archiving this session. If confirmed: move file to resolved/, commit code +
-  docs, append knowledge-base entry. If NOT confirmed (crash recurs after
-  deploy): status back to "investigating" — re-examine whether Neon
-  compute-suspend / stale-connection reuse (hypothesis 1, not yet directly
-  confirmed against a live Neon dashboard) is an additional contributing
-  factor requiring its own fix (e.g. a pool `verify` callback pinging the
-  connection before handing it out).
+  DONE. Fix committed (2b70a74) and deployed to production (fly.io app
+  randevuclaw, v21, machine 8dd333ae114ee8). Live production verification
+  confirmed: a real idle-then-burst cycle recurred (18:46:30Z-18:47:09Z,
+  same "Query read timeout" DrizzleQueryError storm on begin/rollback as
+  before) but the process did NOT crash this time — same pid (642), same
+  machine, no restart/reboot, subsequent tool calls succeeded normally.
+  Session archived to resolved/.
+
+  RESIDUAL OPEN ISSUE (flagged, not fixed by this session, out of scope):
+  Hypothesis 1 (stale/invalidated pooled connections after a long DB-idle
+  gap, possibly Neon compute-suspend related) is CONFIRMED to still occur —
+  the "Query read timeout" storm on begin/rollback recurred in production
+  post-fix, unchanged. It is non-fatal (caught by client-side query_timeout,
+  no crash) but represents real functional failures (onboarding/booking
+  writes failing almost every attempt during the storm window). A follow-up
+  debug/fix session should investigate: (a) Neon compute-suspend/autoscaling
+  behavior around long idle gaps, (b) whether pg Pool needs a connection
+  validation/ping-before-use step, (c) whether withBusinessContext should
+  stop holding a DB transaction open across the Gemini network call
+  (structural fix, also flagged in blind_spots above).
 
 ## Symptoms
 <!-- Written during gathering, then immutable -->
@@ -144,6 +157,11 @@ reproduction: |
   checked: "fly logs --no-tail, continued monitoring"
   found: "Node crashed outright: 'node:events:502 throw er; // Unhandled error event', underlying Postgres error 'terminating connection due to idle-in-transaction timeout' (code 25P03), emitted directly on a raw pg Client instance (Client._handleErrorEvent), NOT routed through Pool's error handling. Process exited (code 1), fly.io machine rebooted (~13s downtime, 18:04:14 to 18:04:27)."
   implication: "pg Pool's `.on('error')` handler (present in src/database/db.ts:38 and :61) only covers clients sitting IDLE in the pool — it does not cover a client actively checked out mid-transaction when Postgres asynchronously terminates that connection out-of-band. Root gap identified by direct code read; needs an error listener attached for the lifetime of each checkout, not just at Pool level."
+
+- timestamp: 2026-07-25T18:46:30Z through 2026-07-25T18:47:09Z
+  checked: "Live production verification after deploying the fix. Committed fix as 2b70a74, ran `fly deploy --app randevuclaw` (deployed as v21, machine 8dd333ae114ee8, healthy 1/1 checks), then pulled `fly logs --no-tail` and `fly status` following a real DB-idle gap and subsequent Telegram message burst."
+  found: "Same non-fatal 'Query read timeout' DrizzleQueryError storm on begin/rollback (~12s/~24s elapsed) recurred multiple times, matching the pre-existing hypothesis-1 pattern exactly. Critically, the process did NOT crash: same pid (642), same machine (8dd333ae114ee8), no restart/reboot in `fly status` (still v21, started, checks passing) or logs; a second `fly logs` pull showed continuous pid=642 activity straight through the storm and afterward, with subsequent set_business_hours tool calls succeeding normally."
+  implication: "Live production confirmation that the specific fatal crash (uncaught 'error' event on a checked-out client during idle_in_transaction_session_timeout) is fixed by the pool 'connect'-listener change. The separate, non-fatal stale-connection/Query-read-timeout storm (hypothesis 1) is confirmed to still occur and remains an open, flagged follow-up — out of scope for this session per its original root-cause scoping (crash only, not the broader connection-reliability storm)."
 
 ## Resolution
 <!-- OVERWRITE as understanding evolves -->
@@ -221,8 +239,15 @@ verification: |
   5. Ran a targeted batch of tests that actually exercise db.ts/appDb (the
      new regression test, telegram webhook onboarding integration test) with
      --runInBand: all pass. `npx tsc --noEmit` shows zero errors for db.ts.
-  6. Self-verified (satisfies self-checks); AWAITING human confirmation
-     before archiving (see CHECKPOINT).
+  6. LIVE PRODUCTION VERIFICATION (2026-07-25T18:46:30Z-18:47:09Z): committed
+     fix as 2b70a74, deployed via `fly deploy --app randevuclaw` (v21,
+     machine 8dd333ae114ee8, healthy). A real DB-idle-then-burst cycle
+     occurred naturally in production; the pre-existing non-fatal
+     "Query read timeout" storm recurred (confirming hypothesis 1 is a
+     separate, still-open issue), but the process did NOT crash — same pid
+     (642), same machine, no restart in `fly status`/logs, subsequent tool
+     calls succeeded normally. This is direct evidence, not inference, that
+     the fatal crash is fixed. CONFIRMED — session closed.
 files_changed:
   - src/database/db.ts (added persistent per-client 'error' listeners on
     Pool's 'connect' event for both `pool` and `appPool`, closing the
