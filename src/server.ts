@@ -1,6 +1,5 @@
 import express from 'express';
 import { logger } from './utils/logger';
-import webhookRouter from './webhooks/whatsapp';
 import telegramWebhookRouter from './webhooks/telegram';
 import { startExpiryPoller } from './conversation/expiry-poller';
 import { startCalendarSyncPoller } from './calendar/poller';
@@ -11,7 +10,6 @@ import { startSessionCancellationPoller } from './scheduler/session-cancellation
 
 const app = express();
 
-app.use('/webhooks/whatsapp', webhookRouter);
 app.use('/webhooks/telegram', telegramWebhookRouter);
 
 app.get('/healthz', (_req, res) => {
