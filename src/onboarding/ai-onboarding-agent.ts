@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { eq } from 'drizzle-orm';
 import { GoogleGenAI } from '@google/genai';
 import { config } from '../config';
@@ -13,6 +14,13 @@ import {
 } from '../database/queries';
 import { generateSlug } from '../database/seed';
 import { logger } from '../utils/logger';
+import {
+  handleSetCancellationCutoff,
+  handleSetLastSessionThreshold,
+} from '../billing/tools';
+import { createSessionCatalogWithExpansion, buildRRuleString, listSessions } from '../session/manager';
+import { sendTelegramMessage, registerBotWebhook, unregisterBotWebhook } from '../telegram/client';
+import { activateBusiness } from './queries';
 import { GEMINI_MODEL } from './ai-owner-agent';
 
 // ---------------------------------------------------------------------------
@@ -366,4 +374,319 @@ interface GeminiInteractionResult {
 const ai = new GoogleGenAI({ apiKey: config.geminiApiKey });
 const MAX_TOOL_ROUNDS = 5;
 
-// NOTE: executeOnboardingTool and aiOnboardingAgent are implemented in Task 2.
+/**
+ * Executes a Gemini-dispatched onboarding tool and returns a Greek string to
+ * feed back to Gemini as the function result.
+ *
+ * D-03/D-08 special case: finish_onboarding sends its own Telegram confirmation
+ * message and returns '' (empty string). The Gemini loop treats '' as a signal
+ * to break immediately — the caller must NOT send an additional reply.
+ *
+ * WR-02 (mirrors ai-owner-agent.ts): top-level try/catch so any DB error
+ * returns a Greek error string to Gemini instead of propagating uncaught.
+ */
+export async function executeOnboardingTool(
+  toolName: string,
+  args: OnboardingToolArgs,
+  business: Business,
+  today: string,
+  ownerTelegramId: string
+): Promise<string> {
+  try {
+    switch (toolName) {
+      case 'set_business_name': {
+        const name = args.name?.trim();
+        if (!name) return 'Μη έγκυρο όνομα.';
+        if (name.length > 100) return 'Το όνομα είναι πολύ μεγάλο (μέγιστο 100 χαρακτήρες).';
+        // T-21-02: wrap in withBusinessContext so RLS applies; getConn() inside for the enforced connection
+        return await withBusinessContext(business.id, async () => {
+          const existingSlugsRows = await getConn().select({ slug: businesses.slug }).from(businesses);
+          const existingSlugs = existingSlugsRows.map((r) => r.slug);
+          const slug = generateSlug(name, existingSlugs);
+          await getConn().update(businesses).set({ name, slug }).where(eq(businesses.id, business.id));
+          return `OK: το όνομα ορίστηκε σε "${name}"`;
+        });
+      }
+
+      case 'set_business_hours': {
+        const { day_of_week, open_time, close_time, open_time_2, close_time_2 } = args;
+        if (day_of_week === undefined || !open_time || !close_time) return 'Μη έγκυρα δεδομένα ωραρίου.';
+        return await withBusinessContext(business.id, async () => {
+          await getConn()
+            .insert(businessHours)
+            .values({
+              businessId: business.id,
+              dayOfWeek: day_of_week,
+              openTime: open_time,
+              closeTime: close_time,
+              openTime2: open_time_2 ?? null,
+              closeTime2: close_time_2 ?? null,
+              isClosed: false,
+            })
+            .onConflictDoUpdate({
+              target: [businessHours.businessId, businessHours.dayOfWeek],
+              set: {
+                openTime: open_time,
+                closeTime: close_time,
+                openTime2: open_time_2 ?? null,
+                closeTime2: close_time_2 ?? null,
+                isClosed: false,
+              },
+            });
+          return `OK: ${GREEK_WEEKDAYS[day_of_week]} ${open_time}–${close_time}`;
+        });
+      }
+
+      case 'close_day': {
+        const { day_of_week } = args;
+        if (day_of_week === undefined) return 'Μη έγκυρη ημέρα.';
+        return await withBusinessContext(business.id, async () => {
+          await getConn()
+            .insert(businessHours)
+            .values({
+              businessId: business.id,
+              dayOfWeek: day_of_week,
+              openTime: '00:00',
+              closeTime: '00:00',
+              isClosed: true,
+            })
+            .onConflictDoUpdate({
+              target: [businessHours.businessId, businessHours.dayOfWeek],
+              set: { isClosed: true },
+            });
+          return `OK: ${GREEK_WEEKDAYS[day_of_week]} ορίστηκε ως κλειστή`;
+        });
+      }
+
+      case 'add_service': {
+        const { name, price_cents, duration_min } = args;
+        if (!name || duration_min === undefined) return 'Μη έγκυρα δεδομένα υπηρεσίας.';
+        return await withBusinessContext(business.id, async () => {
+          await getConn()
+            .insert(services)
+            .values({
+              businessId: business.id,
+              name,
+              price: price_cents && price_cents > 0 ? price_cents : null,
+              durationMin: duration_min,
+            });
+          return `OK: υπηρεσία "${name}" προστέθηκε`;
+        });
+      }
+
+      case 'set_booking_mode': {
+        const mode = args.mode;
+        if (mode !== 'open_slots' && mode !== 'fixed_sessions') {
+          return 'Μη έγκυρος τρόπος κράτησης. Επιτρεπτές τιμές: open_slots, fixed_sessions.';
+        }
+        return await withBusinessContext(business.id, async () => {
+          if (mode === 'fixed_sessions') {
+            // Mirrors ai-owner-agent.ts's change_booking_mode: warn but still switch
+            // when existing session bookings already exist.
+            const sessions = await listSessions(business.id);
+            if (sessions.length > 0) {
+              await getConn().update(businesses).set({ bookingMode: mode }).where(eq(businesses.id, business.id));
+              return (
+                `⚠️ Προσοχή: υπάρχουν ${sessions.length} υπάρχοντα μαθήματα. ` +
+                'Ο τρόπος κράτησης άλλαξε σε "πρόγραμμα τάξεων".'
+              );
+            }
+          }
+          await getConn().update(businesses).set({ bookingMode: mode }).where(eq(businesses.id, business.id));
+          const modeLabel = mode === 'fixed_sessions' ? 'πρόγραμμα τάξεων' : 'ελεύθερες θέσεις';
+          return `OK: ο τρόπος κράτησης ορίστηκε σε "${modeLabel}"`;
+        });
+      }
+
+      case 'create_class_schedule': {
+        const svcNameArg = args.service_name ?? '';
+        const svcList = await listServicesForBusiness(business.id);
+        const matchedService = svcList.find((s) => s.name.toLowerCase().includes(svcNameArg.toLowerCase()));
+        if (!matchedService) {
+          return `Δεν βρέθηκε υπηρεσία με όνομα "${svcNameArg}".`;
+        }
+        const weekdays = args.weekdays ?? [];
+        if (weekdays.length === 0) {
+          return 'Δεν δόθηκαν ημέρες εβδομάδας.';
+        }
+        const start_time = args.start_time ?? '';
+        const capacity = args.capacity ?? 0;
+        const rruleString = buildRRuleString(weekdays, start_time);
+        // createSessionCatalogWithExpansion calls withBusinessContext internally
+        const { instanceCount } = await createSessionCatalogWithExpansion(
+          business.id,
+          matchedService.id,
+          rruleString,
+          start_time,
+          capacity
+        );
+        return `Δημιουργήθηκαν ${instanceCount} μαθήματα για "${matchedService.name}" (${start_time}) τις επόμενες ~90 ημέρες.`;
+      }
+
+      case 'set_cancellation_cutoff': {
+        return await withBusinessContext(business.id, () =>
+          handleSetCancellationCutoff(business.id, args as Record<string, unknown>)
+        );
+      }
+
+      case 'set_slotless_requests': {
+        const enabled = args.enabled;
+        if (typeof enabled !== 'boolean') return 'Μη έγκυρα δεδομένα.';
+        return await withBusinessContext(business.id, async () => {
+          await getConn()
+            .update(businesses)
+            .set({ slotlessRequestsEnabled: enabled })
+            .where(eq(businesses.id, business.id));
+          return enabled
+            ? 'OK: τα αιτήματα χωρίς θέση ενεργοποιήθηκαν'
+            : 'OK: τα αιτήματα χωρίς θέση απενεργοποιήθηκαν';
+        });
+      }
+
+      case 'set_last_session_threshold': {
+        return await withBusinessContext(business.id, () =>
+          handleSetLastSessionThreshold(business.id, args as Record<string, unknown>)
+        );
+      }
+
+      case 'finish_onboarding': {
+        const svcList = await listServicesForBusiness(business.id);
+        const hoursList = await listBusinessHours(business.id);
+        const { missing } = computeOnboardingCompleteness(business, svcList, hoursList);
+
+        if (missing.length > 0) {
+          return `Δεν μπορώ να ολοκληρώσω ακόμα. Λείπουν: ${missing.join(', ')}.`;
+        }
+
+        if (!config.webhookBaseUrl) {
+          return 'Σφάλμα: το WEBHOOK_BASE_URL δεν έχει οριστεί. Επικοινωνήστε με τον διαχειριστή.';
+        }
+
+        const webhookId = crypto.randomUUID();
+        const webhookSecret = crypto.randomBytes(32).toString('hex');
+
+        // Always unregister before registering to prevent webhook conflicts (T-05-09
+        // pattern, mirrors handleActivate in src/onboarding/steps.ts).
+        await unregisterBotWebhook(business.botToken!);
+        await registerBotWebhook(
+          business.botToken!,
+          `${config.webhookBaseUrl}/webhooks/telegram/${webhookId}`,
+          webhookSecret
+        );
+
+        await activateBusiness(business.id, webhookId, webhookSecret);
+
+        // ARCH-03 pattern: persist onboardingCompleted=true under RLS before sending
+        // the congratulatory message.
+        await withBusinessContext(business.id, async () => {
+          await getConn().update(businesses).set({ onboardingCompleted: true }).where(eq(businesses.id, business.id));
+        });
+
+        logger.info({ businessId: business.id, webhookId }, 'Business activated via AI onboarding agent');
+
+        await sendTelegramMessage(
+          ownerTelegramId,
+          'Η επιχείρησή σας είναι ενεργή! Οι πελάτες μπορούν τώρα να κάνουν κράτηση μέσω του bot σας.'
+        );
+        return '';
+      }
+
+      default:
+        return `Άγνωστο εργαλείο: ${toolName}`;
+    }
+  } catch (err) {
+    logger.error({ err, toolName, businessId: business.id }, 'executeOnboardingTool failed');
+    return 'Σφάλμα κατά την εκτέλεση. Δοκιμάστε ξανά.';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Main export
+// ---------------------------------------------------------------------------
+
+/**
+ * D-01/D-02: single freeform multi-turn Gemini conversation covering the
+ * entire onboarding flow. Stateless resume — the system prompt is rebuilt
+ * from current DB state on every call (no onboarding_sessions step tracking).
+ */
+export async function aiOnboardingAgent(
+  business: Business,
+  ownerTelegramId: string,
+  messageText: string,
+  today: string
+): Promise<string> {
+  const svcList = await listServicesForBusiness(business.id);
+  const hoursList = await listBusinessHours(business.id);
+  const systemInstruction = buildOnboardingSystemPrompt(business, svcList, hoursList, today);
+
+  let input: string | GeminiFunctionResultInput[] = messageText;
+  let currentInteractionId: string | undefined;
+  let round = 0;
+
+  while (true) {
+    if (++round > MAX_TOOL_ROUNDS) {
+      logger.error({ businessId: business.id, ownerTelegramId }, 'aiOnboardingAgent exceeded MAX_TOOL_ROUNDS');
+      return 'Συγγνώμη, κάτι πήγε στραβά. Δοκιμάστε ξανά.';
+    }
+
+    let interaction: GeminiInteractionResult;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      interaction = await (ai.interactions.create as any)({
+        model: GEMINI_MODEL,
+        input,
+        tools: ONBOARDING_TOOLS,
+        system_instruction: systemInstruction,
+        previous_interaction_id: currentInteractionId,
+        generation_config: { temperature: 0.4, max_output_tokens: 512, top_p: 0.95 },
+      } as GeminiCreateParams) as GeminiInteractionResult;
+    } catch (err) {
+      logger.error({ err, businessId: business.id }, 'aiOnboardingAgent Gemini call failed');
+      return 'Το σύστημα δεν απόκρινε. Δοκιμάστε ξανά σε λίγο.';
+    }
+
+    currentInteractionId = interaction.id;
+
+    const functionCalls: Array<{ name: string; arguments: Record<string, unknown>; id: string }> = [];
+    for (const step of interaction.steps ?? []) {
+      if (step.type === 'function_call' && step.name && step.id) {
+        functionCalls.push({ name: step.name, arguments: step.arguments ?? {}, id: step.id });
+      }
+    }
+
+    if (functionCalls.length === 0) {
+      return interaction.output_text ?? 'Συγγνώμη, δεν κατάλαβα. Μπορείτε να επαναδιατυπώσετε;';
+    }
+
+    const functionResults: GeminiFunctionResultInput[] = [];
+    for (const call of functionCalls) {
+      const result = await executeOnboardingTool(
+        call.name,
+        call.arguments as OnboardingToolArgs,
+        business,
+        today,
+        ownerTelegramId
+      );
+      logger.info(
+        { businessId: business.id, tool: call.name, result: result || '(webhook activated)' },
+        'Onboarding tool executed'
+      );
+
+      // D-03/D-08: '' signals finish_onboarding already sent its own Telegram
+      // message. Break the Gemini loop immediately — the caller must NOT send
+      // an additional reply when this function returns ''.
+      if (result === '') {
+        return '';
+      }
+
+      functionResults.push({
+        type: 'function_result',
+        name: call.name,
+        call_id: call.id,
+        result: [{ type: 'text', text: result }],
+      });
+    }
+
+    input = functionResults;
+  }
+}
