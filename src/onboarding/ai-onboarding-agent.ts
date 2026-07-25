@@ -377,7 +377,10 @@ interface GeminiInteractionResult {
   steps?: Array<{ type: string; name?: string; arguments?: Record<string, unknown>; id?: string }>;
 }
 
-const ai = new GoogleGenAI({ apiKey: config.geminiApiKey });
+// Bounds the Gemini HTTP call to 25s so a stalled onboarding response can no
+// longer hang the open Postgres transaction (withBusinessContext) indefinitely;
+// the existing catch block below already logs + falls back on rejection.
+const ai = new GoogleGenAI({ apiKey: config.geminiApiKey, httpOptions: { timeout: 25000 } });
 const MAX_TOOL_ROUNDS = 5;
 
 /**

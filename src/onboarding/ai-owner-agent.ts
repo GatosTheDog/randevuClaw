@@ -33,7 +33,10 @@ import { showClientSelection } from '../telegram/handlers/payment-flow';
 import { sendTelegramMessage, sendTelegramMessageWithKeyboard } from '../telegram/client';
 import { createSessionCatalogWithExpansion, bookSessionInstance, cancelSession, listSessions, buildRRuleString } from '../session/manager';
 
-const ai = new GoogleGenAI({ apiKey: config.geminiApiKey });
+// Bounds the Gemini HTTP call to 25s so a stalled owner-agent response settles
+// instead of hanging silently — the existing try/catch already logs + returns
+// a Greek fallback on rejection.
+const ai = new GoogleGenAI({ apiKey: config.geminiApiKey, httpOptions: { timeout: 25000 } });
 // Exported so src/onboarding/ai-onboarding-agent.ts (Phase 21) imports the exact
 // same model constant instead of hardcoding a second copy that could drift.
 export const GEMINI_MODEL = 'gemini-3.1-flash-lite';

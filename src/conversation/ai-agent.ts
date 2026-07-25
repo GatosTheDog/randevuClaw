@@ -5,7 +5,10 @@ import { listServicesForBusiness, listBusinessHours, Business, Service, Business
 import { executeTool } from './function-executor';
 import { logger } from '../utils/logger';
 
-const ai = new GoogleGenAI({ apiKey: config.geminiApiKey });
+// Bounds the Gemini HTTP call to 25s so a stalled booking-conversation response
+// rejects instead of hanging silently — the existing try/catch already logs
+// + returns a Greek fallback message on rejection.
+const ai = new GoogleGenAI({ apiKey: config.geminiApiKey, httpOptions: { timeout: 25000 } });
 
 const GEMINI_MODEL = 'gemini-3.1-flash-lite';
 
