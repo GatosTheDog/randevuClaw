@@ -632,6 +632,9 @@ export async function aiOnboardingAgent(
   messageText: string,
   today: string
 ): Promise<string> {
+  const agentStartedAt = Date.now();
+  logger.info({ businessId: business.id, ownerTelegramId }, 'aiOnboardingAgent: entry');
+
   const svcList = await listServicesForBusiness(business.id);
   const hoursList = await listBusinessHours(business.id);
   const systemInstruction = buildOnboardingSystemPrompt(business, svcList, hoursList, today);
@@ -647,6 +650,8 @@ export async function aiOnboardingAgent(
     }
 
     let interaction: GeminiInteractionResult;
+    const callStartedAt = Date.now();
+    logger.info({ businessId: business.id, round }, 'aiOnboardingAgent: calling ai.interactions.create()');
     try {
       // NOTE: client-level httpOptions.timeout (cbb7310) does not bound
       // ai.interactions.create() in this SDK version — see ai-agent.ts for
@@ -664,8 +669,15 @@ export async function aiOnboardingAgent(
         previous_interaction_id: currentInteractionId,
         generation_config: { temperature: 0.4, max_output_tokens: 512, top_p: 0.95 },
       } as GeminiCreateParams, { timeout: 25000, maxRetries: 0 }) as GeminiInteractionResult;
+      logger.info(
+        { businessId: business.id, round, elapsedMs: Date.now() - callStartedAt },
+        'aiOnboardingAgent: ai.interactions.create() returned'
+      );
     } catch (err) {
-      logger.error({ err, businessId: business.id }, 'aiOnboardingAgent Gemini call failed');
+      logger.error(
+        { err, businessId: business.id, round, elapsedMs: Date.now() - callStartedAt },
+        'aiOnboardingAgent Gemini call failed'
+      );
       return 'Το σύστημα δεν απόκρινε. Δοκιμάστε ξανά σε λίγο.';
     }
 
@@ -679,11 +691,16 @@ export async function aiOnboardingAgent(
     }
 
     if (functionCalls.length === 0) {
+      logger.info(
+        { businessId: business.id, round, elapsedMs: Date.now() - agentStartedAt },
+        'aiOnboardingAgent: exit (final text, no more tool calls)'
+      );
       return interaction.output_text ?? 'Συγγνώμη, δεν κατάλαβα. Μπορείτε να επαναδιατυπώσετε;';
     }
 
     const functionResults: GeminiFunctionResultInput[] = [];
     for (const call of functionCalls) {
+      const toolStartedAt = Date.now();
       const result = await executeOnboardingTool(
         call.name,
         call.arguments as OnboardingToolArgs,
@@ -692,7 +709,12 @@ export async function aiOnboardingAgent(
         ownerTelegramId
       );
       logger.info(
-        { businessId: business.id, tool: call.name, result: result || '(webhook activated)' },
+        {
+          businessId: business.id,
+          tool: call.name,
+          result: result || '(webhook activated)',
+          elapsedMs: Date.now() - toolStartedAt,
+        },
         'Onboarding tool executed'
       );
 
@@ -700,6 +722,10 @@ export async function aiOnboardingAgent(
       // message. Break the Gemini loop immediately — the caller must NOT send
       // an additional reply when this function returns ''.
       if (result === '') {
+        logger.info(
+          { businessId: business.id, round, elapsedMs: Date.now() - agentStartedAt },
+          'aiOnboardingAgent: exit (tool sent its own reply)'
+        );
         return '';
       }
 

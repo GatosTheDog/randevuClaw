@@ -72,6 +72,8 @@ async function handleFoundBusiness(
   senderTelegramId: string,
   messageText: string
 ): Promise<void> {
+  const startedAt = Date.now();
+  logger.info({ updateId, businessId: business.id, senderTelegramId }, 'handleFoundBusiness: entry');
   try {
     // T-16-04: explicit null guard before comparison — a business with no owner
     // set (ownerTelegramId=null) must never match any sender.
@@ -88,6 +90,10 @@ async function handleFoundBusiness(
           await sendTelegramMessage(senderTelegramId, reply);
         }
         await markTelegramUpdateProcessed(updateId, business.id);
+        logger.info(
+          { updateId, businessId: business.id, elapsedMs: Date.now() - startedAt },
+          'handleFoundBusiness: exit (onboarding branch)'
+        );
         return;
       }
 
@@ -96,6 +102,10 @@ async function handleFoundBusiness(
       if (messageText.trim() === '/menu') {
         await showAdminRootMenu(senderTelegramId, business);
         await markTelegramUpdateProcessed(updateId, business.id);
+        logger.info(
+          { updateId, businessId: business.id, elapsedMs: Date.now() - startedAt },
+          'handleFoundBusiness: exit (/menu branch)'
+        );
         return;
       }
 
@@ -111,6 +121,10 @@ async function handleFoundBusiness(
         await sendTelegramMessage(senderTelegramId, reply);
       }
       await markTelegramUpdateProcessed(updateId, business.id);
+      logger.info(
+        { updateId, businessId: business.id, elapsedMs: Date.now() - startedAt },
+        'handleFoundBusiness: exit (owner branch)'
+      );
       return;
     }
 
@@ -118,6 +132,10 @@ async function handleFoundBusiness(
     if (messageText.trim() === '/start') {
       await showClientRootMenu(senderTelegramId, business);
       await markTelegramUpdateProcessed(updateId, business.id);
+      logger.info(
+        { updateId, businessId: business.id, elapsedMs: Date.now() - startedAt },
+        'handleFoundBusiness: exit (/start branch)'
+      );
       return;
     }
 
@@ -125,8 +143,31 @@ async function handleFoundBusiness(
       sendMessage: sendTelegramMessage,
     });
     await markTelegramUpdateProcessed(updateId, business.id);
+    logger.info(
+      { updateId, businessId: business.id, elapsedMs: Date.now() - startedAt },
+      'handleFoundBusiness: exit (client conversation branch)'
+    );
   } catch (err) {
-    logger.error({ err }, 'Failed to route Telegram conversation message');
+    // Debug (webhook-hang-no-reply): this catch previously ONLY logged —
+    // any error thrown anywhere above (Gemini failure that escaped its own
+    // fallback, a DB error, a Telegram send failure, etc.) resulted in the
+    // client receiving literally zero response, indistinguishable from the
+    // original silent-hang symptom from the client's point of view even
+    // though the webhook itself acks promptly. Send a best-effort fallback
+    // so the client is never left with total silence; this send is itself
+    // best-effort (wrapped) so a failure here can never throw back out.
+    logger.error(
+      { err, updateId, businessId: business.id, senderTelegramId, elapsedMs: Date.now() - startedAt },
+      'Failed to route Telegram conversation message'
+    );
+    try {
+      await sendTelegramMessage(senderTelegramId, 'Παρουσιάστηκε πρόβλημα. Δοκιμάστε ξανά σε λίγο.');
+    } catch (sendErr) {
+      logger.error(
+        { err: sendErr, updateId, senderTelegramId },
+        'handleFoundBusiness: failed to send fallback error message to client'
+      );
+    }
   }
 }
 
@@ -706,6 +747,18 @@ async function handleCallbackQuery(
 }
 
 export async function handleTelegramWebhookPost(req: Request, res: Response): Promise<void> {
+  // Debug (webhook-hang-no-reply): request-scoped correlation state, hoisted
+  // above the try so the outer catch (and its best-effort fallback reply)
+  // can use whatever was already discovered before the failure — this is
+  // the single most valuable piece of context for reconstructing a request
+  // timeline from fly logs after the fact.
+  const requestStartedAt = Date.now();
+  let updateId: string | undefined;
+  let capturedBusiness: Business | undefined;
+  let capturedSenderTelegramId: string | undefined;
+
+  logger.info({ webhookIdParam: req.params.webhookId }, 'handleTelegramWebhookPost: entry');
+
   // Whole body wrapped in try/catch/finally — always return 200 to Telegram
   // so it never retries a message we already handled.
   try {
@@ -721,12 +774,22 @@ export async function handleTelegramWebhookPost(req: Request, res: Response): Pr
     // findBusinessByWebhookId uses the admin db (bypasses RLS) so this lookup
     // works before withBusinessContext is entered. Log only the opaque UUID —
     // never the bot token or secret (STATE.md blocker: D-04).
+    // Debug (webhook-hang-no-reply): timed — this is a DB query that runs
+    // BEFORE botTokenStore/withBusinessContext, on the plain admin pool
+    // (db.ts), so it's a distinct hang candidate from the one inside
+    // withBusinessContext.
+    const dbLookupStartedAt = Date.now();
     const business = await findBusinessByWebhookId(webhookId);
+    logger.info(
+      { webhookId, found: !!business, elapsedMs: Date.now() - dbLookupStartedAt },
+      'handleTelegramWebhookPost: findBusinessByWebhookId returned'
+    );
     if (!business || !business.webhookSecret || !business.botToken) {
       logger.warn({ webhookId }, 'Webhook ID not found or bot credentials incomplete');
       res.status(404).send('Not Found');
       return;
     }
+    capturedBusiness = business;
 
     // Step 3 — Constant-time HMAC verification (per D-06 / T-04-10).
     // crypto.timingSafeEqual throws if buffers have different lengths, so the
@@ -751,7 +814,7 @@ export async function handleTelegramWebhookPost(req: Request, res: Response): Pr
     // Step 4 — Bot instance and update parsing.
     const update = req.body as TelegramUpdate;
     const bot = getOrCreateBotInstance(webhookId, business.botToken);
-    const updateId = String(update.update_id);
+    updateId = String(update.update_id);
 
     // Early-exit for unsupported Telegram update types (WR-03).
     // Telegram delivers types beyond message/callback_query (edited_message,
@@ -770,32 +833,44 @@ export async function handleTelegramWebhookPost(req: Request, res: Response): Pr
     // Step 5 — Per-request context: botTokenStore so callTelegramApi reads the
     // correct bot token; withBusinessContext so all DB ops run under RLS for
     // exactly this tenant (T-04-12).
+    const boundUpdateId = updateId;
     await botTokenStore.run(business.botToken, async () => {
       await withBusinessContext(business.id, async () => {
         const senderTelegramId = String(
           update.message?.from.id ?? update.callback_query?.from.id ?? ''
         );
+        capturedSenderTelegramId = senderTelegramId;
         const updateType = update.message ? 'message' : 'callback_query';
 
         // Log webhookId (opaque UUID), never botToken (D-04 / T-04-11).
-        logger.info({ updateId, webhookId, senderTelegramId, updateType }, 'Telegram update received');
+        logger.info({ updateId: boundUpdateId, webhookId, senderTelegramId, updateType }, 'Telegram update received');
 
+        const dedupStartedAt = Date.now();
         const dedupResult = await insertOrIgnoreTelegramUpdate(
-          updateId,
+          boundUpdateId,
           business.id,
           senderTelegramId,
           updateType
         );
+        logger.info(
+          { updateId: boundUpdateId, dedupResult, elapsedMs: Date.now() - dedupStartedAt },
+          'handleTelegramWebhookPost: insertOrIgnoreTelegramUpdate returned'
+        );
 
         if (dedupResult === 'ignored') {
-          logger.info({ updateId }, 'Duplicate Telegram update ignored');
+          logger.info({ updateId: boundUpdateId }, 'Duplicate Telegram update ignored');
           return;
         }
 
         // BOT-04: Telegraf as webhook adapter (D-03). No middleware attached in
         // Phase 4 — validates the update structure; dispatch is explicit below.
+        const handleUpdateStartedAt = Date.now();
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         await bot.handleUpdate(update as any);
+        logger.info(
+          { updateId: boundUpdateId, elapsedMs: Date.now() - handleUpdateStartedAt },
+          'handleTelegramWebhookPost: bot.handleUpdate returned'
+        );
 
         if (update.callback_query) {
           // ARCH-03: owner tapping an inline-keyboard button (e.g. the Ναι/Όχι
@@ -809,34 +884,67 @@ export async function handleTelegramWebhookPost(req: Request, res: Response): Pr
             business.ownerTelegramId === senderTelegramId &&
             !business.onboardingCompleted
           ) {
-            await answerCallbackQuery(update.callback_query.id);
-            if (update.callback_query.message) {
-              await editTelegramMessageReplyMarkup(
+            const dispatchStartedAt = Date.now();
+            try {
+              await answerCallbackQuery(update.callback_query.id);
+              if (update.callback_query.message) {
+                await editTelegramMessageReplyMarkup(
+                  senderTelegramId,
+                  update.callback_query.message.message_id,
+                  []
+                );
+              }
+              const today = isoDateInAthens(new Date());
+              const reply = await aiOnboardingAgent(
+                business,
                 senderTelegramId,
-                update.callback_query.message.message_id,
-                []
+                update.callback_query.data ?? '',
+                today
               );
+              if (reply) {
+                await sendTelegramMessage(senderTelegramId, reply);
+              }
+              await markTelegramUpdateProcessed(boundUpdateId, business.id);
+              logger.info(
+                { updateId: boundUpdateId, elapsedMs: Date.now() - dispatchStartedAt },
+                'handleTelegramWebhookPost: exit (onboarding callback_query branch)'
+              );
+            } catch (err) {
+              // Debug (webhook-hang-no-reply): mirrors the fallback added to
+              // handleFoundBusiness — this branch previously had no local
+              // catch, so any error (e.g. a tool-execution error downstream
+              // of aiOnboardingAgent, which already catches Gemini-call
+              // errors internally) propagated to the outer catch, which only
+              // logs. Best-effort fallback so the owner isn't left silent.
+              logger.error(
+                { err, updateId: boundUpdateId, businessId: business.id, senderTelegramId, elapsedMs: Date.now() - dispatchStartedAt },
+                'Onboarding callback_query branch failed'
+              );
+              try {
+                await sendTelegramMessage(senderTelegramId, 'Παρουσιάστηκε πρόβλημα. Δοκιμάστε ξανά σε λίγο.');
+              } catch (sendErr) {
+                logger.error({ err: sendErr, updateId: boundUpdateId, senderTelegramId }, 'Failed to send fallback error message (onboarding callback_query)');
+              }
             }
-            const today = isoDateInAthens(new Date());
-            const reply = await aiOnboardingAgent(
-              business,
-              senderTelegramId,
-              update.callback_query.data ?? '',
-              today
-            );
-            if (reply) {
-              await sendTelegramMessage(senderTelegramId, reply);
-            }
-            await markTelegramUpdateProcessed(updateId, business.id);
             return;
           }
 
+          const dispatchStartedAt = Date.now();
           await handleCallbackQuery(update.callback_query, senderTelegramId, business);
+          logger.info(
+            { updateId: boundUpdateId, elapsedMs: Date.now() - dispatchStartedAt },
+            'handleTelegramWebhookPost: handleCallbackQuery returned'
+          );
           return;
         }
 
         if (update.message) {
-          await handleFoundBusiness(updateId, business, senderTelegramId, update.message.text ?? '');
+          const dispatchStartedAt = Date.now();
+          await handleFoundBusiness(boundUpdateId, business, senderTelegramId, update.message.text ?? '');
+          logger.info(
+            { updateId: boundUpdateId, elapsedMs: Date.now() - dispatchStartedAt },
+            'handleTelegramWebhookPost: handleFoundBusiness returned'
+          );
 
           // D-04: upsert clientName from Telegram from.first_name on every client message.
           // Called AFTER handleFoundBusiness so getOrCreateClientRelationship's
@@ -856,11 +964,38 @@ export async function handleTelegramWebhookPost(req: Request, res: Response): Pr
     });
 
     // Step 6 — Always 200 to Telegram (success path).
+    logger.info(
+      { updateId, totalElapsedMs: Date.now() - requestStartedAt },
+      'handleTelegramWebhookPost: acking 200 (success path)'
+    );
     res.status(200).send('OK');
   } catch (err) {
-    logger.error({ err }, 'Telegram webhook handler failed');
+    logger.error(
+      { err, updateId, businessId: capturedBusiness?.id, elapsedMs: Date.now() - requestStartedAt },
+      'Telegram webhook handler failed'
+    );
+    // Debug (webhook-hang-no-reply): best-effort fallback so an uncaught
+    // error anywhere in the chain above (dedup insert, bot.handleUpdate,
+    // handleCallbackQuery, insertClientBusinessRelationship, etc.) still
+    // leaves the user with SOME reply instead of total silence. Only
+    // attempted if we got far enough to know who to reply to and with which
+    // bot token — deliberately re-enters botTokenStore since we're outside
+    // the original .run() callback by the time we're in this catch.
+    if (capturedBusiness?.botToken && capturedSenderTelegramId) {
+      try {
+        await botTokenStore.run(capturedBusiness.botToken, async () => {
+          await sendTelegramMessage(capturedSenderTelegramId!, 'Παρουσιάστηκε πρόβλημα. Δοκιμάστε ξανά σε λίγο.');
+        });
+      } catch (sendErr) {
+        logger.error({ err: sendErr, updateId }, 'Failed to send fallback error message after webhook handler failure');
+      }
+    }
   } finally {
     if (!res.headersSent) res.status(200).send('OK');
+    logger.info(
+      { updateId, totalElapsedMs: Date.now() - requestStartedAt, headersSent: res.headersSent },
+      'handleTelegramWebhookPost: exit (finally)'
+    );
   }
 }
 

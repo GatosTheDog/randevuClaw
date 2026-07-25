@@ -19,6 +19,20 @@ const MAX_TOOL_ROUNDS = 6;
 export const RATE_LIMIT_REPLY_GREEK =
   'Έχουμε μεγάλη κίνηση αυτή τη στιγμή. Δοκιμάστε ξανά σε λίγα λεπτά.';
 
+// Debug (webhook-hang-no-reply): previously, any non-429 error from
+// callGeminiWithRetry (including the TimeoutError the per-call { timeout,
+// maxRetries: 0 } fix now deterministically produces) propagated straight
+// out of aiBookingAgent, up through routeConversationMessage, and was
+// swallowed by handleFoundBusiness's catch (src/webhooks/telegram.ts) with
+// only a log line — the client got ZERO reply. That is a plausible
+// explanation for "0 responses" recurring even with the Gemini-call fix
+// deployed: the call now fails FAST instead of hanging forever, but nothing
+// downstream ever tells the client anything failed. aiOwnerAgent and
+// aiOnboardingAgent already had this exact fallback for their own Gemini
+// call; aiBookingAgent (the client-facing path) did not. Mirrored here so
+// the client-facing path is no longer the odd one out.
+export const AGENT_ERROR_REPLY_GREEK = 'Το σύστημα δεν απόκρινε. Δοκιμάστε ξανά σε λίγο.';
+
 class GeminiRateLimitError extends Error {
   constructor() {
     super('Gemini rate limit exceeded after retries');
@@ -239,6 +253,15 @@ function is429(err: unknown): boolean {
   return status === 429;
 }
 
+// Debug (webhook-hang-no-reply): distinguishes a bounded per-call timeout
+// rejection (the fix this session verifies is finally taking effect) from
+// any other Gemini-side error, so fly logs can immediately tell the two
+// apart instead of requiring another investigation cycle.
+function isTimeoutError(err: unknown): boolean {
+  const name = (err as { name?: string } | null | undefined)?.name;
+  return name === 'TimeoutError' || name === 'AbortError';
+}
+
 // NOTE ON SDK SHAPE (deviation from AI-SPEC's illustrative pseudocode, Rule 1
 // bug fix): the plan's pseudocode used camelCase field names
 // (`systemInstruction`, top-level `temperature`/`max_output_tokens`/`top_p`).
@@ -275,10 +298,13 @@ interface GeminiInteractionResult {
 
 async function callGeminiWithRetry(
   params: GeminiCreateParams,
-  sleepFn: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+  sleepFn: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  logCtx: Record<string, unknown> = {}
 ): Promise<GeminiInteractionResult> {
   const maxAttempts = 4;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const startedAt = Date.now();
+    logger.info({ ...logCtx, attempt }, 'callGeminiWithRetry: calling ai.interactions.create()');
     try {
       // NOTE: the 25s httpOptions.timeout passed at `new GoogleGenAI({...})`
       // construction (cbb7310) does NOT bound this call — @google/genai's
@@ -298,8 +324,15 @@ async function callGeminiWithRetry(
       // attempt here keeps the total worst-case latency deterministic.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const result = await ai.interactions.create(params as any, { timeout: 25000, maxRetries: 0 });
+      const elapsedMs = Date.now() - startedAt;
+      logger.info({ ...logCtx, attempt, elapsedMs }, 'callGeminiWithRetry: ai.interactions.create() returned');
       return result as unknown as GeminiInteractionResult;
     } catch (err) {
+      const elapsedMs = Date.now() - startedAt;
+      logger.error(
+        { ...logCtx, attempt, elapsedMs, err, timedOut: isTimeoutError(err), is429: is429(err) },
+        'callGeminiWithRetry: ai.interactions.create() rejected'
+      );
       if (!is429(err)) throw err;
       if (attempt === maxAttempts - 1) {
         throw new GeminiRateLimitError();
@@ -319,6 +352,9 @@ export async function aiBookingAgent(
   previousInteractionId: string | null
 ): Promise<AiAgentResult> {
   const requestId = randomUUID();
+  const agentStartedAt = Date.now();
+  logger.info({ requestId, businessId: business.id, clientPhone }, 'aiBookingAgent: entry');
+
   const services = await listServicesForBusiness(business.id);
   const businessHours = await listBusinessHours(business.id);
   const systemInstruction = buildSystemInstruction(business, services, businessHours);
@@ -341,20 +377,25 @@ export async function aiBookingAgent(
 
     let interaction: GeminiInteractionResult;
     try {
-      interaction = await callGeminiWithRetry({
-        model: GEMINI_MODEL,
-        input,
-        tools: BOOKING_TOOLS,
-        system_instruction: systemInstruction,
-        previous_interaction_id: currentInteractionId,
-        generation_config: {
-          temperature: 0.7,
-          max_output_tokens: 512,
-          top_p: 0.95,
+      interaction = await callGeminiWithRetry(
+        {
+          model: GEMINI_MODEL,
+          input,
+          tools: BOOKING_TOOLS,
+          system_instruction: systemInstruction,
+          previous_interaction_id: currentInteractionId,
+          generation_config: {
+            temperature: 0.7,
+            max_output_tokens: 512,
+            top_p: 0.95,
+          },
         },
-      });
+        undefined,
+        { requestId, businessId: business.id, round }
+      );
     } catch (err) {
       if (err instanceof GeminiRateLimitError) {
+        logger.warn({ requestId, businessId: business.id, round }, 'aiBookingAgent: rate-limited after retries, returning fallback');
         return {
           text: RATE_LIMIT_REPLY_GREEK,
           interactionId: previousInteractionId ?? null,
@@ -362,7 +403,23 @@ export async function aiBookingAgent(
           toolCalls: accumulatedToolCalls,
         };
       }
-      throw err;
+      // Debug (webhook-hang-no-reply): any other error (network failure,
+      // TimeoutError from the bounded per-call timeout, malformed response,
+      // etc.) previously propagated uncaught out of aiBookingAgent all the
+      // way to handleFoundBusiness's catch in telegram.ts, which only logs
+      // — the client received zero reply. Return a Greek fallback instead,
+      // matching the pattern already used by aiOwnerAgent/aiOnboardingAgent
+      // for their own Gemini call, so the client always gets SOME response.
+      logger.error(
+        { err, requestId, businessId: business.id, round, elapsedMs: Date.now() - agentStartedAt },
+        'aiBookingAgent: unrecoverable Gemini call failure, returning fallback reply'
+      );
+      return {
+        text: AGENT_ERROR_REPLY_GREEK,
+        interactionId: currentInteractionId ?? null,
+        requestId,
+        toolCalls: accumulatedToolCalls,
+      };
     }
 
     currentInteractionId = interaction.id;
@@ -381,6 +438,10 @@ export async function aiBookingAgent(
           'Gemini returned no output_text and no function calls'
         );
       }
+      logger.info(
+        { requestId, businessId: business.id, round, elapsedMs: Date.now() - agentStartedAt },
+        'aiBookingAgent: exit (final text, no more tool calls)'
+      );
       return {
         text: interaction.output_text ?? 'Συγγνώμη, κάτι πήγε στραβά.',
         interactionId: currentInteractionId,
@@ -395,6 +456,8 @@ export async function aiBookingAgent(
     const functionResults: GeminiFunctionResultInput[] = [];
     for (const call of functionCalls) {
       const idempotencyKey = `${requestId}:${call.id}`;
+      const toolStartedAt = Date.now();
+      logger.info({ requestId, businessId: business.id, tool: call.name }, 'aiBookingAgent: executeTool call');
       const result = await executeTool(call.name, call.arguments, {
         business: {
           id: business.id,
@@ -411,6 +474,10 @@ export async function aiBookingAgent(
         requestId,
         idempotencyKey,
       });
+      logger.info(
+        { requestId, businessId: business.id, tool: call.name, elapsedMs: Date.now() - toolStartedAt },
+        'aiBookingAgent: executeTool returned'
+      );
       accumulatedToolCalls.push({ name: call.name, args: call.arguments });
       functionResults.push({
         type: 'function_result',

@@ -19,6 +19,18 @@ interface TelegramApiResponse<T> {
   result?: T;
 }
 
+// Debug (webhook-hang-no-reply): this fetch() previously had NO timeout at
+// all. It sits in the outbound-reply path used by every single message the
+// bot sends (sendTelegramMessage, answerCallbackQuery, etc.), so a stalled
+// TCP connection or a non-responding api.telegram.org would hang this call
+// forever — the exact same "unbounded network call blocks the awaited
+// webhook chain" bug class already found and fixed for the Gemini call
+// sites, but in a location the earlier investigation cycle never examined.
+// AbortSignal.timeout() bounds it deterministically; the caught
+// AbortError/DOMException below is logged with enough detail to tell it
+// apart from a Telegram-side 4xx/5xx.
+const TELEGRAM_API_TIMEOUT_MS = 15_000;
+
 async function callTelegramApi<T>(method: string, body: Record<string, unknown>): Promise<T> {
   const botToken = botTokenStore.getStore();
   if (!botToken) {
@@ -28,25 +40,39 @@ async function callTelegramApi<T>(method: string, body: Record<string, unknown>)
   }
   const url = `https://api.telegram.org/bot${botToken}/${method}`;
 
+  const startedAt = Date.now();
   logger.debug({ method }, 'Calling Telegram API');
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(TELEGRAM_API_TIMEOUT_MS),
+    });
+  } catch (err) {
+    const elapsedMs = Date.now() - startedAt;
+    logger.error(
+      { err, method, elapsedMs, timeoutMs: TELEGRAM_API_TIMEOUT_MS },
+      'Telegram API fetch failed or timed out'
+    );
+    throw err;
+  }
 
   // Telegram can return HTTP 200 with { ok: false, description: '...' } for
   // some validation errors, so both the HTTP-level and the JSON envelope's
   // own `ok` field must be checked before trusting the response.
   const data = (await response.json()) as TelegramApiResponse<T>;
+  const elapsedMs = Date.now() - startedAt;
 
   if (!response.ok || !data.ok) {
     const description = data.description ?? `Telegram API error: ${response.status}`;
-    logger.error({ method, status: response.status, description }, 'Telegram API call failed');
+    logger.error({ method, status: response.status, description, elapsedMs }, 'Telegram API call failed');
     throw new Error(description);
   }
 
+  logger.debug({ method, elapsedMs }, 'Telegram API call succeeded');
   return data.result as T;
 }
 
@@ -110,22 +136,36 @@ async function callTelegramApiDirect<T>(
 ): Promise<T> {
   const url = `https://api.telegram.org/bot${botToken}/${method}`;
 
+  const startedAt = Date.now();
   logger.debug({ method }, 'Calling Telegram API');
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(TELEGRAM_API_TIMEOUT_MS),
+    });
+  } catch (err) {
+    const elapsedMs = Date.now() - startedAt;
+    logger.error(
+      { err, method, elapsedMs, timeoutMs: TELEGRAM_API_TIMEOUT_MS },
+      'Telegram API fetch failed or timed out (direct)'
+    );
+    throw err;
+  }
 
   const data = (await response.json()) as TelegramApiResponse<T>;
+  const elapsedMs = Date.now() - startedAt;
 
   if (!response.ok || !data.ok) {
     const description = data.description ?? `Telegram API error: ${response.status}`;
-    logger.error({ method, status: response.status, description }, 'Telegram API call failed');
+    logger.error({ method, status: response.status, description, elapsedMs }, 'Telegram API call failed');
     throw new Error(description);
   }
 
+  logger.debug({ method, elapsedMs }, 'Telegram API call succeeded (direct)');
   return data.result as T;
 }
 

@@ -890,6 +890,9 @@ export async function aiOwnerAgent(
   messageText: string,
   today: string
 ): Promise<string> {
+  const agentStartedAt = Date.now();
+  logger.info({ businessId: business.id, ownerTelegramId }, 'aiOwnerAgent: entry');
+
   const svcList = await listServicesForBusiness(business.id);
   const hoursList = await listBusinessHours(business.id);
   const systemInstruction = buildOwnerSystemPrompt(business, svcList, hoursList, today);
@@ -905,6 +908,8 @@ export async function aiOwnerAgent(
     }
 
     let interaction: GeminiInteractionResult;
+    const callStartedAt = Date.now();
+    logger.info({ businessId: business.id, round }, 'aiOwnerAgent: calling ai.interactions.create()');
     try {
       // NOTE: client-level httpOptions.timeout (cbb7310) does not bound
       // ai.interactions.create() in this SDK version — see ai-agent.ts for
@@ -922,8 +927,15 @@ export async function aiOwnerAgent(
         previous_interaction_id: currentInteractionId,
         generation_config: { temperature: 0.4, max_output_tokens: 512, top_p: 0.95 },
       } as GeminiCreateParams, { timeout: 25000, maxRetries: 0 }) as GeminiInteractionResult;
+      logger.info(
+        { businessId: business.id, round, elapsedMs: Date.now() - callStartedAt },
+        'aiOwnerAgent: ai.interactions.create() returned'
+      );
     } catch (err) {
-      logger.error({ err, businessId: business.id }, 'aiOwnerAgent Gemini call failed');
+      logger.error(
+        { err, businessId: business.id, round, elapsedMs: Date.now() - callStartedAt },
+        'aiOwnerAgent Gemini call failed'
+      );
       return 'Το σύστημα δεν απόκρινε. Δοκιμάστε ξανά σε λίγο.';
     }
 
@@ -937,11 +949,16 @@ export async function aiOwnerAgent(
     }
 
     if (functionCalls.length === 0) {
+      logger.info(
+        { businessId: business.id, round, elapsedMs: Date.now() - agentStartedAt },
+        'aiOwnerAgent: exit (final text, no more tool calls)'
+      );
       return interaction.output_text ?? 'Συγγνώμη, δεν κατάλαβα. Μπορείτε να επαναδιατυπώσετε;';
     }
 
     const functionResults: GeminiFunctionResultInput[] = [];
     for (const call of functionCalls) {
+      const toolStartedAt = Date.now();
       const result = await executeOwnerTool(
         call.name,
         call.arguments as ToolArgs,
@@ -951,7 +968,12 @@ export async function aiOwnerAgent(
         ownerTelegramId
       );
       logger.info(
-        { businessId: business.id, tool: call.name, result: result || '(keyboard sent)' },
+        {
+          businessId: business.id,
+          tool: call.name,
+          result: result || '(keyboard sent)',
+          elapsedMs: Date.now() - toolStartedAt,
+        },
         'Owner tool executed'
       );
 
@@ -959,6 +981,10 @@ export async function aiOwnerAgent(
       // (keyboard or direct reply). Break the Gemini loop immediately — the
       // caller must NOT send an additional reply when this function returns ''.
       if (result === '') {
+        logger.info(
+          { businessId: business.id, round, elapsedMs: Date.now() - agentStartedAt },
+          'aiOwnerAgent: exit (tool sent its own reply)'
+        );
         return '';
       }
 
