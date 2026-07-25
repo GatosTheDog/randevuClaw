@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { GoogleGenAI } from '@google/genai';
 import { config } from '../config';
 import { businesses, businessHours, services } from '../database/schema';
+import { db } from '../database/db';
 import {
   Business,
   Service,
@@ -164,9 +165,13 @@ export const ONBOARDING_TOOLS = [
       type: 'object',
       properties: {
         enabled: { type: 'boolean', description: 'true = ενεργοποίηση παραθύρου ακύρωσης, false = απενεργοποίηση' },
-        hours: { type: 'integer', description: 'Ώρες πριν το μάθημα (1-168). Απαιτείται όταν enabled=true.' },
+        hours: {
+          type: 'integer',
+          description:
+            'Ώρες πριν το μάθημα (1-168). Απαιτείται πάντα — ο επικυρωτής το απαιτεί ακόμα κι όταν enabled=false· χρησιμοποίησε την τελευταία γνωστή τιμή ή 24 ως προεπιλογή.',
+        },
       },
-      required: ['enabled'],
+      required: ['enabled', 'hours'],
     },
   },
   {
@@ -191,10 +196,11 @@ export const ONBOARDING_TOOLS = [
         enabled: { type: 'boolean', description: 'true για ενεργοποίηση, false για απενεργοποίηση' },
         count: {
           type: 'integer',
-          description: 'Αριθμός εναπομεινάντων μαθημάτων που ενεργοποιεί την ειδοποίηση (1-20)',
+          description:
+            'Αριθμός εναπομεινάντων μαθημάτων που ενεργοποιεί την ειδοποίηση (1-20). Απαιτείται πάντα — ο επικυρωτής το απαιτεί ακόμα κι όταν enabled=false· χρησιμοποίησε την τελευταία γνωστή τιμή ή 2 ως προεπιλογή.',
         },
       },
-      required: ['enabled'],
+      required: ['enabled', 'count'],
     },
   },
   {
@@ -398,11 +404,15 @@ export async function executeOnboardingTool(
         const name = args.name?.trim();
         if (!name) return 'Μη έγκυρο όνομα.';
         if (name.length > 100) return 'Το όνομα είναι πολύ μεγάλο (μέγιστο 100 χαρακτήρες).';
-        // T-21-02: wrap in withBusinessContext so RLS applies; getConn() inside for the enforced connection
+        // CR-01: the cross-tenant slug-uniqueness lookup MUST use the admin
+        // connection (db), not getConn() — businesses_isolation RLS would
+        // otherwise scope this SELECT to just this business's own row,
+        // silently defeating the uniqueness check. Only the actual per-tenant
+        // UPDATE runs inside withBusinessContext.
+        const existingSlugsRows = await db.select({ slug: businesses.slug }).from(businesses);
+        const existingSlugs = existingSlugsRows.map((r) => r.slug);
+        const slug = generateSlug(name, existingSlugs);
         return await withBusinessContext(business.id, async () => {
-          const existingSlugsRows = await getConn().select({ slug: businesses.slug }).from(businesses);
-          const existingSlugs = existingSlugsRows.map((r) => r.slug);
-          const slug = generateSlug(name, existingSlugs);
           await getConn().update(businesses).set({ name, slug }).where(eq(businesses.id, business.id));
           return `OK: το όνομα ορίστηκε σε "${name}"`;
         });
@@ -410,7 +420,9 @@ export async function executeOnboardingTool(
 
       case 'set_business_hours': {
         const { day_of_week, open_time, close_time, open_time_2, close_time_2 } = args;
-        if (day_of_week === undefined || !open_time || !close_time) return 'Μη έγκυρα δεδομένα ωραρίου.';
+        if (day_of_week === undefined || day_of_week < 0 || day_of_week > 6 || !open_time || !close_time) {
+          return 'Μη έγκυρα δεδομένα ωραρίου.';
+        }
         return await withBusinessContext(business.id, async () => {
           await getConn()
             .insert(businessHours)
@@ -439,7 +451,7 @@ export async function executeOnboardingTool(
 
       case 'close_day': {
         const { day_of_week } = args;
-        if (day_of_week === undefined) return 'Μη έγκυρη ημέρα.';
+        if (day_of_week === undefined || day_of_week < 0 || day_of_week > 6) return 'Μη έγκυρη ημέρα.';
         return await withBusinessContext(business.id, async () => {
           await getConn()
             .insert(businessHours)
@@ -460,7 +472,7 @@ export async function executeOnboardingTool(
 
       case 'add_service': {
         const { name, price_cents, duration_min } = args;
-        if (!name || duration_min === undefined) return 'Μη έγκυρα δεδομένα υπηρεσίας.';
+        if (!name || duration_min === undefined || duration_min <= 0) return 'Μη έγκυρα δεδομένα υπηρεσίας.';
         return await withBusinessContext(business.id, async () => {
           await getConn()
             .insert(services)
@@ -499,7 +511,8 @@ export async function executeOnboardingTool(
       }
 
       case 'create_class_schedule': {
-        const svcNameArg = args.service_name ?? '';
+        const svcNameArg = (args.service_name ?? '').trim();
+        if (!svcNameArg) return 'Δεν δόθηκε όνομα υπηρεσίας.';
         const svcList = await listServicesForBusiness(business.id);
         const matchedService = svcList.find((s) => s.name.toLowerCase().includes(svcNameArg.toLowerCase()));
         if (!matchedService) {
@@ -566,7 +579,8 @@ export async function executeOnboardingTool(
         const webhookSecret = crypto.randomBytes(32).toString('hex');
 
         // Always unregister before registering to prevent webhook conflicts (T-05-09
-        // pattern, mirrors handleActivate in src/onboarding/steps.ts).
+        // pattern, mirrors the pre-Phase-21 handleActivate — see git history for
+        // src/onboarding/steps.ts, deleted in this phase).
         await unregisterBotWebhook(business.botToken!);
         await registerBotWebhook(
           business.botToken!,

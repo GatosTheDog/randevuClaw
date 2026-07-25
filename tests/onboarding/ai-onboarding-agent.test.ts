@@ -31,6 +31,13 @@ jest.mock('../../src/database/queries', () => ({
   getConn: jest.fn(),
   withBusinessContext: jest.fn(),
 }));
+// CR-01 regression coverage: set_business_name's cross-tenant slug lookup
+// uses the admin `db` connection directly (RLS would scope getConn() to
+// just this business's own row), so it needs its own mock distinct from
+// the getConn() chainable used by every other tool case.
+jest.mock('../../src/database/db', () => ({
+  db: { select: jest.fn() },
+}));
 jest.mock('../../src/database/seed');
 jest.mock('../../src/billing/tools');
 jest.mock('../../src/session/manager');
@@ -39,6 +46,7 @@ jest.mock('../../src/onboarding/queries');
 
 import * as genai from '@google/genai';
 import * as dbQueries from '../../src/database/queries';
+import { db as mockDb } from '../../src/database/db';
 import * as seedModule from '../../src/database/seed';
 import * as billingTools from '../../src/billing/tools';
 import * as sessionManager from '../../src/session/manager';
@@ -62,6 +70,7 @@ const mockedListBusinessHours = dbQueries.listBusinessHours as jest.MockedFuncti
   typeof dbQueries.listBusinessHours
 >;
 const mockedGetConn = dbQueries.getConn as jest.MockedFunction<typeof dbQueries.getConn>;
+const mockedDbSelect = mockDb.select as jest.Mock;
 const mockedWithBusinessContext = dbQueries.withBusinessContext as jest.MockedFunction<
   typeof dbQueries.withBusinessContext
 >;
@@ -227,19 +236,21 @@ describe('ONBOARDING_TOOLS', () => {
 
 describe('executeOnboardingTool', () => {
   const OWNER_TELEGRAM_ID = '999999999';
+  let chainableSelectMock: jest.Mock;
 
   beforeEach(() => {
     jest.clearAllMocks();
 
-    // withBusinessContext immediately invokes its callback (same style as
-    // tests/onboarding/steps.test.ts / tests/onboarding/class-setup-steps.test.ts).
+    // withBusinessContext immediately invokes its callback (same style used by
+    // the pre-Phase-21 step-machine tests, deleted in this phase — see git history).
     mockedWithBusinessContext.mockImplementation(async (_businessId, callback) => callback());
 
     // getConn() returns a chainable mock covering insert/update/select builder shapes.
+    chainableSelectMock = jest.fn(() => ({ from: jest.fn().mockResolvedValue([]) }));
     const chainable = {
       insert: jest.fn().mockReturnThis(),
       update: jest.fn().mockReturnThis(),
-      select: jest.fn(() => ({ from: jest.fn().mockResolvedValue([]) })),
+      select: chainableSelectMock,
       values: jest.fn().mockReturnThis(),
       set: jest.fn().mockReturnThis(),
       where: jest.fn().mockResolvedValue(undefined),
@@ -248,6 +259,7 @@ describe('executeOnboardingTool', () => {
       returning: jest.fn().mockResolvedValue([]),
     };
     mockedGetConn.mockReturnValue(chainable as unknown as ReturnType<typeof dbQueries.getConn>);
+    mockedDbSelect.mockReturnValue({ from: jest.fn().mockResolvedValue([]) });
 
     mockedGenerateSlug.mockReturnValue('pilates-athens');
     mockedListServicesForBusiness.mockResolvedValue([]);
@@ -276,6 +288,23 @@ describe('executeOnboardingTool', () => {
     expect(mockedWithBusinessContext).toHaveBeenCalledWith(business.id, expect.any(Function));
     expect(mockedGenerateSlug).toHaveBeenCalledWith('Pilates Athens', []);
     expect(result).toContain('Pilates Athens');
+  });
+
+  // CR-01 regression: the slug-uniqueness lookup MUST run through the admin
+  // `db` connection, never getConn() — getConn() is RLS-scoped to this
+  // business's own row, which would silently defeat cross-tenant uniqueness.
+  it('set_business_name looks up existing slugs via the admin db connection, not getConn() (CR-01)', async () => {
+    const fromMock = jest.fn().mockResolvedValue([{ slug: 'pilates-athens' }, { slug: 'yoga-thessaloniki' }]);
+    mockedDbSelect.mockReturnValue({ from: fromMock });
+    const business = makeBusiness();
+
+    await executeOnboardingTool('set_business_name', { name: 'Pilates Athens' }, business, TODAY, OWNER_TELEGRAM_ID);
+
+    expect(mockedDbSelect).toHaveBeenCalledTimes(1);
+    expect(mockedGenerateSlug).toHaveBeenCalledWith('Pilates Athens', ['pilates-athens', 'yoga-thessaloniki']);
+    // The cross-tenant lookup happens before entering the RLS-scoped callback,
+    // so getConn()'s select builder is never used for this lookup.
+    expect(chainableSelectMock).not.toHaveBeenCalled();
   });
 
   it('set_business_hours upserts an hours row', async () => {
