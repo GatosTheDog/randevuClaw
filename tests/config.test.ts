@@ -11,10 +11,6 @@ describe('config', () => {
   });
 
   it('parses a valid full env into a typed config object, applying documented defaults', () => {
-    process.env.APP_SECRET = 'test-app-secret';
-    process.env.WEBHOOK_VERIFY_TOKEN = 'test-verify-token';
-    process.env.WHATSAPP_ACCESS_TOKEN = 'test-whatsapp-token';
-    process.env.WHATSAPP_PHONE_NUMBER_ID = 'test-phone-number-id';
     process.env.DATABASE_URL = 'postgresql://user:pass@localhost:5432/testdb?sslmode=require';
     process.env.GEMINI_API_KEY = 'test-gemini-key';
     // TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET omitted (D-08, Phase 04):
@@ -31,10 +27,6 @@ describe('config', () => {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { config } = require('../src/config');
 
-    expect(config.appSecret).toBe('test-app-secret');
-    expect(config.webhookVerifyToken).toBe('test-verify-token');
-    expect(config.whatsappAccessToken).toBe('test-whatsapp-token');
-    expect(config.whatsappPhoneNumberId).toBe('test-phone-number-id');
     expect(config.databaseUrl).toBe(
       'postgresql://user:pass@localhost:5432/testdb?sslmode=require'
     );
@@ -59,21 +51,7 @@ describe('config', () => {
     expect(config.nodeEnv).toBe('development');
   });
 
-  it('throws synchronously with a message naming the missing key when a required var is absent', () => {
-    delete process.env.APP_SECRET;
-    process.env.WEBHOOK_VERIFY_TOKEN = 'test-verify-token';
-    process.env.WHATSAPP_ACCESS_TOKEN = 'test-whatsapp-token';
-    process.env.WHATSAPP_PHONE_NUMBER_ID = 'test-phone-number-id';
-    process.env.DATABASE_URL = 'postgresql://user:pass@localhost:5432/testdb?sslmode=require';
-
-    expect(() => require('../src/config')).toThrow(/APP_SECRET/);
-  });
-
   it('throws synchronously naming GEMINI_API_KEY when it is missing', () => {
-    process.env.APP_SECRET = 'test-app-secret';
-    process.env.WEBHOOK_VERIFY_TOKEN = 'test-verify-token';
-    process.env.WHATSAPP_ACCESS_TOKEN = 'test-whatsapp-token';
-    process.env.WHATSAPP_PHONE_NUMBER_ID = 'test-phone-number-id';
     process.env.DATABASE_URL = 'postgresql://user:pass@localhost:5432/testdb?sslmode=require';
     process.env.TELEGRAM_BOT_TOKEN = 'test-telegram-bot-token';
     process.env.TELEGRAM_WEBHOOK_SECRET = 'test-telegram-webhook-secret';
@@ -84,10 +62,6 @@ describe('config', () => {
   });
 
   it('throws synchronously naming GOOGLE_CLIENT_ID when it is missing', () => {
-    process.env.APP_SECRET = 'test-app-secret';
-    process.env.WEBHOOK_VERIFY_TOKEN = 'test-verify-token';
-    process.env.WHATSAPP_ACCESS_TOKEN = 'test-whatsapp-token';
-    process.env.WHATSAPP_PHONE_NUMBER_ID = 'test-phone-number-id';
     process.env.DATABASE_URL = 'postgresql://user:pass@localhost:5432/testdb?sslmode=require';
     process.env.GEMINI_API_KEY = 'test-gemini-key';
     process.env.TELEGRAM_BOT_TOKEN = 'test-telegram-bot-token';

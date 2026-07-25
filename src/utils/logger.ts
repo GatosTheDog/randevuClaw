@@ -8,7 +8,7 @@ export const logger = pino({
   redact: {
     paths: [
       // Config-level secrets
-      'appSecret', 'databaseUrl', 'databaseAppUrl', 'whatsappAccessToken', 'webhookVerifyToken',
+      'databaseUrl', 'databaseAppUrl',
       'geminiApiKey', 'googleClientSecret',
       // Phase 04 (D-07, T-04-01): per-bot credentials stored on businesses rows;
       // redacted at all path levels so logger.info({ business }) never leaks them.
@@ -16,12 +16,12 @@ export const logger = pino({
       // DB-level
       'googleRefreshToken',
       // Nested object paths (e.g. logger.info({ config }) or logger.info({ business }))
-      '*.appSecret', '*.databaseUrl', '*.databaseAppUrl', '*.whatsappAccessToken', '*.webhookVerifyToken',
+      '*.databaseUrl', '*.databaseAppUrl',
       '*.geminiApiKey', '*.googleClientSecret',
       '*.botToken', '*.webhookSecret',
       '*.googleRefreshToken',
       // Explicit config.* namespace
-      'config.appSecret', 'config.databaseUrl', 'config.databaseAppUrl', 'config.whatsappAccessToken', 'config.webhookVerifyToken',
+      'config.databaseUrl', 'config.databaseAppUrl',
       'config.geminiApiKey', 'config.googleClientSecret',
       'config.botToken', 'config.webhookSecret',
     ],
