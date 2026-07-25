@@ -27,7 +27,6 @@ jest.mock('../src/calendar/sync');
 jest.mock('../src/telegram/registry');
 jest.mock('../src/billing/queries');
 jest.mock('../src/onboarding/queries');
-jest.mock('../src/onboarding/router');
 jest.mock('../src/onboarding/ai-owner-agent');
 jest.mock('../src/session/manager');
 jest.mock('../src/scheduler/agenda');
