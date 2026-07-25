@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: architectural gap)
-status: Awaiting next milestone
-stopped_at: Phase 21 context gathered
-last_updated: "2026-07-24T14:25:36.659Z"
-last_activity: 2026-07-24
-last_activity_desc: Milestone v1.4 completed and archived
+current_phase: 21
+current_phase_name: ai-driven-owner-onboarding-replace-the-deterministic-step-ma
+status: executing
+stopped_at: Completed 21-01-PLAN.md
+last_updated: "2026-07-25T00:28:43.089Z"
+last_activity: 2026-07-25
+last_activity_desc: Phase 21 execution started
 progress:
   total_phases: 0
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
-current_phase: 20
-current_phase_name: Client Escalation
 ---
 
 # Project State
@@ -23,14 +23,14 @@ current_phase_name: Client Escalation
 See: .planning/PROJECT.md (updated 2026-07-24 after v1.4 milestone close)
 
 **Core value:** A client can book or cancel an appointment with a Greek business entirely through a chat conversation, in Greek, with zero friction — and the owner's calendar updates automatically.
-**Current focus:** Awaiting next milestone — run `/gsd-new-milestone`
+**Current focus:** Phase 21 — ai-driven-owner-onboarding-replace-the-deterministic-step-ma
 
 ## Current Position
 
-Phase: Milestone v1.4 complete
-Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-07-24 — Milestone v1.4 completed and archived
+Phase: 21 (ai-driven-owner-onboarding-replace-the-deterministic-step-ma) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
+Last activity: 2026-07-25 — Phase 21 execution started
 
 ## Performance Metrics
 
@@ -101,6 +101,7 @@ Last activity: 2026-07-24 — Milestone v1.4 completed and archived
 | Phase 19-class-setup P02 | 15 | 3 tasks | 4 files |
 | Phase 20 P01 | 390 | 2 tasks | 4 files |
 | Phase 20 P02 | 5 | 2 tasks | 2 files |
+| Phase 21 P01 | 55 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -206,6 +207,8 @@ Recent decisions affecting current work:
 - [Phase 20-02]: escalationAction discriminant checked BEFORE menuAction in handleCallbackQuery to maintain consistent guard order
 - [Phase 20-02]: activeMembership=null in bookSessionInstance bypasses enforcement gate while capacity SELECT FOR UPDATE still applies (T-20-05)
 - [Phase 20-02]: Idempotency key escl:approve:<clientId>:<instanceId> prevents duplicate bookings from repeated button taps (T-20-07)
+- [Phase ?]: [Phase 21-01]: GEMINI_MODEL exported from ai-owner-agent.ts (value unchanged) so ai-onboarding-agent.ts reuses the exact same model constant
+- [Phase ?]: [Phase 21-01]: return await withBusinessContext(...) required inside try/catch for the catch to observe async rejections — bare 'return withBusinessContext(...)' silently defeats the outer catch (JS async gotcha); fixed in the new file only, ai-owner-agent.ts's existing bare form left untouched (out of scope)
 
 ### Pending Todos
 
@@ -271,9 +274,9 @@ Items acknowledged and deferred at v1.4 milestone close on 2026-07-24:
 
 ## Session Continuity
 
-Last session: 2026-07-24T14:25:36.653Z
-Stopped at: Phase 21 context gathered
-Resume file: .planning/phases/21-ai-driven-owner-onboarding-replace-the-deterministic-step-ma/21-CONTEXT.md
+Last session: 2026-07-25T00:28:43.083Z
+Stopped at: Completed 21-01-PLAN.md
+Resume file: None
 
 **Phase 12 Plan 01 completed:** a940588, 6c5830e, 7d64f85
 
