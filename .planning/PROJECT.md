@@ -2,7 +2,7 @@
 
 ## Current State
 
-**Shipped through v1.4 (Single-Bot UX Overhaul, 2026-07-24).** A single per-business Telegram bot now handles both admin and client traffic — the old separate platform bot is gone. Admin gets a `/menu` command (Settings/Classes/Clients/Today's Agenda) and clients get a `/start` menu (Book/My Bookings/Cancel/Balance), both with Ναι/Όχι inline-keyboard confirmations; free-form Greek chat still works at any point on either side. Owner onboarding now includes a class-schedule step and auto-starts the moment an owner with incomplete onboarding messages the bot. Blocked clients get a Greek apology and the admin gets an inline escalation with an approve-exception button (the "reply to client" half is prompt-only for now — see Backlog Phase 999.1).
+**Shipped through v1.4 (Single-Bot UX Overhaul, 2026-07-24) + Phase 21 backlog follow-up (2026-07-25).** A single per-business Telegram bot now handles both admin and client traffic — the old separate platform bot is gone. Admin gets a `/menu` command (Settings/Classes/Clients/Today's Agenda) and clients get a `/start` menu (Book/My Bookings/Cancel/Balance), both with Ναι/Όχι inline-keyboard confirmations; free-form Greek chat still works at any point on either side. Owner onboarding is now a fully freeform Gemini tool-calling agent (`ai-onboarding-agent.ts`, Phase 21) that re-derives completeness from live DB state every turn — replacing the old regex-gated deterministic step machine, which rejected valid free-text Greek hours input. Blocked clients get a Greek apology and the admin gets an inline escalation with an approve-exception button (the "reply to client" half is prompt-only for now — see Backlog Phase 999.1).
 
 ## What This Is
 
@@ -53,6 +53,7 @@ A client can book or cancel an appointment with a Greek business entirely throug
 - ✓ Client `/start` menu: Book/My Bookings/Cancel/Balance via inline flows; free Greek chat still works — v1.4 (CMENU-01..05)
 - ✓ Class schedule setup added to onboarding (recurrence + capacity); σεζόν→μάθημα terminology fixed — v1.4 (CLSS-01..05, I18N-01..03)
 - ✓ Blocked client gets Greek apology; admin gets escalation notification with context + approve-exception button — v1.4 (ESCL-01, ESCL-02)
+- ✓ Owner onboarding is a stateless Gemini tool-calling agent that parses freeform Greek input (multi-field, split-range hours) instead of a regex-gated step machine; old step machine deleted — Phase 21 backlog (D-01, D-02, D-03)
 
 ### Active
 
@@ -143,4 +144,4 @@ A client can book or cancel an appointment with a Greek business entirely throug
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-24 — v1.4 Single-Bot UX Overhaul shipped*
+*Last updated: 2026-07-25 — Phase 21 (AI-driven owner onboarding) shipped*
