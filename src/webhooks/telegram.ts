@@ -19,12 +19,8 @@ import { getOrCreateBotInstance } from '../telegram/registry';
 import { routeConversationMessage } from '../conversation/router';
 import { deleteBookingFromCalendar, syncBookingToCalendar } from '../calendar/sync';
 import { aiOwnerAgent } from '../onboarding/ai-owner-agent';
-import {
-  findBusinessByOwnerTelegramId,
-  findActiveSessionByOwnerTelegramId,
-  createOrResetOnboardingSession,
-} from '../onboarding/queries';
-import { dispatchOnboardingStep } from '../onboarding/router';
+import { aiOnboardingAgent } from '../onboarding/ai-onboarding-agent';
+import { findBusinessByOwnerTelegramId } from '../onboarding/queries';
 import {
   handleConfirmMembership,
   handleCancelPackage,
@@ -82,24 +78,14 @@ async function handleFoundBusiness(
     if (business.ownerTelegramId !== null && business.ownerTelegramId === senderTelegramId) {
       if (!business.onboardingCompleted) {
         // ARCH-03: owner messages bot before onboarding is complete — route to
-        // the onboarding state machine. Resume an existing active session or
-        // start a fresh one.
-        const activeResult = await findActiveSessionByOwnerTelegramId(senderTelegramId);
-        if (activeResult) {
-          // Resume mid-onboarding session (AUTH-03: session persistence)
-          await dispatchOnboardingStep(
-            activeResult.session,
-            activeResult.business,
-            senderTelegramId,
-            messageText
-          );
-        } else {
-          // First-contact owner: create (or reset) session and send welcome message
-          await createOrResetOnboardingSession(business.id, 'name');
-          await sendTelegramMessage(
-            senderTelegramId,
-            'Καλωσήρθατε! Πώς ονομάζεται η επιχείρησή σας;'
-          );
+        // the new stateless AI onboarding agent (D-01/D-02). No session lookup
+        // needed: aiOnboardingAgent re-derives everything from DB state.
+        const today = isoDateInAthens(new Date());
+        const reply = await aiOnboardingAgent(business, senderTelegramId, messageText, today);
+        // D-03: a tool may already have sent its own Telegram message; skip
+        // sending an additional reply when reply === ''.
+        if (reply) {
+          await sendTelegramMessage(senderTelegramId, reply);
         }
         await markTelegramUpdateProcessed(updateId, business.id);
         return;
@@ -831,14 +817,15 @@ export async function handleTelegramWebhookPost(req: Request, res: Response): Pr
                 []
               );
             }
-            const activeResult = await findActiveSessionByOwnerTelegramId(senderTelegramId);
-            if (activeResult) {
-              await dispatchOnboardingStep(
-                activeResult.session,
-                activeResult.business,
-                senderTelegramId,
-                update.callback_query.data ?? ''
-              );
+            const today = isoDateInAthens(new Date());
+            const reply = await aiOnboardingAgent(
+              business,
+              senderTelegramId,
+              update.callback_query.data ?? '',
+              today
+            );
+            if (reply) {
+              await sendTelegramMessage(senderTelegramId, reply);
             }
             await markTelegramUpdateProcessed(updateId, business.id);
             return;
