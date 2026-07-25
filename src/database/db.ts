@@ -38,6 +38,13 @@ export const pool = new Pool({
 pool.on('error', (err) => {
   logger.error({ err }, 'Unexpected error on idle admin-db pool client');
 });
+// pg-pool detaches its idle-error listener on checkout, so a client mid-transaction
+// has zero 'error' listeners; attaching here on 'connect' persists for the client's lifetime.
+pool.on('connect', (client) => {
+  client.on('error', (err: Error) => {
+    logger.error({ err }, 'Unexpected error on checked-out admin-db pool client');
+  });
+});
 
 export const db = drizzle(pool, { schema });
 
@@ -60,6 +67,13 @@ export const appPool = new Pool({
 });
 appPool.on('error', (err) => {
   logger.error({ err }, 'Unexpected error on idle app-db pool client');
+});
+// Same checked-out-client gap as `pool` above; higher-stakes here since
+// withBusinessContext holds an appPool client open across the Gemini call.
+appPool.on('connect', (client) => {
+  client.on('error', (err: Error) => {
+    logger.error({ err }, 'Unexpected error on checked-out app-db pool client');
+  });
 });
 
 export const appDb = drizzle(appPool, { schema });
