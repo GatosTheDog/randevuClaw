@@ -80,6 +80,9 @@ async function handleFoundBusiness(
         // ARCH-03: owner messages bot before onboarding is complete — route to
         // the new stateless AI onboarding agent (D-01/D-02). No session lookup
         // needed: aiOnboardingAgent re-derives everything from DB state.
+        // AI calls run outside any transaction — each tool call opens its own
+        // short withBusinessContext. Holding a connection open across Gemini
+        // round-trips triggers Neon's idle_in_transaction timeout (~24 s).
         const today = isoDateInAthens(new Date());
         const reply = await aiOnboardingAgent(business, senderTelegramId, messageText, today);
         // D-03: a tool may already have sent its own Telegram message; skip
@@ -87,15 +90,17 @@ async function handleFoundBusiness(
         if (reply) {
           await sendTelegramMessage(senderTelegramId, reply);
         }
-        await markTelegramUpdateProcessed(updateId, business.id);
+        await withBusinessContext(business.id, () => markTelegramUpdateProcessed(updateId, business.id));
         return;
       }
 
       // AMENU-01: /menu command — structured keyboard, no Gemini round-trip.
       // Pre-empt aiOwnerAgent to avoid wasting Gemini API quota on a known command.
       if (messageText.trim() === '/menu') {
-        await showAdminRootMenu(senderTelegramId, business);
-        await markTelegramUpdateProcessed(updateId, business.id);
+        await withBusinessContext(business.id, async () => {
+          await showAdminRootMenu(senderTelegramId, business);
+          await markTelegramUpdateProcessed(updateId, business.id);
+        });
         return;
       }
 
@@ -110,21 +115,25 @@ async function handleFoundBusiness(
       if (reply) {
         await sendTelegramMessage(senderTelegramId, reply);
       }
-      await markTelegramUpdateProcessed(updateId, business.id);
+      await withBusinessContext(business.id, () => markTelegramUpdateProcessed(updateId, business.id));
       return;
     }
 
     // CMENU-01: /start command — structured keyboard, no Gemini round-trip.
     if (messageText.trim() === '/start') {
-      await showClientRootMenu(senderTelegramId, business);
-      await markTelegramUpdateProcessed(updateId, business.id);
+      await withBusinessContext(business.id, async () => {
+        await showClientRootMenu(senderTelegramId, business);
+        await markTelegramUpdateProcessed(updateId, business.id);
+      });
       return;
     }
 
-    await routeConversationMessage(business, senderTelegramId, messageText, {
-      sendMessage: sendTelegramMessage,
+    await withBusinessContext(business.id, async () => {
+      await routeConversationMessage(business, senderTelegramId, messageText, {
+        sendMessage: sendTelegramMessage,
+      });
+      await markTelegramUpdateProcessed(updateId, business.id);
     });
-    await markTelegramUpdateProcessed(updateId, business.id);
   } catch (err) {
     logger.error({ err }, 'Failed to route Telegram conversation message');
   }
@@ -768,91 +777,96 @@ export async function handleTelegramWebhookPost(req: Request, res: Response): Pr
     }
 
     // Step 5 — Per-request context: botTokenStore so callTelegramApi reads the
-    // correct bot token; withBusinessContext so all DB ops run under RLS for
-    // exactly this tenant (T-04-12).
+    // correct bot token. Each DB write uses its own short withBusinessContext so
+    // no Neon connection is held open during Gemini API calls — Neon free tier
+    // has an idle_in_transaction timeout (~24 s) that kills the connection
+    // before multi-round AI processing finishes (T-04-12).
     await botTokenStore.run(business.botToken, async () => {
-      await withBusinessContext(business.id, async () => {
-        const senderTelegramId = String(
-          update.message?.from.id ?? update.callback_query?.from.id ?? ''
-        );
-        const updateType = update.message ? 'message' : 'callback_query';
+      const senderTelegramId = String(
+        update.message?.from.id ?? update.callback_query?.from.id ?? ''
+      );
+      const updateType = update.message ? 'message' : 'callback_query';
 
-        // Log webhookId (opaque UUID), never botToken (D-04 / T-04-11).
-        logger.info({ updateId, webhookId, senderTelegramId, updateType }, 'Telegram update received');
+      // Log webhookId (opaque UUID), never botToken (D-04 / T-04-11).
+      logger.info({ updateId, webhookId, senderTelegramId, updateType }, 'Telegram update received');
 
-        const dedupResult = await insertOrIgnoreTelegramUpdate(
-          updateId,
-          business.id,
-          senderTelegramId,
-          updateType
-        );
+      // Short transaction: dedup only. AI processing happens outside any
+      // transaction; each tool call opens its own withBusinessContext.
+      const dedupResult = await withBusinessContext(business.id, () =>
+        insertOrIgnoreTelegramUpdate(updateId, business.id, senderTelegramId, updateType)
+      );
 
-        if (dedupResult === 'ignored') {
-          logger.info({ updateId }, 'Duplicate Telegram update ignored');
-          return;
-        }
+      if (dedupResult === 'ignored') {
+        logger.info({ updateId }, 'Duplicate Telegram update ignored');
+        return;
+      }
 
-        // BOT-04: Telegraf as webhook adapter (D-03). No middleware attached in
-        // Phase 4 — validates the update structure; dispatch is explicit below.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await bot.handleUpdate(update as any);
+      // BOT-04: Telegraf as webhook adapter (D-03). No middleware attached in
+      // Phase 4 — validates the update structure; dispatch is explicit below.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await bot.handleUpdate(update as any);
 
-        if (update.callback_query) {
-          // ARCH-03: owner tapping an inline-keyboard button (e.g. the Ναι/Όχι
-          // prompts) before onboarding is complete must route to the onboarding
-          // state machine, same as a typed message would (see the analogous
-          // branch in handleFoundBusiness below) — otherwise the tap is silently
-          // dropped by handleCallbackQuery, which only knows post-onboarding
-          // menu/booking callback shapes.
-          if (
-            business.ownerTelegramId !== null &&
-            business.ownerTelegramId === senderTelegramId &&
-            !business.onboardingCompleted
-          ) {
-            await answerCallbackQuery(update.callback_query.id);
-            if (update.callback_query.message) {
-              await editTelegramMessageReplyMarkup(
-                senderTelegramId,
-                update.callback_query.message.message_id,
-                []
-              );
-            }
-            const today = isoDateInAthens(new Date());
-            const reply = await aiOnboardingAgent(
-              business,
+      if (update.callback_query) {
+        // ARCH-03: owner tapping an inline-keyboard button (e.g. the Ναι/Όχι
+        // prompts) before onboarding is complete must route to the onboarding
+        // state machine, same as a typed message would (see the analogous
+        // branch in handleFoundBusiness below) — otherwise the tap is silently
+        // dropped by handleCallbackQuery, which only knows post-onboarding
+        // menu/booking callback shapes.
+        if (
+          business.ownerTelegramId !== null &&
+          business.ownerTelegramId === senderTelegramId &&
+          !business.onboardingCompleted
+        ) {
+          await answerCallbackQuery(update.callback_query.id);
+          if (update.callback_query.message) {
+            await editTelegramMessageReplyMarkup(
               senderTelegramId,
-              update.callback_query.data ?? '',
-              today
+              update.callback_query.message.message_id,
+              []
             );
-            if (reply) {
-              await sendTelegramMessage(senderTelegramId, reply);
-            }
-            await markTelegramUpdateProcessed(updateId, business.id);
-            return;
           }
-
-          await handleCallbackQuery(update.callback_query, senderTelegramId, business);
+          const today = isoDateInAthens(new Date());
+          const reply = await aiOnboardingAgent(
+            business,
+            senderTelegramId,
+            update.callback_query.data ?? '',
+            today
+          );
+          if (reply) {
+            await sendTelegramMessage(senderTelegramId, reply);
+          }
+          await withBusinessContext(business.id, () => markTelegramUpdateProcessed(updateId, business.id));
           return;
         }
 
-        if (update.message) {
-          await handleFoundBusiness(updateId, business, senderTelegramId, update.message.text ?? '');
+        // Non-AI callbacks (booking approval, menu actions, billing) are fast
+        // enough to complete within a single short transaction.
+        await withBusinessContext(business.id, () =>
+          handleCallbackQuery(update.callback_query!, senderTelegramId, business)
+        );
+        return;
+      }
 
-          // D-04: upsert clientName from Telegram from.first_name on every client message.
-          // Called AFTER handleFoundBusiness so getOrCreateClientRelationship's
-          // isFirstContact detection is not affected (it runs inside handleFoundBusiness →
-          // routeConversationMessage → getOrCreateClientRelationship for client messages).
-          // Owners are excluded: owner messages go to aiOwnerAgent, not consent checker,
-          // so creating an owner clientBusinessRelationship record is unnecessary.
-          if (business.ownerTelegramId !== senderTelegramId) {
-            await insertClientBusinessRelationship(
+      if (update.message) {
+        await handleFoundBusiness(updateId, business, senderTelegramId, update.message.text ?? '');
+
+        // D-04: upsert clientName from Telegram from.first_name on every client message.
+        // Called AFTER handleFoundBusiness so getOrCreateClientRelationship's
+        // isFirstContact detection is not affected (it runs inside handleFoundBusiness →
+        // routeConversationMessage → getOrCreateClientRelationship for client messages).
+        // Owners are excluded: owner messages go to aiOwnerAgent, not consent checker,
+        // so creating an owner clientBusinessRelationship record is unnecessary.
+        if (business.ownerTelegramId !== senderTelegramId) {
+          await withBusinessContext(business.id, () =>
+            insertClientBusinessRelationship(
               business.id,
               senderTelegramId,
-              update.message.from.first_name
-            );
-          }
+              update.message!.from.first_name
+            )
+          );
         }
-      });
+      }
     });
 
     // Step 6 — Always 200 to Telegram (success path).
