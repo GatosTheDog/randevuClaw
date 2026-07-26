@@ -4,7 +4,7 @@
 // (T-07-03); write mutations in createMembership use db.transaction() for atomicity.
 
 import { and, desc, eq, gt, gte, lte, sql } from 'drizzle-orm';
-import { db } from '../database/db';
+import { db, pool, runInTransaction } from '../database/db';
 import {
   billingPackages,
   memberships,
@@ -303,7 +303,7 @@ export async function getAllClientsForBusiness(
 /**
  * Creates or replaces the client's active membership for a business.
  *
- * Runs atomically in a single db.transaction(): inserts the membership row
+ * Runs atomically in a single runInTransaction(pool, ...) call: inserts the membership row
  * (onConflictDoUpdate replaces any existing active membership for the same
  * business+client pair) and inserts the initial payment_recorded ledger row.
  *
@@ -322,7 +322,11 @@ export async function createMembership(
   clientPhone: string,
   packageId: number
 ): Promise<{ memberId: number; expiresAtDate: string; sessionsRemaining: number | null }> {
-  return db.transaction(async (tx) => {
+  // Debug (query-read-timeout-storm): uses runInTransaction(pool, ...)
+  // instead of db.transaction(...) directly — drizzle-orm's own transaction()
+  // leaks the checked-out client if the initial 'begin' statement itself
+  // rejects (e.g. a client-side query_timeout). See src/database/db.ts.
+  return runInTransaction(pool, async (tx) => {
     // Fetch the billing package — WR-01: include businessId ownership guard so a
     // crafted callback_data referencing a foreign package resolves to null and
     // fails fast inside the transaction before any membership row is written.

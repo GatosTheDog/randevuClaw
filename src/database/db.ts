@@ -77,3 +77,53 @@ appPool.on('connect', (client) => {
 });
 
 export const appDb = drizzle(appPool, { schema });
+
+// Debug (query-read-timeout-storm): drizzle-orm's NodePgSession.transaction()
+// (node_modules/drizzle-orm/node-postgres/session.js) checks out a client via
+// `pool.connect()`, then runs `await tx.execute(sql`begin...`)` BEFORE its own
+// try/finally block — the finally (which calls `session.client.release()`)
+// only wraps the transaction callback's commit/rollback, NOT the initial
+// begin statement. If 'begin' itself rejects (e.g. the client-side
+// query_timeout firing during a Neon compute-suspend cold start), the
+// checked-out client is NEVER released back to the pool: a permanent leak of
+// one pool slot per occurrence (confirmed via a deterministic reproduction —
+// see .planning/debug/resolved/query-read-timeout-storm.md). This compounds
+// across a burst of failures and across the app's lifetime, since nothing but
+// a full process restart clears a leaked client.
+//
+// Fix: check out the client ourselves, wrap ONLY that client instance with
+// drizzle() (a PoolClient is a supported NodePgClient) instead of the pool,
+// and guarantee release in our OWN try/finally around the whole
+// transaction() call. Passing a bare client (not a Pool) makes drizzle's
+// internal `isPool` check false, so drizzle skips its own checkout/release
+// entirely and leaves it to us — closing the leak regardless of whether
+// begin, the callback body, commit, or rollback is what fails.
+type TransactionCallback<D, T> = D extends { transaction: (cb: (tx: infer TX) => Promise<unknown>) => Promise<unknown> }
+  ? (tx: TX) => Promise<T>
+  : never;
+
+export async function runInTransaction<T>(
+  pool: Pool,
+  callback: TransactionCallback<typeof db, T>
+): Promise<T> {
+  const client = await pool.connect();
+  const clientDb = drizzle(client, { schema });
+  let txError: unknown;
+  try {
+    // clientDb (drizzle(client, {schema})) has the identical schema-derived
+    // transaction/tx shape as `db`/`appDb` (drizzle(pool, {schema})) — only
+    // the underlying NodePgClient (Client vs Pool) differs, which isn't
+    // reflected at the tx-callback type level. The cast below bridges a
+    // structural TS-inference artifact (generic T defaulting to `unknown`
+    // when extracted via `Parameters<>`), not a real type mismatch.
+    return (await clientDb.transaction(callback as never)) as T;
+  } catch (err) {
+    txError = err;
+    throw err;
+  } finally {
+    // Releasing with a truthy error tells pg-pool to discard the connection
+    // (it may be left in an unknown protocol state after a timed-out query)
+    // rather than returning a possibly-broken client to the idle queue.
+    client.release(txError instanceof Error ? txError : undefined);
+  }
+}
