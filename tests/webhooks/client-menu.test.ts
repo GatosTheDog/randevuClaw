@@ -356,6 +356,12 @@ describe('Suite C: booking flow via handleClientMenuCallback', () => {
       shouldAlert: false,
       membership: { membershipId: 10 } as any,
     });
+    // booking-no-approval-notif fix: handleBookSessionExecute wraps its
+    // owner-notification send in botTokenStore.run — must invoke the
+    // callback for the send to actually happen in tests.
+    (telegramClient.botTokenStore.run as jest.Mock).mockImplementation(
+      (_value: string, callback: () => Promise<unknown>) => callback()
+    );
   });
 
   it('book:yes — enforcement allows, bookSessionInstance succeeds → Greek confirmation sent', async () => {
@@ -379,6 +385,55 @@ describe('Suite C: booking flow via handleClientMenuCallback', () => {
       senderTelegramId
     );
     expect(mockedBookSessionInstance).toHaveBeenCalled();
+    expect(mockedSendTelegramMessage).toHaveBeenCalledWith(
+      senderTelegramId,
+      expect.stringContaining('επιβεβαιώθηκε')
+    );
+  });
+
+  it('book:yes — success → owner IS notified of the new booking (regression: booking-no-approval-notif)', async () => {
+    const dbMock = jest.requireMock('../../src/database/db');
+    dbMock.db.select = jest.fn().mockReturnValue({
+      from: jest.fn().mockReturnValue({
+        innerJoin: jest.fn().mockReturnValue({
+          where: jest.fn().mockReturnValue({
+            limit: jest
+              .fn()
+              .mockResolvedValue([{ serviceId: 3, sessionDate: '2026-07-27', sessionTime: '09:00' }]),
+          }),
+        }),
+      }),
+    });
+
+    const result: ClientMenuCallbackResult = { clientMenuAction: 'book:yes', id: instanceId };
+    await handleClientMenuCallback(result, BASE_BUSINESS as any, senderTelegramId);
+
+    expect(mockedSendTelegramMessage).toHaveBeenCalledWith(
+      OWNER_TELEGRAM_ID,
+      expect.stringContaining('2026-07-27')
+    );
+  });
+
+  it('book:yes — success, business.ownerTelegramId is null → owner send is skipped (no crash)', async () => {
+    const dbMock = jest.requireMock('../../src/database/db');
+    dbMock.db.select = jest.fn().mockReturnValue({
+      from: jest.fn().mockReturnValue({
+        innerJoin: jest.fn().mockReturnValue({
+          where: jest.fn().mockReturnValue({
+            limit: jest.fn().mockResolvedValue([{ serviceId: 3, sessionDate: '2026-07-27', sessionTime: '09:00' }]),
+          }),
+        }),
+      }),
+    });
+
+    const businessWithoutOwner = { ...BASE_BUSINESS, ownerTelegramId: null };
+    const result: ClientMenuCallbackResult = { clientMenuAction: 'book:yes', id: instanceId };
+    await handleClientMenuCallback(result, businessWithoutOwner as any, senderTelegramId);
+
+    expect(mockedSendTelegramMessage).not.toHaveBeenCalledWith(
+      OWNER_TELEGRAM_ID,
+      expect.anything()
+    );
     expect(mockedSendTelegramMessage).toHaveBeenCalledWith(
       senderTelegramId,
       expect.stringContaining('επιβεβαιώθηκε')

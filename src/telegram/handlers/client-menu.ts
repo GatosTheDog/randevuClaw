@@ -199,9 +199,15 @@ export async function handleBookSessionExecute(
     return;
   }
 
-  // Resolve serviceId via Drizzle join (findSessionInstanceById does not exist)
+  // Resolve serviceId via Drizzle join (findSessionInstanceById does not exist).
+  // Also pulls sessionDate/sessionTime here (rather than a second round-trip
+  // later) so the owner-alert text below can reference them.
   const instanceRow = await db
-    .select({ serviceId: sessionCatalog.serviceId })
+    .select({
+      serviceId: sessionCatalog.serviceId,
+      sessionDate: sessionInstances.sessionDate,
+      sessionTime: sessionInstances.sessionTime,
+    })
     .from(sessionInstances)
     .innerJoin(sessionCatalog, eq(sessionInstances.catalogId, sessionCatalog.id))
     .where(eq(sessionInstances.id, instanceId))
@@ -234,6 +240,27 @@ export async function handleBookSessionExecute(
     await sendTelegramMessage(chatId, 'Το μάθημα δεν βρέθηκε ή δεν είναι πλέον διαθέσιμο.');
     logger.info({ businessId: business.id, senderTelegramId, instanceId, status: bookResult.status }, 'book session conflict');
     return;
+  }
+
+  // Owner notification — best-effort (mirrors handleCancelExecute's pattern
+  // below and bookSessionTool's equivalent AI-chat alert in
+  // function-executor.ts). Session bookings are auto-confirmed, so this is a
+  // plain informational alert — no approve/reject keyboard needed.
+  try {
+    if (business.ownerTelegramId && business.botToken) {
+      const ownerText =
+        'Νέα κράτηση μαθήματος:\nΗμερομηνία: ' +
+        (instanceRow[0]?.sessionDate ?? '?') +
+        '\nΏρα: ' +
+        (instanceRow[0]?.sessionTime ?? '?') +
+        '\nΠελάτης: ' +
+        senderTelegramId;
+      await botTokenStore.run(business.botToken, async () => {
+        await sendTelegramMessage(business.ownerTelegramId!, ownerText);
+      });
+    }
+  } catch (err) {
+    logger.error({ err, businessId: business.id, senderTelegramId, instanceId }, 'Owner booking notification failed (best-effort)');
   }
 
   await sendTelegramMessage(chatId, 'Η κράτησή σας επιβεβαιώθηκε! Θα σας δούμε σύντομα.');
