@@ -8,6 +8,7 @@
 - ✅ **v1.3 Studio Session Scheduling & Slotless Bookings** — Phases 10-15 (shipped 2026-07-23)
 - ✅ **v1.4 Single-Bot UX Overhaul** — Phases 16-20 (shipped 2026-07-24)
 - ✅ **v1.5 AI-Driven Owner Onboarding** — Phase 21 (shipped 2026-07-25)
+- 🚧 **v1.6 Telegram Bot UX/Ops Improvements** — Phases 22-25 (in progress)
 
 ## Phases
 
@@ -81,6 +82,15 @@ See: `.planning/milestones/v1.5-ROADMAP.md`
 
 </details>
 
+### 🚧 v1.6 Telegram Bot UX/Ops Improvements (In Progress)
+
+**Milestone Goal:** Give owners real approval control over session bookings plus admin power tools (delete lessons, always-on menu, better error diagnostics), and give owners an easy way to invite new clients to the bot.
+
+- [ ] **Phase 22: Session Booking Approval Flow** - Session-class bookings go through owner approve/reject instead of auto-confirming, with capacity soft-held during the pending window
+- [ ] **Phase 23: Lesson Deletion & Cascade Cancellation** - Admin can delete a scheduled lesson; any active bookings on it are cancelled with credit/capacity restored and clients notified
+- [ ] **Phase 24: Bot Access & Diagnostics Polish** - Persistent Telegram menu button for one-tap menu access, plus an owner-facing technical follow-up when the bot's generic fallback fires
+- [ ] **Phase 25: Client Invite Generator** - Owner requests an invite and gets one message with a printable QR code and a copyable `t.me/<bot_username>` deep link
+
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
@@ -106,6 +116,10 @@ See: `.planning/milestones/v1.5-ROADMAP.md`
 | 19. Class Setup in Onboarding & Terminology Fix | v1.4 | 3/3 | Complete | 2026-07-24 |
 | 20. Client Escalation | v1.4 | 2/2 | Complete | 2026-07-24 |
 | 21. AI-Driven Owner Onboarding | v1.5 | 3/3 | Complete | 2026-07-25 |
+| 22. Session Booking Approval Flow | v1.6 | 0/TBD | Not started | - |
+| 23. Lesson Deletion & Cascade Cancellation | v1.6 | 0/TBD | Not started | - |
+| 24. Bot Access & Diagnostics Polish | v1.6 | 0/TBD | Not started | - |
+| 25. Client Invite Generator | v1.6 | 0/TBD | Not started | - |
 
 ## Backlog
 
@@ -144,3 +158,48 @@ See: `.planning/milestones/v1.5-ROADMAP.md`
 - [ ] Decide the real v1.4+ story: does a new business owner talk to *some* bot to register their own bot token (bringing back a minimal platform-bot-like intake), or does the platform operator always bootstrap manually for a single-operator PoC?
 - Low urgency while there's one operator onboarding a handful of pilot businesses by hand; blocking if this needs to scale to self-serve signups
 - Low urgency: requires a single Telegram account to own multiple businesses, an edge case not yet supported by onboarding
+
+## Phase Details
+
+### Phase 22: Session Booking Approval Flow
+**Goal**: Owner gets real approve/reject control over session-class bookings instead of silent auto-confirmation, mirroring the existing open-slots/slotless approval pattern (Phase 13), with capacity correctly soft-held while approval is pending and released on rejection/expiry.
+**Depends on**: Nothing new — extends the existing session booking flow (`bookSessionInstance` in `src/session/manager.ts`, `handleBookSessionExecute` in `src/telegram/handlers/client-menu.ts`) and the approve/reject keyboard pattern already used for slotless requests
+**Requirements**: OWNR-05, OWNR-06, OWNR-07
+**Success Criteria** (what must be TRUE):
+  1. When a client books a `fixed_sessions` class (via free chat or the client menu), the bot creates the booking as pending — not confirmed — and the client sees a Greek "request sent, awaiting confirmation" message.
+  2. The pending booking counts against the class's capacity (soft hold) so a second client cannot fill the same slot while approval is outstanding.
+  3. The owner's chat receives an inline approve/reject keyboard identifying the client and session/class details for every new pending session booking.
+  4. If the owner rejects (or the request expires), the held capacity is released back to the class and the client receives a Greek rejection message.
+  5. If the owner approves, the client receives the Greek confirmation message and the booking becomes confirmed.
+**Plans**: TBD
+
+### Phase 23: Lesson Deletion & Cascade Cancellation
+**Goal**: Admin can remove a scheduled lesson entirely, and any clients already booked into it are cleanly unwound — credit/capacity restored, clients notified in Greek.
+**Depends on**: Nothing new — extends the existing session catalog/instance layer (`src/session/manager.ts`, Phase 10) and the admin Classes sub-menu (Phase 17)
+**Requirements**: CLSS-06, CLSS-07
+**Success Criteria** (what must be TRUE):
+  1. Admin can delete/cancel a specific scheduled lesson (session instance) from the admin menu or free-form chat.
+  2. Deleting a lesson with zero active bookings removes/cancels the instance with no other side effects.
+  3. Deleting a lesson that has active client bookings cancels each of those bookings and restores each affected client's session credit (or capacity, for unlimited memberships) atomically.
+  4. Each affected client receives a Greek notification that their booking for that lesson was cancelled by the business.
+**Plans**: TBD
+
+### Phase 24: Bot Access & Diagnostics Polish
+**Goal**: Admin and clients get one-tap access to their own menu without retyping a command, and the owner gets actionable technical visibility whenever the bot's generic Greek fallback fires for a client — without changing what the client sees.
+**Depends on**: Nothing new — small, independent additions: Telegram Bot API `setChatMenuButton`/command registration (extends Phase 17/18 menus), and a follow-up send at the existing generic-fallback call sites across `src/conversation/ai-agent.ts`, `src/onboarding/ai-owner-agent.ts`, `src/onboarding/ai-onboarding-agent.ts`, and `src/webhooks/telegram.ts`
+**Requirements**: BOT-06, DIAG-01
+**Success Criteria** (what must be TRUE):
+  1. Admin sees a persistent Telegram menu button that opens the admin `/menu` directly, without typing the command.
+  2. Client sees a persistent Telegram menu button that opens the client `/start` menu directly, without typing the command.
+  3. When the bot sends the generic Greek fallback error message to a client, the owner's own chat receives a best-effort follow-up message identifying what step/tool failed and the error type, while the client-facing message stays unchanged (clean Greek only).
+**Plans**: TBD
+
+### Phase 25: Client Invite Generator
+**Goal**: Owner can generate a single, ready-to-share invite for their business's bot — a printable QR code plus a copyable deep link — so bringing on a new client needs no manual setup.
+**Depends on**: Nothing new — self-contained capability; introduces a QR-code generation library (e.g. `qrcode` npm package) as a new dependency
+**Requirements**: INVITE-01
+**Success Criteria** (what must be TRUE):
+  1. Owner can request an invite (via admin menu or free chat) and receives one message containing a QR image composed with the business name and a Greek call-to-action caption, ready to print standalone.
+  2. The same message includes the raw `t.me/<bot_username>` deep link as copyable plain text.
+  3. The owner can either print/post the QR image or forward/paste the link text into any other channel (Telegram forward, SMS, WhatsApp, Instagram, email).
+**Plans**: TBD

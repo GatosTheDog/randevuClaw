@@ -44,24 +44,22 @@ None identified yet — all 5 target features are scoped into v1.6.
 
 ## Traceability
 
-Populated during roadmap creation (Step 10).
-
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| OWNR-05 | TBD | Pending |
-| OWNR-06 | TBD | Pending |
-| OWNR-07 | TBD | Pending |
-| CLSS-06 | TBD | Pending |
-| CLSS-07 | TBD | Pending |
-| BOT-06 | TBD | Pending |
-| DIAG-01 | TBD | Pending |
-| INVITE-01 | TBD | Pending |
+| OWNR-05 | Phase 22 | Pending |
+| OWNR-06 | Phase 22 | Pending |
+| OWNR-07 | Phase 22 | Pending |
+| CLSS-06 | Phase 23 | Pending |
+| CLSS-07 | Phase 23 | Pending |
+| BOT-06 | Phase 24 | Pending |
+| DIAG-01 | Phase 24 | Pending |
+| INVITE-01 | Phase 25 | Pending |
 
 **Coverage:**
 - v1 requirements: 8 total
-- Mapped to phases: 0 (pending roadmap)
-- Unmapped: 8 ⚠️ (expected — roadmapper fills this in next)
+- Mapped to phases: 8/8 ✓
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-07-27*
-*Last updated: 2026-07-27 after initial v1.6 definition*
+*Last updated: 2026-07-27 after v1.6 roadmap creation (Phases 22-25)*

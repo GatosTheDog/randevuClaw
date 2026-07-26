@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: Telegram Bot UX/Ops Improvements
 status: planning
-last_updated: "2026-07-26T21:21:30.149Z"
-last_activity: 2026-07-26
+last_updated: "2026-07-27T00:00:00.000Z"
+last_activity: 2026-07-27
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -20,14 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-24 after v1.4 milestone close)
 
 **Core value:** A client can book or cancel an appointment with a Greek business entirely through a chat conversation, in Greek, with zero friction — and the owner's calendar updates automatically.
-**Current focus:** Phase 21 — ai-driven-owner-onboarding-replace-the-deterministic-step-ma
+**Current focus:** Phase 22 — Session Booking Approval Flow
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-07-26 — Milestone v1.6 started
+Phase: 22 of 25 (Session Booking Approval Flow)
+Plan: — (not yet planned)
+Status: Roadmap approved — ready to plan Phase 22
+Last activity: 2026-07-27 — v1.6 ROADMAP.md created (Phases 22-25), 8/8 requirements mapped
 
 ## Performance Metrics
 
@@ -213,6 +213,8 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 21-03]: onboarding_sessions DB table left inert, no schema.ts migration — future housekeeping pass can drop it once desired
 - [Phase ?]: [Phase 21-03]: Rule 3 fix — removed stale jest.mock('.../onboarding/router') from tests/admin-menu.test.ts and tests/webhooks/client-menu.test.ts, which would have broken module resolution once router.ts was deleted
 - [Phase ?]: [Quick 260725-hlh]: 25000ms (25s) HTTP timeout added to all three GoogleGenAI client constructions to fix silent-hang bug where stalled Gemini responses never resolved/rejected
+- [Roadmap v1.6]: 4 phases derived from 8 requirements — Phase 22 (session booking approval + capacity hold/release), Phase 23 (lesson deletion + cascade-cancel bookings), Phase 24 (persistent menu button + owner diagnostics follow-up), Phase 25 (QR + deep-link invite generator)
+- [Roadmap v1.6]: BOT-06 and DIAG-01 grouped into one phase (24) rather than two single-requirement phases — both are small, independent bot-ops config/behavior changes with no natural neighbor closer than each other
 
 ### Pending Todos
 
@@ -240,6 +242,8 @@ None yet.
 - [Phase 6]: GDPR cascade must cover ALL tables holding user data — document full cascade chain before implementing.
 - [Phase 9]: findMembershipByBooking returns null for pre-Phase-8 bookings — credit restore correctly no-ops (Pitfall 4 from 08-03).
 - [Phase 9]: Expiry sweep isRunning guard required (same pattern as v1.0 reminder poller) to prevent overlapping sweep executions.
+- [Phase 22]: OWNR-06's capacity soft-hold must reuse the same SELECT FOR UPDATE atomic pattern already proven in bookSessionInstance/deductSession — don't invent a second locking strategy.
+- [Phase 23]: CLSS-07's credit restore must reuse the existing restoreCredit path from Phase 8 (billing/queries.ts) rather than duplicating unlimited-membership/null-guard logic.
 
 ## Deferred Items
 
@@ -288,8 +292,8 @@ Items acknowledged and deferred at v1.5 milestone close on 2026-07-25:
 
 ## Session Continuity
 
-Last session: 2026-07-25T09:46:01.158Z
-Stopped at: Completed quick task 260725-hlh (Gemini API timeout fix)
+Last session: 2026-07-27T00:00:00.000Z
+Stopped at: v1.6 ROADMAP.md created (Phases 22-25), REQUIREMENTS.md traceability updated, 8/8 requirements mapped
 Resume file: None
 
 **Phase 12 Plan 01 completed:** a940588, 6c5830e, 7d64f85
@@ -324,4 +328,4 @@ Resume file: None
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Plan Phase 22 (Session Booking Approval Flow) with `/gsd-plan-phase 22`
