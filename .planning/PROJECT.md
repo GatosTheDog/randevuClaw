@@ -12,6 +12,17 @@ A Telegram-native appointment booking platform for Greek service businesses (pil
 
 **⚠ Documentation gap discovered at v1.4 close:** v1.3 (Studio Session Scheduling & Slotless Bookings) was marked shipped in ROADMAP.md but its `/gsd-complete-milestone` archival step never actually ran — no `.planning/milestones/v1.3-ROADMAP.md` or `v1.3-REQUIREMENTS.md` exists, and v1.3's original requirement IDs were lost when v1.4's REQUIREMENTS.md overwrote the live file without archiving v1.3 first. The Validated section below reconstructs v1.3's shipped scope from ROADMAP.md phase descriptions (reliable) rather than exact REQ-IDs (lost). Not fixed here — flagging for awareness; a full retroactive v1.3 archive would need to be reconstructed from git history if ever needed.
 
+## Current Milestone: v1.6 Telegram Bot UX/Ops Improvements
+
+**Goal:** Give owners real approval control over session bookings plus admin power tools (delete lessons, always-on menu, better error diagnostics), and give owners an easy way to invite new clients to the bot.
+
+**Target features:**
+- Owner can approve/reject a session-class booking (currently auto-confirmed with no owner say)
+- Admin can delete/cancel a scheduled lesson (session instance)
+- Persistent Telegram menu button so the admin always has quick access to the menu
+- Richer diagnostics surfaced when the bot hits its generic Greek error fallback
+- QR-code / deep-link generator so owners can easily invite clients to the bot
+
 ## Core Value
 
 A client can book or cancel an appointment with a Greek business entirely through a chat conversation, in Greek, with zero friction — and the owner's calendar updates automatically.

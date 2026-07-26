@@ -1,19 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.5
-milestone_name: ai-driven-owner-onboarding
-status: Awaiting next milestone
-stopped_at: Completed quick task 260726-vfm (client name in owner notifications) + debug session booking-no-approval-notif (resolved)
-last_updated: "2026-07-26T19:55:00.000Z"
+milestone: v1.6
+milestone_name: Telegram Bot UX/Ops Improvements
+status: planning
+last_updated: "2026-07-26T21:21:30.149Z"
 last_activity: 2026-07-26
-last_activity_desc: Completed quick task 260726-vfm; resolved debug session booking-no-approval-notif
 progress:
   total_phases: 0
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
-current_phase: 21
-current_phase_name: ai-driven-owner-onboarding-replace-the-deterministic-step-ma
+  percent: 0
 ---
 
 # Project State
@@ -27,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-07-24 after v1.4 milestone close)
 
 ## Current Position
 
-Phase: Milestone v1.5 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-07-25 — Milestone v1.5 completed and archived
+Status: Defining requirements
+Last activity: 2026-07-26 — Milestone v1.6 started
 
 ## Performance Metrics
 
