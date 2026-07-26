@@ -1,10 +1,10 @@
 // Phase 13: Slotless booking request query layer (SLOT-01, SLOT-03, SLOT-04, SLOT-05, SLOT-06)
 // All DB operations for slotless_requests go through this module.
 // Read functions use getConn() for RLS-enforced connections; approveSlotlessRequest uses
-// db.transaction() for atomicity across booking insert, ledger insert, and status update.
+// runInTransaction(pool, ...) for atomicity across booking insert, ledger insert, and status update.
 
 import { and, eq, gte, desc, sql } from 'drizzle-orm';
-import { db } from '../database/db';
+import { pool, runInTransaction } from '../database/db';
 import { getConn } from '../database/queries';
 import {
   slotlessRequests,
@@ -86,15 +86,20 @@ export async function insertSlotlessRequest(params: {
  * - The request is not found or already processed
  * - The client's membership has lapsed (caller sends an error message to the owner)
  *
- * All mutations run in a single db.transaction() (T-13-01): booking insert,
- * ledger insert, membership decrement, and request status update commit atomically
- * or all roll back.
+ * All mutations run in a single runInTransaction(pool, ...) call (T-13-01):
+ * booking insert, ledger insert, membership decrement, and request status
+ * update commit atomically or all roll back.
+ *
+ * Debug (query-read-timeout-storm): uses runInTransaction(pool, ...) instead
+ * of db.transaction(...) directly — drizzle-orm's own transaction() leaks the
+ * checked-out client if the initial 'begin' statement itself rejects (e.g. a
+ * client-side query_timeout). See src/database/db.ts.
  */
 export async function approveSlotlessRequest(
   slotlessRequestId: number,
   businessId: number
 ): Promise<{ booking: typeof bookings.$inferSelect; request: SlotlessRequest } | null> {
-  return db.transaction(async (tx) => {
+  return runInTransaction(pool, async (tx) => {
     // Step 1: Lock the slotless request row and verify it is still pending.
     // SELECT FOR UPDATE acquires a row-level lock; a concurrent double-tap finds
     // the row already 'approved' after the first tx commits and returns null.

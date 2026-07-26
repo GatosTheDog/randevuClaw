@@ -25,7 +25,7 @@ jest.mock('../src/database/queries', () => ({
 import * as genai from '@google/genai';
 import * as queries from '../src/database/queries';
 import * as functionExecutor from '../src/conversation/function-executor';
-import { aiBookingAgent, RATE_LIMIT_REPLY_GREEK } from '../src/conversation/ai-agent';
+import { aiBookingAgent, RATE_LIMIT_REPLY_GREEK, AGENT_ERROR_REPLY_GREEK } from '../src/conversation/ai-agent';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockCreate = (genai as any).__mockCreate as jest.Mock;
@@ -53,6 +53,12 @@ const BUSINESS = {
   enforcementPolicy: 'allow',
   bookingMode: 'open_slots',
   allowMultiBooking: false,
+  cancellationCutoffEnabled: false,
+  cancellationCutoffHours: 0,
+  slotlessRequestsEnabled: false,
+  lastSessionThresholdEnabled: false,
+  lastSessionThresholdCount: 0,
+  onboardingCompleted: true,
   createdAt: new Date(),
 };
 
@@ -219,6 +225,18 @@ describe('aiBookingAgent', () => {
     expect(result.interactionId).toBeNull();
 
     jest.useRealTimers();
+  });
+
+  it('Test 12 (debug: webhook-hang-no-reply): a non-429 error (e.g. TimeoutError from the bounded per-call timeout) resolves with AGENT_ERROR_REPLY_GREEK instead of throwing', async () => {
+    const timeoutErr = new Error('The operation was aborted due to timeout');
+    timeoutErr.name = 'TimeoutError';
+    mockCreate.mockRejectedValue(timeoutErr);
+
+    const result = await aiBookingAgent('γεια', BUSINESS, 'c1', null);
+
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+    expect(result.text).toBe(AGENT_ERROR_REPLY_GREEK);
+    expect(result.interactionId).toBeNull();
   });
 
   it('Test 10 (CR-01): a Gemini mock that never stops returning function_call steps still returns within MAX_TOOL_ROUNDS calls, with the graceful bail-out text', async () => {

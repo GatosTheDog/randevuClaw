@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'async_hooks';
 import { and, desc, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm';
-import { db, appDb } from './db';
+import { db, appPool, runInTransaction } from './db';
+import { logger } from '../utils/logger';
 import {
   businesses,
   clientBusinessRelationships,
@@ -97,17 +98,49 @@ export async function withBusinessContext<T>(
   businessId: string | number,
   callback: () => Promise<T>
 ): Promise<T> {
-  return appDb.transaction(async (tx) => {
-    // WR-03: use set_config() via parameterized sql template instead of sql.raw() with string
-    // interpolation. sql.raw() on the RLS bootstrap path is fragile — if businessId is NaN
-    // (e.g. Number() on a non-numeric value), the SET statement silently sets 'NaN' and all
-    // queries in the transaction return empty results. set_config() with a parameterized binding
-    // avoids this and is immune to injection on the security-critical RLS configuration path.
-    await tx.execute(
-      sql`SELECT set_config('app.current_business_id', ${String(Number(businessId))}, true)`
+  // Debug (webhook-hang-no-reply): this opens a real DB transaction
+  // (appDb.transaction, now via runInTransaction) and every getConn() query
+  // inside `callback` runs through it. The pg Pool previously had no
+  // statement_timeout/query_timeout (see db.ts) — an unbounded query or a
+  // held lock here would hang the webhook handler exactly like the unbounded
+  // Gemini call did. Logging entry/exit with elapsed time so a future
+  // occurrence can show whether the hang is here (DB) or downstream
+  // (Gemini/Telegram API).
+  //
+  // Debug (query-read-timeout-storm): uses runInTransaction(appPool, ...)
+  // instead of appDb.transaction(...) directly — drizzle-orm's own
+  // transaction() leaks the checked-out client if the initial 'begin'
+  // statement itself rejects (e.g. a client-side query_timeout during a
+  // Neon cold start), since its release-on-finally doesn't cover that first
+  // statement. runInTransaction checks out the client itself and guarantees
+  // release in all cases. See src/database/db.ts and the resolved debug
+  // session for the full root-cause writeup.
+  const startedAt = Date.now();
+  logger.info({ businessId }, 'withBusinessContext: entry (opening transaction)');
+  try {
+    const result = await runInTransaction(appPool, async (tx) => {
+      // WR-03: use set_config() via parameterized sql template instead of sql.raw() with string
+      // interpolation. sql.raw() on the RLS bootstrap path is fragile — if businessId is NaN
+      // (e.g. Number() on a non-numeric value), the SET statement silently sets 'NaN' and all
+      // queries in the transaction return empty results. set_config() with a parameterized binding
+      // avoids this and is immune to injection on the security-critical RLS configuration path.
+      await tx.execute(
+        sql`SELECT set_config('app.current_business_id', ${String(Number(businessId))}, true)`
+      );
+      return currentTx.run(tx as unknown as typeof db, callback);
+    });
+    logger.info(
+      { businessId, elapsedMs: Date.now() - startedAt },
+      'withBusinessContext: exit (transaction committed)'
     );
-    return currentTx.run(tx as unknown as typeof db, callback);
-  });
+    return result;
+  } catch (err) {
+    logger.error(
+      { err, businessId, elapsedMs: Date.now() - startedAt },
+      'withBusinessContext: transaction failed/rolled back'
+    );
+    throw err;
+  }
 }
 
 export async function findLatestBusinessForClient(

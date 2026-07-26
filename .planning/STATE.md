@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: ai-driven-owner-onboarding
 status: Awaiting next milestone
-stopped_at: Completed 21-03-PLAN.md
-last_updated: "2026-07-25T08:50:09.224Z"
+stopped_at: Completed quick task 260725-hlh (Gemini API timeout fix)
+last_updated: "2026-07-25T09:46:52.316Z"
 last_activity: 2026-07-25
 last_activity_desc: Milestone v1.5 completed and archived
 progress:
-  total_phases: 1
-  completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
 current_phase: 21
 current_phase_name: ai-driven-owner-onboarding-replace-the-deterministic-step-ma
 ---
@@ -104,6 +104,7 @@ Last activity: 2026-07-25 — Milestone v1.5 completed and archived
 | Phase 20 P02 | 5 | 2 tasks | 2 files |
 | Phase 21 P01 | 55 | 2 tasks | 3 files |
 | Phase 21 P03 | 20min | 2 tasks | 10 files |
+| Phase quick P260725-hlh | 8min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -214,6 +215,7 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 21-03]: edit-router.ts left untouched/unwired (dead code, zero call sites) — only isOwnerEditCommand test coverage relocated to tests/onboarding/edit-router.test.ts
 - [Phase ?]: [Phase 21-03]: onboarding_sessions DB table left inert, no schema.ts migration — future housekeeping pass can drop it once desired
 - [Phase ?]: [Phase 21-03]: Rule 3 fix — removed stale jest.mock('.../onboarding/router') from tests/admin-menu.test.ts and tests/webhooks/client-menu.test.ts, which would have broken module resolution once router.ts was deleted
+- [Phase ?]: [Quick 260725-hlh]: 25000ms (25s) HTTP timeout added to all three GoogleGenAI client constructions to fix silent-hang bug where stalled Gemini responses never resolved/rejected
 
 ### Pending Todos
 
@@ -226,6 +228,7 @@ None yet.
 | 260716-heo | keyboard buttons UX | 2026-07-16 | 0425059 | [260716-heo-keyboard-buttons-ux](./quick/260716-heo-keyboard-buttons-ux/) |
 | 260716-hxo | streamline hours onboarding: single time range + split hours | 2026-07-16 | 587f338 | [260716-hxo-streamline-hours-onboarding-single-time-](./quick/260716-hxo-streamline-hours-onboarding-single-time-/) |
 | 260716-oaa | AI-powered owner agent: Gemini NLU replaces keyword matching | 2026-07-16 | 14fe0d1 | [260716-oaa-ai-owner-agent](./quick/260716-oaa-ai-owner-agent/) |
+| 260725-hlh | fix silent-hang bug — add Gemini API request timeout | 2026-07-25 | cbb7310 | [260725-hlh-fix-silent-hang-bug-add-gemini-api-reque](./quick/260725-hlh-fix-silent-hang-bug-add-gemini-api-reque/) |
 
 ### Blockers/Concerns
 
@@ -287,8 +290,8 @@ Items acknowledged and deferred at v1.5 milestone close on 2026-07-25:
 
 ## Session Continuity
 
-Last session: 2026-07-25T02:57:38.349Z
-Stopped at: Completed 21-03-PLAN.md
+Last session: 2026-07-25T09:46:01.158Z
+Stopped at: Completed quick task 260725-hlh (Gemini API timeout fix)
 Resume file: None
 
 **Phase 12 Plan 01 completed:** a940588, 6c5830e, 7d64f85
