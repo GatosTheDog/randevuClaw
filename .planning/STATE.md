@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: ai-driven-owner-onboarding
 status: Awaiting next milestone
-stopped_at: Completed quick task 260725-hlh (Gemini API timeout fix)
-last_updated: "2026-07-25T09:46:52.316Z"
-last_activity: 2026-07-25
-last_activity_desc: Milestone v1.5 completed and archived
+stopped_at: Completed quick task 260726-vfm (client name in owner notifications) + debug session booking-no-approval-notif (resolved)
+last_updated: "2026-07-26T19:55:00.000Z"
+last_activity: 2026-07-26
+last_activity_desc: Completed quick task 260726-vfm; resolved debug session booking-no-approval-notif
 progress:
   total_phases: 0
   completed_phases: 0
@@ -229,6 +229,7 @@ None yet.
 | 260716-hxo | streamline hours onboarding: single time range + split hours | 2026-07-16 | 587f338 | [260716-hxo-streamline-hours-onboarding-single-time-](./quick/260716-hxo-streamline-hours-onboarding-single-time-/) |
 | 260716-oaa | AI-powered owner agent: Gemini NLU replaces keyword matching | 2026-07-16 | 14fe0d1 | [260716-oaa-ai-owner-agent](./quick/260716-oaa-ai-owner-agent/) |
 | 260725-hlh | fix silent-hang bug — add Gemini API request timeout | 2026-07-25 | cbb7310 | [260725-hlh-fix-silent-hang-bug-add-gemini-api-reque](./quick/260725-hlh-fix-silent-hang-bug-add-gemini-api-reque/) |
+| 260726-vfm | show resolved client name (not phone/telegram id) in owner notifications | 2026-07-26 | e82b49f | [260726-vfm-show-resolved-client-name-not-phone-tele](./quick/260726-vfm-show-resolved-client-name-not-phone-tele/) |
 
 ### Blockers/Concerns
 
