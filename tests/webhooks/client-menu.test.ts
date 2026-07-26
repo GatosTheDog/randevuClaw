@@ -167,6 +167,9 @@ const mockedFindMembershipByBooking =
 const mockedRestoreCredit = billingQueries.restoreCredit as jest.MockedFunction<
   typeof billingQueries.restoreCredit
 >;
+const mockedGetClientName = billingQueries.getClientName as jest.MockedFunction<
+  typeof billingQueries.getClientName
+>;
 const mockedDeleteBookingFromCalendar =
   calendarSync.deleteBookingFromCalendar as jest.MockedFunction<
     typeof calendarSync.deleteBookingFromCalendar
@@ -362,6 +365,8 @@ describe('Suite C: booking flow via handleClientMenuCallback', () => {
     (telegramClient.botTokenStore.run as jest.Mock).mockImplementation(
       (_value: string, callback: () => Promise<unknown>) => callback()
     );
+    // Default: no client name on file — owner alert falls back to raw id.
+    mockedGetClientName.mockResolvedValue(null);
   });
 
   it('book:yes — enforcement allows, bookSessionInstance succeeds → Greek confirmation sent', async () => {
@@ -411,6 +416,59 @@ describe('Suite C: booking flow via handleClientMenuCallback', () => {
     expect(mockedSendTelegramMessage).toHaveBeenCalledWith(
       OWNER_TELEGRAM_ID,
       expect.stringContaining('2026-07-27')
+    );
+  });
+
+  it('book:yes — success, client has a name on file → owner alert shows the resolved name, not the raw id', async () => {
+    const dbMock = jest.requireMock('../../src/database/db');
+    dbMock.db.select = jest.fn().mockReturnValue({
+      from: jest.fn().mockReturnValue({
+        innerJoin: jest.fn().mockReturnValue({
+          where: jest.fn().mockReturnValue({
+            limit: jest
+              .fn()
+              .mockResolvedValue([{ serviceId: 3, sessionDate: '2026-07-27', sessionTime: '09:00' }]),
+          }),
+        }),
+      }),
+    });
+    mockedGetClientName.mockResolvedValue('Μαρία Παπαδοπούλου');
+
+    const result: ClientMenuCallbackResult = { clientMenuAction: 'book:yes', id: instanceId };
+    await handleClientMenuCallback(result, BASE_BUSINESS as any, senderTelegramId);
+
+    expect(mockedGetClientName).toHaveBeenCalledWith(BASE_BUSINESS.id, senderTelegramId);
+    expect(mockedSendTelegramMessage).toHaveBeenCalledWith(
+      OWNER_TELEGRAM_ID,
+      expect.stringContaining('Μαρία Παπαδοπούλου')
+    );
+    expect(mockedSendTelegramMessage).not.toHaveBeenCalledWith(
+      OWNER_TELEGRAM_ID,
+      expect.stringContaining(senderTelegramId)
+    );
+  });
+
+  it('book:yes — success, client has NO name on file → owner alert falls back to the raw sender id', async () => {
+    const dbMock = jest.requireMock('../../src/database/db');
+    dbMock.db.select = jest.fn().mockReturnValue({
+      from: jest.fn().mockReturnValue({
+        innerJoin: jest.fn().mockReturnValue({
+          where: jest.fn().mockReturnValue({
+            limit: jest
+              .fn()
+              .mockResolvedValue([{ serviceId: 3, sessionDate: '2026-07-27', sessionTime: '09:00' }]),
+          }),
+        }),
+      }),
+    });
+    mockedGetClientName.mockResolvedValue(null);
+
+    const result: ClientMenuCallbackResult = { clientMenuAction: 'book:yes', id: instanceId };
+    await handleClientMenuCallback(result, BASE_BUSINESS as any, senderTelegramId);
+
+    expect(mockedSendTelegramMessage).toHaveBeenCalledWith(
+      OWNER_TELEGRAM_ID,
+      expect.stringContaining(senderTelegramId)
     );
   });
 
@@ -523,6 +581,8 @@ describe('Suite D: cancel flow via handleClientMenuCallback', () => {
     (telegramClient.botTokenStore.run as jest.Mock).mockImplementation(
       (_value: string, callback: () => Promise<unknown>) => callback()
     );
+    // Default: no client name on file — owner alert falls back to raw phone/id.
+    mockedGetClientName.mockResolvedValue(null);
   });
 
   it('cancel:yes — happy path: ownership match, outside cutoff → updateBookingStatus called', async () => {
@@ -533,6 +593,35 @@ describe('Suite D: cancel flow via handleClientMenuCallback', () => {
     expect(mockedSendTelegramMessage).toHaveBeenCalledWith(
       senderTelegramId,
       expect.stringContaining('ακυρώθηκε')
+    );
+  });
+
+  it('cancel:yes — client has a name on file → owner alert shows the resolved name, not the raw phone', async () => {
+    mockedGetClientName.mockResolvedValue('Γιάννης Παπαδόπουλος');
+
+    const result: ClientMenuCallbackResult = { clientMenuAction: 'cancel:yes', id: bookingId };
+    await handleClientMenuCallback(result, BASE_BUSINESS as any, senderTelegramId);
+
+    expect(mockedGetClientName).toHaveBeenCalledWith(BASE_BUSINESS.id, BASE_BOOKING.clientPhone);
+    expect(mockedSendTelegramMessage).toHaveBeenCalledWith(
+      OWNER_TELEGRAM_ID,
+      expect.stringContaining('Γιάννης Παπαδόπουλος')
+    );
+    expect(mockedSendTelegramMessage).not.toHaveBeenCalledWith(
+      OWNER_TELEGRAM_ID,
+      expect.stringContaining(BASE_BOOKING.clientPhone)
+    );
+  });
+
+  it('cancel:yes — client has NO name on file → owner alert falls back to the raw phone/id', async () => {
+    mockedGetClientName.mockResolvedValue(null);
+
+    const result: ClientMenuCallbackResult = { clientMenuAction: 'cancel:yes', id: bookingId };
+    await handleClientMenuCallback(result, BASE_BUSINESS as any, senderTelegramId);
+
+    expect(mockedSendTelegramMessage).toHaveBeenCalledWith(
+      OWNER_TELEGRAM_ID,
+      expect.stringContaining(BASE_BOOKING.clientPhone)
     );
   });
 

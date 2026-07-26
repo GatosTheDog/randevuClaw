@@ -30,6 +30,7 @@ import {
   getClientActiveMembership,
   findMembershipByBooking,
   restoreCredit,
+  getClientName,
 } from '../../billing/queries';
 import { deleteBookingFromCalendar } from '../../calendar/sync';
 import { db } from '../../database/db';
@@ -248,13 +249,14 @@ export async function handleBookSessionExecute(
   // plain informational alert — no approve/reject keyboard needed.
   try {
     if (business.ownerTelegramId && business.botToken) {
+      const clientDisplayName = (await getClientName(business.id, senderTelegramId)) ?? senderTelegramId;
       const ownerText =
         'Νέα κράτηση μαθήματος:\nΗμερομηνία: ' +
         (instanceRow[0]?.sessionDate ?? '?') +
         '\nΏρα: ' +
         (instanceRow[0]?.sessionTime ?? '?') +
         '\nΠελάτης: ' +
-        senderTelegramId;
+        clientDisplayName;
       await botTokenStore.run(business.botToken, async () => {
         await sendTelegramMessage(business.ownerTelegramId!, ownerText);
       });
@@ -437,13 +439,14 @@ export async function handleCancelExecute(
   // Owner notification — best-effort
   try {
     if (business.ownerTelegramId && business.botToken) {
+      const clientDisplayName = (await getClientName(business.id, booking.clientPhone)) ?? booking.clientPhone;
       const ownerText =
         'Ακύρωση κράτησης από πελάτη:\nΗμερομηνία: ' +
         booking.calendarDate +
         '\nΏρα: ' +
         booking.calendarTime +
         '\nΠελάτης: ' +
-        booking.clientPhone;
+        clientDisplayName;
       await botTokenStore.run(business.botToken, async () => {
         await sendTelegramMessage(business.ownerTelegramId!, ownerText);
       });
