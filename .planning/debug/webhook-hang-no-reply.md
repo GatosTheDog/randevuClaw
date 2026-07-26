@@ -1,12 +1,115 @@
 ---
-status: awaiting_human_verify
+status: investigating
 trigger: "server is live at fly.io but when i send messages i get no response or sometimes i get only one response before stopping"
 created: 2026-07-25T09:56:09Z
-updated: 2026-07-25T17:15:00Z
+updated: 2026-07-25T18:08:02Z
 ---
 
 ## Current Focus
 <!-- OVERWRITE on each update - always reflects NOW -->
+
+reasoning_checkpoint (cycle 3 — CONFIRMED AND FIXED: stale Telegram webhook
+registration, distinct from cycle-1/2 code-level hang findings):
+  hypothesis: "Telegram's registered webhook URL for this business's bot was a
+  stale local-dev Cloudflare quick-tunnel (trycloudflare.com) URL, left over from
+  local testing, NOT the production https://randevuclaw.fly.dev URL — so Telegram
+  never delivered updates to the deployed app at all (zero logs was correct: the
+  request never reached Express, because it was never sent there)."
+  confirming_evidence:
+    - "fly logs --no-tail: zero application log lines of any kind between the v20
+      boot-time SSL deprecation warning (2026-07-25T17:32:56Z) and the current
+      time (17:52:18Z, ~20min later) — no health-check-adjacent app traffic, no
+      webhook entry log (which per src/webhooks/telegram.ts:760 fires as the very
+      FIRST line in the handler, before any DB/business lookup)."
+    - "Synthetic probe: curl POST to https://randevuclaw.fly.dev/webhooks/telegram/cycle3-diagnostic-probe
+      returned HTTP 404 (correct — unknown webhookId) in <100ms, and fly logs
+      immediately showed the full expected chain (entry -> findBusinessByWebhookId
+      returned found:false -> warn -> exit finally, totalElapsedMs 79). This proves
+      fly.io's public edge/proxy, Express routing, and the DB lookup path all work
+      correctly and fast — ruling out fly-routing, TLS, route-mounting, and
+      app-hang as causes of the zero-log symptom."
+    - "DB query (businesses table, via fly ssh console + pg, read-only, no
+      secrets printed): exactly ONE business row exists (id=1, slug
+      'pending-a85fdc6e', onboardingCompleted=false, hasToken=true,
+      hasSecret=true). The slug's suffix ('a85fdc6e') matches the FIRST 8 chars
+      of the row's current webhookId EXACTLY — proving this webhookId has been
+      unchanged since scripts/create-business.ts originally created the row
+      (that script derives slug=`pending-${webhookId.slice(0,8)}` at creation
+      time, and only the 'finish_onboarding' AI-agent tool ever generates/writes
+      a NEW webhookId — which has provably never run for this business, since
+      onboardingCompleted is still false)."
+    - "Telegram getWebhookInfo (ground truth, called with the bot's own token,
+      token itself never printed) BEFORE any fix: url =
+      'https://pin-garcia-tournaments-aid.trycloudflare.com/webhooks/telegram/a85fdc6e-af61-47ff-9712-46ab836a6cf6'
+      (a Cloudflare quick-tunnel, not the production domain), pending_update_count=10,
+      last_error_message='Wrong response from the webhook: 530 <none>' (Cloudflare's
+      dead-tunnel/origin-unreachable error code), last_error_date=2026-07-25T17:56:01Z
+      (moments after the synthetic probe — proves Telegram was actively, repeatedly
+      retrying delivery to the dead tunnel in real time, exactly matching '0 responses'
+      and explaining why zero logs ever appeared on the production app)."
+    - "config.webhookBaseUrl read directly from the running production container
+      (dist/config.js) = 'https://randevuclaw.fly.dev' — confirms the correct
+      target URL was known/available to the app the whole time; the gap was
+      purely that Telegram's OWN webhook registration (external to our app/DB)
+      had never been pointed at it / had been overwritten to point elsewhere."
+    - "scripts/create-business.ts (read in full): explicitly a manual, local-only
+      bootstrap CLI (per its own header comment) that reads WEBHOOK_BASE_URL from
+      a LOCAL .env.local — its own error message literally suggests setting it to
+      'your public tunnel URL (e.g. https://xxxx.ngrok-free.app)' for local
+      testing. This documents the exact mechanism class (local-tunnel webhook
+      registration) that ended up live in production Telegram's routing table."
+  falsification_test: "If re-registering the SAME existing webhookId+secret
+    (no DB/code change) to the correct production URL did NOT change delivery
+    behavior, this hypothesis would be falsified. Instead: getWebhookInfo
+    immediately showed the new URL with last_error_message cleared, and within
+    ~15s fly logs showed the full request chain firing for real, previously-stuck
+    Telegram updates (including updateId 715645411 — the EXACT updateId from the
+    original cycle-1 bug report this morning, still queued in Telegram's backlog
+    this whole time) — hypothesis CONFIRMED, not falsified."
+  fix_rationale: "Fix is purely a Telegram-side webhook re-registration
+    (unregisterBotWebhook + registerBotWebhook) using the business's EXISTING
+    DB-stored webhookId and webhookSecret — no application code or DB row
+    changed. This directly addresses the root cause (Telegram's own webhook
+    routing table pointed at the wrong URL) rather than any symptom; the
+    app-side code (route mounting, HMAC verification, business lookup) was
+    already proven correct via the synthetic probe before touching anything."
+  blind_spots: "Exact mechanism of HOW the tunnel URL got registered (i.e., who/
+    what ran a setWebhook call against the tunnel, and when, between this
+    morning's cycle-1 evidence — which DID show real production webhook traffic
+    for this same webhookId — and this cycle's discovery) is not fully
+    reconstructed; only scripts/create-business.ts calls registerBotWebhook with
+    a config-driven URL, and it always mints a brand-new webhookId + INSERTs a
+    new row, so it cannot be the direct cause of a SAME-webhookId re-registration
+    to a different URL — some other manual/ad-hoc setWebhook call (e.g. local
+    testing via cloudflared + a one-off script reusing the existing webhookId)
+    must have done it. Root-causing that further isn't necessary for the fix to
+    be correct/verified, but it's an open provenance question. This does NOT
+    invalidate cycle-1/2's own root causes (Gemini-timeout no-op, client-path
+    error swallowing, unbounded Telegram fetch, missing DB statement timeouts)
+    — those were independently proven via direct SDK/code testing and remain
+    valid, separate fixes."
+next_action: |
+  CYCLE 3 SYMPTOM (zero log lines / webhook not reaching app) IS FIXED AND
+  VERIFIED IN PRODUCTION — no human-verify checkpoint needed for this part, live
+  evidence (getWebhookInfo + fly logs) is stronger than a self-report checkpoint.
+
+  URGENT — ESCALATED WHILE VERIFYING: the DB "Query read timeout" storm (see
+  Evidence + "CYCLE 4 CANDIDATE" note) did not subside; it culminated in a full,
+  unhandled Node process crash at 18:04:14Z (pg error 25P03,
+  idle_in_transaction_session_timeout, emitted on a checked-out client that
+  cycle-2's pool.on('error') listener does NOT cover) and a machine reboot.
+  This is now the top-priority next action: start a NEW debug session (cycle 4,
+  separate investigation — do not just continue this file) scoped to "DB
+  connection reliability / process crash on idle_in_transaction timeout",
+  using the CYCLE 4 CANDIDATE note in Resolution as a running-start hypothesis
+  set (Neon compute-suspend/stale-connection reliability, AND the confirmed
+  checked-out-client error-listener gap in src/database/db.ts). Until that's
+  fixed, expect: most real conversations to receive Greek "error, try again"
+  fallback replies (cycle-2's defensive fix IS working, no silence) rather than
+  working functionality, and occasional ~13s full outages when the process
+  crashes and reboots.
+
+---
 
 reasoning_checkpoint (cycle 2 — logging + additional hang/silence vectors):
   hypothesis: "The cycle-1 Gemini per-call timeout fix (19df20f) WAS deployed (v19, ~13:42 local, ~30min after the 13:11:46 fix commit) and is not a no-op, but is NOT sufficient to guarantee a reply on every message: (a) aiBookingAgent (client path) rethrew any non-429 Gemini error uncaught, which handleFoundBusiness's catch only logged — client got zero reply even though the webhook acked fine; (b) the outbound Telegram fetch() calls in src/telegram/client.ts (used for every single reply the bot sends) had NO timeout at all — the exact same unbounded-network-call hang class already fixed for Gemini, just in a call site the cycle-1 investigation never examined; (c) the DB pool (src/database/db.ts) had connectionTimeoutMillis but no statement_timeout/query_timeout, an open blind spot from cycle 1, so an unbounded query inside withBusinessContext's transaction remained a possible hang vector. Any of (a)/(b)/(c) alone fully explains a fresh '0 responses' report even with the cycle-1 fix live."
@@ -20,17 +123,19 @@ reasoning_checkpoint (cycle 2 — logging + additional hang/silence vectors):
   fix_rationale: "None of these fixes touch the already-verified Gemini-call-timeout mechanism from cycle 1 (still `{ timeout: 25000, maxRetries: 0 }` on all 3 ai.interactions.create() call sites) — they close the DOWNSTREAM gaps that let a properly-bounded rejection (or any other exception) still reach the user as literal silence, and extend the same bounded-timeout discipline to the other unbounded network call (Telegram's own outbound API) and add a defensive floor on the DB layer. Root cause of the ORIGINAL symptom (cycle 1) stands as previously documented; this cycle addresses why '0 responses' could still recur after that fix shipped, per the orchestrator's explicit instruction not to assume the Gemini-timeout hypothesis is the only cause."
   blind_spots: "No fresh live fly.io log evidence for THIS cycle's recurrence report exists yet (user reported '0 responses' with no attached logs) — everything in this cycle is code-reading-derived plus one unit test, not a confirmed live root cause for the specific new occurrence. Google Calendar sync (src/calendar/sync.ts, googleapis client) still has no explicit timeout — left out of scope (only reached on booking-approval flows, not the base first-message path) but noted for a future cycle if approval-flow hangs are ever reported. DB statement_timeout/query_timeout values (10s/12s) and Telegram API timeout (15s) are reasonable-but-arbitrary; not load-tested against real production latency."
 next_action: |
-  Logging + defensive fixes applied and self-verified (tsc --noEmit clean across src/;
-  full test suite re-run shows IDENTICAL pre-existing failure count — 78 failed — before
-  and after these changes via git-stash A/B comparison, confirming zero regressions;
-  ai-agent.test.ts fixture drift fixed as a side effect, now 12/12 passing including a
-  new regression test for the client-path silent-swallow fix).
-  Deploying to fly.io next, then requesting human verification: send a Telegram message
-  and confirm (a) a reply is received, and (b) fly logs now show a full per-updateId
-  timeline (entry -> findBusinessByWebhookId -> withBusinessContext -> dedup ->
-  bot.handleUpdate -> handleFoundBusiness -> aiBookingAgent/callGeminiWithRetry ->
-  ack) with elapsed-ms at every boundary, so ANY future recurrence is immediately
-  diagnosable from logs alone without another investigation cycle.
+  Logging + defensive fixes applied, committed (4d52bd8), and DEPLOYED to fly.io
+  (fly deploy --app randevuclaw -> v20, machine 8dd333ae114ee8, deployed
+  2026-07-25T17:27:47Z). Post-deploy checks done: health check passing, HTTP 200 on
+  /healthz, fly logs show a clean restart (Server started, health check passing,
+  no errors) with no crash-loop.
+  Awaiting human verification: send a real Telegram message to the bot and confirm
+  (a) a reply is received, and (b) fly logs now show a full per-updateId timeline
+  (handleTelegramWebhookPost: entry -> findBusinessByWebhookId returned ->
+  withBusinessContext: entry -> Telegram update received -> insertOrIgnoreTelegramUpdate
+  returned -> bot.handleUpdate returned -> handleFoundBusiness: entry ->
+  aiBookingAgent: entry -> callGeminiWithRetry: calling/returned -> aiBookingAgent: exit
+  -> handleFoundBusiness: exit -> acking 200) with elapsed-ms at every boundary, so ANY
+  future recurrence is immediately diagnosable from fly logs alone.
 
 ## Symptoms
 <!-- Written during gathering, then immutable -->
@@ -86,6 +191,51 @@ started: Unclear from user report. Notable: a very recent commit history entry c
   checked: "npx tsc --noEmit (src/ only, per tsconfig); full `npx jest` run compared via git stash A/B (baseline HEAD vs this cycle's working tree); targeted re-run of tests/ai-agent.test.ts, tests/telegram-client.test.ts, tests/webhooks/telegram-webhook.onboarding.test.ts"
   found: "tsc --noEmit: zero errors. Full suite baseline (git stash, HEAD=19df20f): 32 suites failed / 24 passed, 78 tests failed / 227 passed (307 total) — ai-agent.test.ts uncompilable (pre-existing Business-fixture drift, same issue previously documented). Full suite after this cycle's changes: 31 suites failed / 25 passed, 78 tests failed / 239 passed (319 total) — IDENTICAL failed-test count (78) both before and after; the only deltas are ai-agent.test.ts now compiling and passing (fixture fixed as a necessary side effect of being able to verify the new client-path fallback behavior) plus one new test (Test 12) for that fallback. tests/telegram-webhook.test.ts and tests/conversation-router.test.ts still fail post-change, confirmed via the same stash comparison to be PRE-EXISTING (identical failure before this cycle touched anything, different unrelated Business-fixture drift in those files)."
   implication: "Zero regressions introduced by this cycle's logging + fallback + timeout changes. The pre-existing test-suite fixture-drift issues (~30 other suites) are a known, separate repo-health problem out of scope for this debug session — not touched beyond the one file (ai-agent.test.ts) needed to validate this cycle's own fix."
+
+- timestamp: 2026-07-25T17:52:00Z
+  checked: "fly status / fly logs --no-tail --app randevuclaw (cycle 3, user reported ZERO log lines for 2 sent messages post-v20-deploy)"
+  found: "Machine 8dd333ae114ee8 running v20 (deployed 17:27:47Z). Log buffer shows Server started 17:27:56Z, health check passing 17:27:57Z, then only the routine pg SSL deprecation warning at 17:32:56Z — and NOTHING else at all through 17:52:18Z (current time, ~20min later, confirmed via `date -u`). No webhook entry log, no error, no crash-loop."
+  implication: "Confirms the orchestrator's framing precisely: this is not a hang (which would still log entry) — the HTTP request from Telegram is not reaching this Express app at all."
+
+- timestamp: 2026-07-25T17:52:37Z
+  checked: "Synthetic probe — curl POST to https://randevuclaw.fly.dev/webhooks/telegram/cycle3-diagnostic-probe (fake webhookId) + GET /healthz, then fly logs --no-tail immediately after"
+  found: "Both returned expected HTTP codes (404 for unknown webhookId, 200 for healthz) in milliseconds. fly logs immediately showed the FULL expected log chain for the probe: 'handleTelegramWebhookPost: entry' -> 'findBusinessByWebhookId returned' (found:false, elapsedMs:77) -> 'Webhook ID not found...' warn -> 'exit (finally)' (totalElapsedMs:79)."
+  implication: "Definitively rules out fly.io edge/proxy issues, TLS/routing issues, Express route-mounting issues, and app-level hangs as explanations — the deployed app, when reached, responds correctly and fast. The zero-log symptom must be that Telegram itself is not sending requests to this URL."
+
+- timestamp: 2026-07-25T17:53:00Z
+  checked: "businesses table via fly ssh console + inline pg query (read-only; only non-secret fields selected/printed: id, name, slug, webhookId, hasSecret/hasToken booleans, onboardingCompleted, ownerTelegramIdSet boolean — bot_token and webhook_secret values themselves never printed)"
+  found: "Exactly one business row: id=1, name='New Business (onboarding)', slug='pending-a85fdc6e', webhookId='a85fdc6e-af61-47ff-9712-46ab836a6cf6', hasSecret=true, hasToken=true, onboardingCompleted=false, ownerTelegramIdSet=true. The slug's suffix exactly matches the webhookId's first 8 chars, which per scripts/create-business.ts's own slug-generation logic (`pending-${webhookId.slice(0,8)}`, set only at row-creation time) proves this webhookId has been unchanged since that script created the row — the 'finish_onboarding' AI-tool (the only OTHER code path that mints a new webhookId, via activateBusiness) has never successfully run, consistent with onboardingCompleted still being false."
+  implication: "The webhookId our app expects (a85fdc6e...) is confirmed stable and DB-consistent; the routing layer itself has never been the problem. Sets up the next check: what does TELEGRAM think this webhookId's URL is?"
+
+- timestamp: 2026-07-25T17:53:30Z
+  checked: "Telegram getWebhookInfo (https://api.telegram.org/bot{token}/getWebhookInfo) for business id=1's bot token, called from inside the fly.io container via ssh console so the token itself was never transmitted to or printed in the local/reporting environment"
+  found: "url: 'https://pin-garcia-tournaments-aid.trycloudflare.com/webhooks/telegram/a85fdc6e-af61-47ff-9712-46ab836a6cf6' (a Cloudflare quick-tunnel domain, NOT randevuclaw.fly.dev). pending_update_count: 10. last_error_message: 'Wrong response from the webhook: 530 <none>' (Cloudflare's dead-tunnel/unreachable-origin error). last_error_date: 1785002161 = 2026-07-25T17:56:01Z (moments after this cycle's own synthetic probe, i.e., Telegram was actively retrying delivery to the dead tunnel in real time during this investigation)."
+  implication: "GROUND TRUTH, ROOT CAUSE CONFIRMED: Telegram has never been told to deliver to the production fly.io URL for this webhookId — it's pointed at a stale local-dev Cloudflare tunnel that is no longer reachable. This fully explains the zero-log symptom (request never sent to our app) and is unrelated to cycle-1/2's Gemini-timeout/hang fixes."
+
+- timestamp: 2026-07-25T17:53:45Z
+  checked: "config.webhookBaseUrl printed directly from the running production container (node -e requiring dist/config.js; this is a public URL value, not a credential, so safe to print/report in full) + full read of scripts/create-business.ts"
+  found: "Production config.webhookBaseUrl = 'https://randevuclaw.fly.dev' (correct target). scripts/create-business.ts is explicitly documented in its own header comment as 'a manual CLI step, not a chat-driven flow' bootstrap script for Phase 16's single-bot architecture, and its own runtime error message instructs the operator to set WEBHOOK_BASE_URL 'to your public tunnel URL (e.g. https://xxxx.ngrok-free.app) in .env.local before running this' for local testing. It always mints a brand-new webhookId via crypto.randomUUID() and INSERTs a new row (never updates an existing one), so it cannot itself be the direct cause of THIS webhookId being re-pointed at a different URL — but it documents the exact 'local-tunnel webhook registration' workflow class that ended up live in Telegram's production routing table for this bot token."
+  implication: "Confirms the correct fix target (randevuclaw.fly.dev) and that the app's own config was never the gap — only Telegram's external registration state was wrong. Exact provenance of who/what pointed it at the tunnel is not fully reconstructed (open blind spot, does not block the fix)."
+
+- timestamp: 2026-07-25T17:55:00Z
+  checked: "FIX APPLIED — via fly ssh console, required the app's own compiled registerBotWebhook/unregisterBotWebhook (dist/telegram/client.js) and config (dist/config.js) for behavioral parity with production code, plus a read-only DB query for the business's EXISTING bot_token/webhook_id/webhook_secret (values used in-memory only, never printed): unregisterBotWebhook(botToken) then registerBotWebhook(botToken, 'https://randevuclaw.fly.dev/webhooks/telegram/a85fdc6e-af61-47ff-9712-46ab836a6cf6', existingWebhookSecret)"
+  found: "Command completed successfully: 'Re-registered webhook to: https://randevuclaw.fly.dev/webhooks/telegram/a85fdc6e-af61-47ff-9712-46ab836a6cf6'. No DB row changed (same webhookId/secret reused, so the app's own HMAC verification continues to work with zero app-side changes). No application source file touched."
+  implication: "Fix applied. This is a pure operational/registration fix, not a code change — nothing to commit to git for this specific cycle-3 root cause."
+
+- timestamp: 2026-07-25T17:57:30Z through 2026-07-25T18:00:15Z
+  checked: "Telegram getWebhookInfo (post-fix) + fly logs --no-tail (post-fix, polled twice over ~2.5min)"
+  found: "getWebhookInfo now shows url='https://randevuclaw.fly.dev/webhooks/telegram/a85fdc6e-af61-47ff-9712-46ab836a6cf6', last_error_message field GONE (cleared). fly logs show the full expected chain firing repeatedly for real traffic: 'handleTelegramWebhookPost: entry' -> 'findBusinessByWebhookId returned' (found:true) -> 'withBusinessContext: entry' -> 'Telegram update received' for updateId 715645411 (THE EXACT SAME updateId from this morning's original cycle-1 bug report — proving it had been stuck in Telegram's undelivered-update queue this ENTIRE TIME) — followed by updateId 715645412, 715645413, 715645414 as the rest of the 10-item backlog drains. 'Telegram message sent' log lines confirm the app IS successfully sending replies back to the owner (chatId 8534476052, Telegram messageIds 366-369+) — no more silence."
+  implication: "CYCLE 3 ROOT CAUSE CONFIRMED FIXED IN PRODUCTION with live evidence (stronger than a typical self-verification): the specific 'zero log lines / total silence' symptom is resolved — Telegram is now delivering to the correct URL and the app is responding to every update."
+
+- timestamp: 2026-07-25T17:58:18Z through 2026-07-25T18:00:15Z
+  checked: "Same fly logs poll as above — NEW finding while verifying the backlog flush, not part of the original cycle-3 symptom"
+  found: "Nearly EVERY withBusinessContext transaction across the 4 flushed updates (715645411-715645414) fails with a DrizzleQueryError wrapping 'Query read timeout' on either the 'begin' or 'rollback' statement — elapsed times cluster tightly around ~12000ms (matches cycle-2's query_timeout: 12000 config) for 'begin' failures and ~24000ms (~2x) for cases where a 'rollback' attempt also times out after the initial 'begin' already had. This spans MULTIPLE independent requests/connections over ~2.5 minutes, not a single blip. The app's cycle-2 defensive fallback-reply logic IS firing correctly each time (user gets a Greek error message instead of silence), but real functionality (onboarding tool execution, business data writes) is failing almost every attempt. Immediately preceding this traffic burst, the DB had been idle for over 1 hour (last prior DB-touching log line: 16:42:32Z, a routine cron sweep) — consistent with a serverless-Postgres compute-suspend / stale-pooled-connection failure mode that cycle-2's query_timeout now catches-and-bounds (previously it would have hung/crashed silently, per this morning's separate 25P03 idle_in_transaction_session_timeout Node crash log observed in the very first fly logs pull this cycle, from a pre-v20 image)."
+  implication: "NEW, DISTINCT, CURRENTLY-LIVE ISSUE — not yet root-caused or fixed. Recommend as CYCLE 4: investigate Neon compute-suspend behavior / pooled-connection staleness after idle periods; this is likely a real, recurring contributor to 'unreliable replies' even with the webhook-registration and cycle-1/2 fixes in place. Flagged in Current Focus / next_action for a fresh investigation cycle rather than guessed-and-fixed here, per one-hypothesis-at-a-time discipline (this is a materially different failure class: DB connection lifecycle, not Gemini timeouts or webhook routing)."
+
+- timestamp: 2026-07-25T18:04:14Z
+  checked: "fly logs --no-tail, continued monitoring after the previous evidence entry — storm did NOT subside on its own, it escalated to a full process crash"
+  found: "At 18:04:14Z (storm continued unabated through updateId 715645415-420, each individually failing with the same ~12s/~24s Query read timeout pattern for ~4 more minutes after the previous check), Node crashed outright: 'node:events:502 throw er; // Unhandled 'error' event' with the underlying Postgres error 'terminating connection due to idle-in-transaction timeout' (code 25P03), emitted directly on a raw pg Client instance (Client._handleErrorEvent), NOT routed through Pool's error handling. This crashed the process ('Main child exited normally with code: 1') and forced a full machine reboot (~13s downtime: 18:04:14 to 18:04:27 when health checks resumed passing)."
+  implication: "This directly contradicts part of cycle-2's Resolution claim that adding `pool.on('error', ...)` to both Pool configs (confirmed present in src/database/db.ts:38 and :61, read and verified this cycle) would prevent 'an unhandled error event' from crashing the process. Root gap identified by direct code read: pg's Pool-level `.on('error')` handler only re-emits errors from clients sitting IDLE in the pool (checked back in) — it does NOT cover a client that is actively checked out mid-transaction (e.g., inside drizzle's db.transaction()/withBusinessContext) when the Postgres backend asynchronously terminates that specific connection out-of-band (as idle_in_transaction_session_timeout does, arriving AFTER our own client-side query_timeout had already given up on 'begin'/'rollback' and moved on, leaving that checked-out Client instance's error listener uncovered). This is a well-known pg gotcha, distinct from (but compounding) the connection-staleness issue in the prior evidence entry — the fix needs an error listener attached to checked-out/in-transaction clients too, not just pool-idle ones."
 
 ## Resolution
 <!-- OVERWRITE as understanding evolves -->
@@ -313,3 +463,144 @@ files_changed:
   - src/database/queries.ts
   - src/telegram/client.ts
   - tests/ai-agent.test.ts
+
+--- CYCLE 3 UPDATE (2026-07-25, same day, materially DIFFERENT symptom:
+ZERO log lines at all post-v20-deploy, not a hang) ---
+
+root_cause (CYCLE 3 — distinct from cycle-1/2, NOT a code bug): |
+  Telegram's own webhook registration for this business's bot (id=1, webhookId
+  a85fdc6e-af61-47ff-9712-46ab836a6cf6) pointed at a stale local-development
+  Cloudflare quick-tunnel URL (https://pin-garcia-tournaments-aid.trycloudflare.com/...),
+  not the deployed production URL (https://randevuclaw.fly.dev/...). Confirmed
+  via Telegram's own getWebhookInfo API: wrong url, pending_update_count: 10,
+  last_error_message: "Wrong response from the webhook: 530 <none>" (Cloudflare's
+  dead-tunnel error), with last_error_date showing Telegram actively retrying
+  in real time during this investigation.
+
+  This meant every message the owner sent never reached the deployed Express
+  app at all — not a hang, not a crash, not a timeout inside our code. Proven by
+  a synthetic curl probe directly against https://randevuclaw.fly.dev, which
+  produced the full expected log chain in <100ms, ruling out fly.io
+  edge/routing, TLS, Express route-mounting, and app-level hangs as causes.
+
+  Mechanism: only src/onboarding/ai-onboarding-agent.ts's 'finish_onboarding'
+  tool (activateBusiness) or the manual scripts/create-business.ts bootstrap
+  ever call registerBotWebhook. onboardingCompleted=false in the DB proves
+  finish_onboarding has never successfully run for this business, and
+  scripts/create-business.ts always mints a brand-new webhookId + inserts a new
+  row (it cannot silently repoint an EXISTING webhookId to a different URL).
+  scripts/create-business.ts's own documented workflow (a manual, local-only
+  CLI meant to be run with WEBHOOK_BASE_URL set to "your public tunnel URL...
+  in .env.local") is the closest match for the class of action that ended up
+  registering a local-dev tunnel URL against this bot token in Telegram's
+  system — but the exact prior action/actor that pointed this SPECIFIC
+  webhookId at the tunnel (as opposed to creating a new one) was not fully
+  reconstructed; it doesn't block the fix, since the fix operates purely on
+  Telegram's registration state using values already correct in our own DB.
+
+  This does NOT invalidate the cycle-1/cycle-2 root causes above (Gemini
+  per-call timeout no-op, client-path error-swallowing, unbounded Telegram
+  fetch calls, missing DB statement timeouts) — those were independently
+  proven via direct SDK behavior testing and code reading, and remain valid
+  fixes for their own failure modes. This cycle's root cause is a separate,
+  additional gap: even a perfectly fixed app can't reply if Telegram never
+  sends it anything.
+fix (CYCLE 3 — operational, not a code change): |
+  Re-registered the Telegram webhook to the correct production URL using the
+  business's EXISTING (already correct) webhookId and webhookSecret already
+  stored in the DB — no DB row or application source file was modified:
+    unregisterBotWebhook(botToken)
+    registerBotWebhook(botToken,
+      'https://randevuclaw.fly.dev/webhooks/telegram/a85fdc6e-af61-47ff-9712-46ab836a6cf6',
+      <existing webhookSecret from DB>)
+  Executed via `fly ssh console`, importing the app's own compiled
+  registerBotWebhook/unregisterBotWebhook (dist/telegram/client.js) and
+  config.webhookBaseUrl (dist/config.js) for exact behavioral parity with
+  production code, rather than hand-rolling a separate implementation. The bot
+  token and webhook secret were read from the DB in-memory only and never
+  printed/logged at any point.
+
+  files_changed for this cycle: NONE (application code and DB rows untouched;
+  fix is entirely a Telegram-side API registration state change).
+verification (CYCLE 3 — live production evidence, stronger than typical
+self-verification): |
+  - Telegram getWebhookInfo re-checked after the fix: url now correctly shows
+    https://randevuclaw.fly.dev/webhooks/telegram/a85fdc6e-af61-47ff-9712-46ab836a6cf6;
+    last_error_message field is gone (cleared).
+  - fly logs (polled over ~2.5 minutes post-fix) show the full expected request
+    chain firing for real Telegram traffic: handleTelegramWebhookPost: entry ->
+    findBusinessByWebhookId returned (found:true) -> withBusinessContext: entry
+    -> "Telegram update received" for updateId 715645411 — THE EXACT SAME
+    updateId from this morning's original cycle-1 bug report, proving it had
+    been stuck undelivered in Telegram's queue this entire time — followed by
+    updateId 715645412, 715645413, 715645414 as Telegram's queued backlog
+    (pending_update_count was 10) drained through.
+  - "Telegram message sent" log lines confirm the app is successfully sending
+    replies back to the owner (chatId 8534476052) — the specific "zero
+    response / total silence" symptom under investigation this cycle is
+    RESOLVED and verified against live production traffic, not a synthetic
+    test.
+  NOT claiming full end-to-end resolution of the original multi-cycle "no
+  reply" complaint: see the CYCLE 4 CANDIDATE note below — a new, distinct,
+  currently-live DB issue was discovered while verifying this fix, and it
+  means most replies right now are generic Greek error fallbacks rather than
+  working functionality. This cycle's specific fix (webhook registration) is
+  confirmed correct and complete; the overall symptom class ("bot doesn't
+  reliably work") is NOT yet fully resolved end-to-end.
+
+CYCLE 4 CANDIDATE (discovered during cycle-3 verification, NOT investigated or
+fixed this cycle — flagged for a fresh debug cycle, URGENT/severity escalated
+mid-verification from "degraded" to "process-crashing"): |
+  While the flushed Telegram backlog was draining post-fix, nearly EVERY
+  withBusinessContext transaction (BEGIN/ROLLBACK) failed with a
+  DrizzleQueryError "Query read timeout" — elapsed times cluster at ~12000ms
+  (matches cycle-2's query_timeout:12000 config) and ~24000ms (~2x, when a
+  rollback attempt also times out). This recurred across AT LEAST 9
+  independent updateIds (715645411 through 715645420) over ~8 minutes
+  (17:58-18:02Z) with NO sign of self-resolving, immediately following a >1hr
+  DB-idle gap (last prior DB-touching log line: 16:42:32Z).
+
+  ESCALATION: at 18:04:14Z the storm culminated in a full, unhandled process
+  crash — 'terminating connection due to idle-in-transaction timeout' (pg/
+  Postgres code 25P03) emitted as an uncaught 'error' event directly on a raw
+  pg Client instance, crashing Node ('Main child exited normally with code:
+  1') and forcing a machine reboot (~13s downtime).
+
+  Root gap (confirmed via direct code read of src/database/db.ts, cycle 2's
+  own file): `pool.on('error', ...)` / `appPool.on('error', ...)` ARE present
+  exactly as cycle-2 documented (lines 38, 61) — but per pg's own client/pool
+  semantics, that handler only covers clients sitting IDLE in the pool. It
+  does NOT cover a client that is actively checked out mid-transaction (i.e.,
+  precisely the withBusinessContext / db.transaction() case) when Postgres
+  asynchronously terminates that specific connection out-of-band — which is
+  exactly what idle_in_transaction_session_timeout (cycle-2's own
+  DB_IDLE_IN_TRANSACTION_TIMEOUT_MS=15000) does, arriving AFTER our
+  client-side query_timeout (12000ms) already gave up on 'begin'/'rollback'
+  and moved on, leaving that specific checked-out Client instance's error
+  listener uncovered when the deferred termination notice finally arrives.
+
+  Two compounding hypotheses for cycle 4 to test (NOT mutually exclusive):
+  1. Connection/compute reliability: Neon serverless Postgres compute-suspend
+     and/or silent invalidation of pooled idle connections after a long idle
+     gap — the pg Pool doesn't validate connection health before handing it
+     out, so a stale/broken round-trip hangs until query_timeout kills it
+     client-side, while the SAME connection may still be alive-but-broken
+     server-side long enough to hit idle_in_transaction_session_timeout later.
+  2. Checked-out-client error-handling gap: pg Pool's `.on('error')` does not
+     protect an in-transaction/checked-out client; cycle 2's fix needs an
+     additional error listener attached for the lifetime of each checkout
+     (e.g. wherever withBusinessContext/db.transaction() obtains its client),
+     not just at the Pool level.
+
+  The app's cycle-2 defensive fallback replies WERE working throughout (user
+  got Greek error messages, not silence) right up until the crash — but real
+  functionality fails almost every attempt, and the process can now crash
+  outright (worse than "degraded": a full reboot mid-request). Recommend a
+  NEW debug session (not a continuation of this one) scoped specifically to
+  this DB connection-lifecycle/crash issue: (a) check Neon project
+  dashboard/console for compute-suspend/autoscaling settings and history
+  around this window, (b) add a client-level error listener for the duration
+  of each pool checkout (not just pool-level), (c) consider connection
+  validation/keepalive on checkout or a Neon pooled (PgBouncer-mode) endpoint
+  if not already using one, (d) reproduce deliberately by leaving the app
+  idle >15min then sending a message.
