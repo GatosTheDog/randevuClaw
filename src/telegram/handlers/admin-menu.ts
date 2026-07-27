@@ -21,6 +21,7 @@ import { findBusinessByOwnerTelegramId } from '../../onboarding/queries';
 import { listSessions, cancelSession, cascadeCancelSessionBookings } from '../../session/manager';
 import { InlineKeyboard, sendTelegramMessage, sendTelegramMessageWithKeyboard, botTokenStore } from '../client';
 import { getAllClientsForBusiness, getClientActiveMembership } from '../../billing/queries';
+import { sendBusinessInvite } from '../../invites/generator';
 
 // Exported so telegram.ts can use it in the parseCallbackData return union.
 // Discriminant field: menuAction — unique across all existing result types
@@ -48,11 +49,13 @@ export async function showAdminRootMenu(chatId: string, business: Business): Pro
   const callbackDataClasses = 'menu:classes';
   const callbackDataClients = 'menu:clients';
   const callbackDataAgenda = 'menu:agenda';
+  const callbackDataInvite = 'menu:invite';
 
   assertCallbackDataSize(callbackDataSettings);
   assertCallbackDataSize(callbackDataClasses);
   assertCallbackDataSize(callbackDataClients);
   assertCallbackDataSize(callbackDataAgenda);
+  assertCallbackDataSize(callbackDataInvite);
 
   const keyboard: InlineKeyboard = [
     [
@@ -63,6 +66,7 @@ export async function showAdminRootMenu(chatId: string, business: Business): Pro
       { text: 'Πελάτες', callback_data: callbackDataClients },
       { text: 'Ατζέντα Σήμερα', callback_data: callbackDataAgenda },
     ],
+    [{ text: 'Πρόσκληση Πελάτη', callback_data: callbackDataInvite }],
   ];
 
   await sendTelegramMessageWithKeyboard(
@@ -228,6 +232,31 @@ export async function showTodaysAgenda(chatId: string, business: Business): Prom
       : 'Δεν υπάρχουν ραντεβού για σήμερα.';
 
   await sendTelegramMessage(chatId, message);
+
+  const backCallbackData = 'menu:root';
+  assertCallbackDataSize(backCallbackData);
+  await sendTelegramMessageWithKeyboard(chatId, 'Τι άλλο θέλεις να κάνεις;', [
+    [{ text: '« Πίσω στο Μενού', callback_data: backCallbackData }],
+  ]);
+}
+
+// ---------------------------------------------------------------------------
+// Phase 25 Plan 01: Client invite generator (INVITE-01, D-03 menu entry point)
+// ---------------------------------------------------------------------------
+
+/**
+ * Generates and sends the business's QR invite (photo + caption) via the
+ * shared sendBusinessInvite orchestration function. Any failure is fully
+ * contained here — the owner always gets a Greek message and a working
+ * back-to-menu button, never a stuck/broken flow.
+ */
+export async function handleInviteGeneration(chatId: string, business: Business): Promise<void> {
+  try {
+    await sendBusinessInvite(business, chatId);
+  } catch (err) {
+    logger.error({ err, businessId: business.id }, 'Failed to generate invite');
+    await sendTelegramMessage(chatId, 'Σφάλμα κατά τη δημιουργία του invite. Δοκιμάστε ξανά.');
+  }
 
   const backCallbackData = 'menu:root';
   assertCallbackDataSize(backCallbackData);
@@ -508,6 +537,10 @@ export async function handleMenuCallback(
 
     case menuAction === 'agenda':
       await showTodaysAgenda(chatId, business);
+      break;
+
+    case menuAction === 'invite':
+      await handleInviteGeneration(chatId, business);
       break;
 
     case menuAction === 'classes':

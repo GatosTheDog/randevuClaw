@@ -30,6 +30,7 @@ jest.mock('../src/onboarding/queries');
 jest.mock('../src/onboarding/ai-owner-agent');
 jest.mock('../src/session/manager');
 jest.mock('../src/scheduler/agenda');
+jest.mock('../src/invites/generator');
 
 // ---------------------------------------------------------------------------
 // Test constants
@@ -106,7 +107,7 @@ describe('showAdminRootMenu — keyboard shape', () => {
     telegramClient.sendTelegramMessage.mockResolvedValue({ messageId: 2 });
   });
 
-  test('sends exactly one message with a 2x2 keyboard totalling 4 buttons', async () => {
+  test('sends exactly one message with a 3-row keyboard totalling 5 buttons', async () => {
     const telegramClient = require('../src/telegram/client');
     await showAdminRootMenu('123', mockBusiness);
 
@@ -114,14 +115,71 @@ describe('showAdminRootMenu — keyboard shape', () => {
     expect(sendCalls.length).toBe(1);
 
     const keyboard = sendCalls[0][2];
-    // 2 rows
-    expect(keyboard.length).toBe(2);
-    // Each row has 2 buttons
+    // 3 rows: existing 2x2 grid unchanged, plus a 3rd row with the invite button
+    expect(keyboard.length).toBe(3);
+    // Pre-existing 2x2 grid content is byte-for-byte unchanged
     expect(keyboard[0].length).toBe(2);
     expect(keyboard[1].length).toBe(2);
-    // 4 buttons total
+    // 3rd row: exactly one button with callback_data menu:invite
+    expect(keyboard[2].length).toBe(1);
+    expect(keyboard[2][0]).toEqual({ text: 'Πρόσκληση Πελάτη', callback_data: 'menu:invite' });
+    // 5 buttons total
     const totalButtons = keyboard.flat().length;
-    expect(totalButtons).toBe(4);
+    expect(totalButtons).toBe(5);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 25 Plan 01: handleMenuCallback 'invite' dispatch (INVITE-01, D-03)
+// ---------------------------------------------------------------------------
+
+describe('handleMenuCallback — invite action', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+
+    const telegramClient = require('../src/telegram/client');
+    telegramClient.sendTelegramMessage.mockResolvedValue({ messageId: 1 });
+    telegramClient.sendTelegramMessageWithKeyboard.mockResolvedValue({ messageId: 2 });
+  });
+
+  test('calls sendBusinessInvite exactly once with (business, chatId), then sends the menu:root keyboard, with no extra invite text', async () => {
+    const generator = require('../src/invites/generator');
+    generator.sendBusinessInvite.mockResolvedValue(undefined);
+
+    const telegramClient = require('../src/telegram/client');
+
+    await handleMenuCallback({ menuAction: 'invite', id: undefined }, mockBusiness, '123');
+
+    expect(generator.sendBusinessInvite).toHaveBeenCalledTimes(1);
+    expect(generator.sendBusinessInvite).toHaveBeenCalledWith(mockBusiness, '123');
+
+    // No invite-related text via sendTelegramMessage — sendBusinessInvite already
+    // delivers the photo+caption itself.
+    expect(telegramClient.sendTelegramMessage).not.toHaveBeenCalled();
+
+    // Trailing back-to-menu keyboard still sent
+    const kbCalls = (telegramClient.sendTelegramMessageWithKeyboard as jest.Mock).mock.calls;
+    expect(kbCalls.length).toBe(1);
+    expect(kbCalls[0][2]).toEqual([[{ text: '« Πίσω στο Μενού', callback_data: 'menu:root' }]]);
+  });
+
+  test('when sendBusinessInvite rejects, handleMenuCallback resolves, sends one Greek error message, and still sends the menu:root keyboard', async () => {
+    const generator = require('../src/invites/generator');
+    generator.sendBusinessInvite.mockRejectedValue(new Error('boom'));
+
+    const telegramClient = require('../src/telegram/client');
+
+    await expect(
+      handleMenuCallback({ menuAction: 'invite', id: undefined }, mockBusiness, '123')
+    ).resolves.toBeUndefined();
+
+    const msgCalls = (telegramClient.sendTelegramMessage as jest.Mock).mock.calls;
+    expect(msgCalls.length).toBe(1);
+    expect(msgCalls[0][1]).toBe('Σφάλμα κατά τη δημιουργία του invite. Δοκιμάστε ξανά.');
+
+    const kbCalls = (telegramClient.sendTelegramMessageWithKeyboard as jest.Mock).mock.calls;
+    expect(kbCalls.length).toBe(1);
+    expect(kbCalls[0][2]).toEqual([[{ text: '« Πίσω στο Μενού', callback_data: 'menu:root' }]]);
   });
 });
 
