@@ -13,8 +13,8 @@
 
 ### Class Management (CLSS)
 
-- [ ] **CLSS-06**: Admin can delete/cancel a scheduled lesson (session instance) from the admin menu or chat
-- [ ] **CLSS-07**: Deleting a lesson that has active client bookings cancels those bookings, restores each client's session credit/capacity, and sends each affected client a Greek notification that their booking was cancelled
+- [x] **CLSS-06**: Admin can delete/cancel a scheduled lesson (session instance) from the admin menu or chat
+- [x] **CLSS-07**: Deleting a lesson that has active client bookings cancels those bookings, restores each client's session credit/capacity, and sends each affected client a Greek notification that their booking was cancelled
 
 ### Bot Configuration (BOT)
 
@@ -49,8 +49,8 @@ None identified yet — all 5 target features are scoped into v1.6.
 | OWNR-05 | Phase 22 | Complete |
 | OWNR-06 | Phase 22 | Complete |
 | OWNR-07 | Phase 22 | Complete |
-| CLSS-06 | Phase 23 | Pending |
-| CLSS-07 | Phase 23 | Pending |
+| CLSS-06 | Phase 23 | Complete (already shipped Phase 17; confirmed unmodified) |
+| CLSS-07 | Phase 23 | Complete |
 | BOT-06 | Phase 24 | Pending |
 | DIAG-01 | Phase 24 | Pending |
 | INVITE-01 | Phase 25 | Pending |
