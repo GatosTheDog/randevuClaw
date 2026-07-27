@@ -1,6 +1,7 @@
 import {
   sendTelegramMessage,
   sendTelegramMessageWithKeyboard,
+  sendTelegramPhoto,
   answerCallbackQuery,
   editTelegramMessageReplyMarkup,
   botTokenStore,
@@ -199,5 +200,65 @@ describe('Telegram Bot API client', () => {
     for (const call of allCalls) {
       expect(JSON.stringify(call)).not.toContain(FAKE_TOKEN);
     }
+  });
+
+  it('Test 11: sendTelegramPhoto POSTs to sendPhoto with a FormData body containing chat_id, photo, and caption', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ ok: true, result: { message_id: 55 } }),
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const photoBuffer = Buffer.from('fake-png-bytes');
+
+    await botTokenStore.run('test-bot-token', async () => {
+      const result = await sendTelegramPhoto('12345', photoBuffer, 'Σύνδεσμος κράτησης — πατήστε παρατεταμένα για αντιγραφή:\nt.me/testbot');
+
+      expect(result).toEqual({ messageId: 55 });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [url, options] = fetchMock.mock.calls[0];
+      expect(url).toMatch(/\/sendPhoto$/);
+      expect(options.method).toBe('POST');
+      expect(options.headers).toBeUndefined();
+
+      const formData = options.body as FormData;
+      expect(formData.get('chat_id')).toBe('12345');
+      expect(formData.get('photo')).toBeTruthy();
+      expect(formData.get('caption')).toBe('Σύνδεσμος κράτησης — πατήστε παρατεταμένα για αντιγραφή:\nt.me/testbot');
+    });
+  });
+
+  it('Test 12: sendTelegramPhoto with no caption argument omits the caption field from FormData entirely', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ ok: true, result: { message_id: 56 } }),
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    await botTokenStore.run('test-bot-token', async () => {
+      await sendTelegramPhoto('12345', Buffer.from('fake-png-bytes'));
+
+      const [, options] = fetchMock.mock.calls[0];
+      const formData = options.body as FormData;
+      expect(formData.get('caption')).toBeNull();
+    });
+  });
+
+  it('Test 13: sendTelegramPhoto throws the Telegram description string when the JSON envelope has ok: false', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ ok: false, description: 'Bad Request: photo too large' }),
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    await botTokenStore.run('test-bot-token', async () => {
+      await expect(sendTelegramPhoto('12345', Buffer.from('x'))).rejects.toThrow(
+        'Bad Request: photo too large'
+      );
+    });
+  });
+
+  it('Test 14: sendTelegramPhoto throws a clear error when called outside botTokenStore context', async () => {
+    await expect(sendTelegramPhoto('12345', Buffer.from('x'))).rejects.toThrow(/botTokenStore/);
   });
 });

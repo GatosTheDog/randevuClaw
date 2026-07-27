@@ -99,6 +99,62 @@ export async function sendTelegramMessageWithKeyboard(
   return { messageId: result.message_id };
 }
 
+/**
+ * Sends a photo message (Telegram sendPhoto) using a multipart/form-data body.
+ * Cannot reuse callTelegramApi (JSON-only) — mirrors its botTokenStore guard,
+ * AbortSignal.timeout, and try/catch + ok-double-check + logging shape.
+ */
+export async function sendTelegramPhoto(
+  chatId: string,
+  photoBuffer: Buffer,
+  caption?: string
+): Promise<SendMessageResult> {
+  const botToken = botTokenStore.getStore();
+  if (!botToken) {
+    throw new Error(
+      'sendTelegramPhoto called without botTokenStore context — wrap the call in botTokenStore.run(business.botToken, ...)'
+    );
+  }
+  const url = `https://api.telegram.org/bot${botToken}/sendPhoto`;
+
+  const formData = new FormData();
+  formData.append('chat_id', chatId);
+  formData.append('photo', new Blob([photoBuffer], { type: 'image/png' }), 'invite.png');
+  if (caption !== undefined) formData.append('caption', caption);
+
+  const startedAt = Date.now();
+  logger.debug({ method: 'sendPhoto' }, 'Calling Telegram API');
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      body: formData,
+      signal: AbortSignal.timeout(TELEGRAM_API_TIMEOUT_MS),
+    });
+  } catch (err) {
+    const elapsedMs = Date.now() - startedAt;
+    logger.error(
+      { err, method: 'sendPhoto', elapsedMs, timeoutMs: TELEGRAM_API_TIMEOUT_MS },
+      'Telegram API fetch failed or timed out'
+    );
+    throw err;
+  }
+
+  const data = (await response.json()) as TelegramApiResponse<{ message_id: number }>;
+  const elapsedMs = Date.now() - startedAt;
+
+  if (!response.ok || !data.ok) {
+    const description = data.description ?? `Telegram API error: ${response.status}`;
+    logger.error({ method: 'sendPhoto', status: response.status, description, elapsedMs }, 'Telegram API call failed');
+    throw new Error(description);
+  }
+
+  logger.debug({ method: 'sendPhoto', elapsedMs }, 'Telegram API call succeeded');
+  logger.info({ chatId, messageId: data.result?.message_id }, 'Telegram photo sent');
+  return { messageId: data.result?.message_id ?? 0 };
+}
+
 export async function answerCallbackQuery(callbackQueryId: string, text?: string): Promise<void> {
   const body: Record<string, unknown> = {
     callback_query_id: callbackQueryId,
