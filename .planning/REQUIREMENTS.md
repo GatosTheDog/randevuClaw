@@ -53,7 +53,7 @@ None identified yet — all 5 target features are scoped into v1.6.
 | CLSS-07 | Phase 23 | Complete |
 | BOT-06 | Phase 24 | Complete |
 | DIAG-01 | Phase 24 | Complete |
-| INVITE-01 | Phase 25 | Pending |
+| INVITE-01 | Phase 25 | Executed (human-verify pending — scan generated QR with a real phone against a live deployed bot) |
 
 **Coverage:**
 - v1 requirements: 8 total
