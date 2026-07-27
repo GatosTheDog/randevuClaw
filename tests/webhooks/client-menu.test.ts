@@ -174,6 +174,15 @@ const mockedDeleteBookingFromCalendar =
   calendarSync.deleteBookingFromCalendar as jest.MockedFunction<
     typeof calendarSync.deleteBookingFromCalendar
   >;
+// Phase 22 (OWNR-05/06/07): sbk: session booking approval routing mocks.
+const mockedUpdateBookingStatusIfPending =
+  queries.updateBookingStatusIfPending as jest.MockedFunction<
+    typeof queries.updateBookingStatusIfPending
+  >;
+const mockedReleaseSessionCapacity =
+  sessionManager.releaseSessionCapacity as jest.MockedFunction<
+    typeof sessionManager.releaseSessionCapacity
+  >;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -190,6 +199,23 @@ function makeMessageUpdate(updateId: number, fromId: string | number, text = 'he
       chat: { id: fromId, type: 'private' },
       date: 1234567890,
       text,
+    },
+  };
+}
+
+function makeCallbackQueryUpdate(
+  updateId: number,
+  fromId: string | number,
+  data: string,
+  messageId = 500 + updateId
+) {
+  return {
+    update_id: updateId,
+    callback_query: {
+      id: `cbq-${updateId}`,
+      from: { id: fromId, is_bot: false, first_name: 'TestUser' },
+      message: { message_id: messageId, chat: { id: fromId, type: 'private' } },
+      data,
     },
   };
 }
@@ -369,7 +395,7 @@ describe('Suite C: booking flow via handleClientMenuCallback', () => {
     mockedGetClientName.mockResolvedValue(null);
   });
 
-  it('book:yes — enforcement allows, bookSessionInstance succeeds → Greek confirmation sent', async () => {
+  it('book:yes — enforcement allows, bookSessionInstance succeeds → Greek pending-request message sent', async () => {
     // Mock the db query inside handleBookSessionExecute (serviceId lookup)
     const dbMock = jest.requireMock('../../src/database/db');
     dbMock.db.select = jest.fn().mockReturnValue({
@@ -390,13 +416,14 @@ describe('Suite C: booking flow via handleClientMenuCallback', () => {
       senderTelegramId
     );
     expect(mockedBookSessionInstance).toHaveBeenCalled();
+    // Phase 22 (OWNR-05): session bookings are now created pending, not confirmed.
     expect(mockedSendTelegramMessage).toHaveBeenCalledWith(
       senderTelegramId,
-      expect.stringContaining('επιβεβαιώθηκε')
+      expect.stringContaining('Αναμονή')
     );
   });
 
-  it('book:yes — success → owner IS notified of the new booking (regression: booking-no-approval-notif)', async () => {
+  it('book:yes — success → owner IS notified with an Έγκριση/Απόρριψη keyboard (Phase 22)', async () => {
     const dbMock = jest.requireMock('../../src/database/db');
     dbMock.db.select = jest.fn().mockReturnValue({
       from: jest.fn().mockReturnValue({
@@ -413,9 +440,15 @@ describe('Suite C: booking flow via handleClientMenuCallback', () => {
     const result: ClientMenuCallbackResult = { clientMenuAction: 'book:yes', id: instanceId };
     await handleClientMenuCallback(result, BASE_BUSINESS as any, senderTelegramId);
 
-    expect(mockedSendTelegramMessage).toHaveBeenCalledWith(
+    expect(mockedSendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
       OWNER_TELEGRAM_ID,
-      expect.stringContaining('2026-07-27')
+      expect.stringContaining('2026-07-27'),
+      [
+        [
+          { text: 'Έγκριση', callback_data: 'sbk:approve:42' },
+          { text: 'Απόρριψη', callback_data: 'sbk:reject:42' },
+        ],
+      ]
     );
   });
 
@@ -438,13 +471,15 @@ describe('Suite C: booking flow via handleClientMenuCallback', () => {
     await handleClientMenuCallback(result, BASE_BUSINESS as any, senderTelegramId);
 
     expect(mockedGetClientName).toHaveBeenCalledWith(BASE_BUSINESS.id, senderTelegramId);
-    expect(mockedSendTelegramMessage).toHaveBeenCalledWith(
+    expect(mockedSendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
       OWNER_TELEGRAM_ID,
-      expect.stringContaining('Μαρία Παπαδοπούλου')
+      expect.stringContaining('Μαρία Παπαδοπούλου'),
+      expect.anything()
     );
-    expect(mockedSendTelegramMessage).not.toHaveBeenCalledWith(
+    expect(mockedSendTelegramMessageWithKeyboard).not.toHaveBeenCalledWith(
       OWNER_TELEGRAM_ID,
-      expect.stringContaining(senderTelegramId)
+      expect.stringContaining(senderTelegramId),
+      expect.anything()
     );
   });
 
@@ -466,9 +501,10 @@ describe('Suite C: booking flow via handleClientMenuCallback', () => {
     const result: ClientMenuCallbackResult = { clientMenuAction: 'book:yes', id: instanceId };
     await handleClientMenuCallback(result, BASE_BUSINESS as any, senderTelegramId);
 
-    expect(mockedSendTelegramMessage).toHaveBeenCalledWith(
+    expect(mockedSendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
       OWNER_TELEGRAM_ID,
-      expect.stringContaining(senderTelegramId)
+      expect.stringContaining(senderTelegramId),
+      expect.anything()
     );
   });
 
@@ -488,13 +524,15 @@ describe('Suite C: booking flow via handleClientMenuCallback', () => {
     const result: ClientMenuCallbackResult = { clientMenuAction: 'book:yes', id: instanceId };
     await handleClientMenuCallback(result, businessWithoutOwner as any, senderTelegramId);
 
-    expect(mockedSendTelegramMessage).not.toHaveBeenCalledWith(
+    expect(mockedSendTelegramMessageWithKeyboard).not.toHaveBeenCalledWith(
       OWNER_TELEGRAM_ID,
+      expect.anything(),
       expect.anything()
     );
+    // Phase 22 (OWNR-05): session bookings are now created pending, not confirmed.
     expect(mockedSendTelegramMessage).toHaveBeenCalledWith(
       senderTelegramId,
-      expect.stringContaining('επιβεβαιώθηκε')
+      expect.stringContaining('Αναμονή')
     );
   });
 
@@ -714,5 +752,119 @@ describe('Suite E: existing parseCallbackData arms', () => {
       action: 'renewal:approve',
       businessId: 99,
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SUITE F: sbk: session booking approval routing (Phase 22, OWNR-05/06/07)
+// ---------------------------------------------------------------------------
+
+describe('Suite F: sbk: session booking approval routing', () => {
+  it('sbk:approve:42 → SessionBookingCallbackResult { sbkAction: approve, bookingId: 42 }', () => {
+    const result = parseCallbackData('sbk:approve:42');
+    expect(result).toEqual({ sbkAction: 'approve', bookingId: 42 });
+  });
+
+  it('sbk:reject:42 → SessionBookingCallbackResult { sbkAction: reject, bookingId: 42 }', () => {
+    const result = parseCallbackData('sbk:reject:42');
+    expect(result).toEqual({ sbkAction: 'reject', bookingId: 42 });
+  });
+
+  const SESSION_BOOKING = {
+    id: 5,
+    businessId: BASE_BUSINESS.id,
+    clientPhone: CLIENT_TELEGRAM_ID,
+    serviceId: 1,
+    sessionInstanceId: null as number | null,
+    calendarDate: '2099-12-31',
+    calendarTime: '10:00',
+    bookingStatus: 'pending_owner_approval',
+    requestId: 'req-sbk-5',
+    ownerTelegramMessageId: 555,
+    rescheduledFromBookingId: null,
+    calendarSyncStatus: 'pending',
+    googleCalendarEventId: null,
+    calendarSyncRetryCount: 0,
+    reminder24hSentAt: null,
+    reminder1hSentAt: null,
+    createdAt: new Date(),
+    expiresAt: null,
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    setupCommonMocks();
+    mockedFindBusinessByWebhookId.mockResolvedValue({ ...BASE_BUSINESS });
+    mockedFindBookingByIdUnscoped.mockResolvedValue({ ...SESSION_BOOKING } as any);
+    mockedUpdateBookingStatusIfPending.mockResolvedValue({ ...SESSION_BOOKING, bookingStatus: 'confirmed' } as any);
+    mockedFindMembershipByBooking.mockResolvedValue(null);
+    mockedRestoreCredit.mockResolvedValue(undefined as any);
+    mockedReleaseSessionCapacity.mockResolvedValue(undefined as any);
+  });
+
+  it('owner taps Έγκριση → updateBookingStatusIfPending called with (5, "confirmed")', async () => {
+    const res = await postToWebhook(
+      makeCallbackQueryUpdate(10, OWNER_TELEGRAM_ID, 'sbk:approve:5')
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockedUpdateBookingStatusIfPending).toHaveBeenCalledWith(5, 'confirmed');
+  });
+
+  it('T-22-01 ownership guard: non-owner tap → updateBookingStatusIfPending NOT called', async () => {
+    const res = await postToWebhook(
+      makeCallbackQueryUpdate(11, 'not-the-owner-999', 'sbk:approve:5')
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockedUpdateBookingStatusIfPending).not.toHaveBeenCalled();
+  });
+
+  it('T-22-02 cross-tenant guard: booking belongs to a different business → updateBookingStatusIfPending NOT called', async () => {
+    mockedFindBookingByIdUnscoped.mockResolvedValue({
+      ...SESSION_BOOKING,
+      businessId: BASE_BUSINESS.id + 999,
+    } as any);
+
+    const res = await postToWebhook(
+      makeCallbackQueryUpdate(12, OWNER_TELEGRAM_ID, 'sbk:approve:5')
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockedUpdateBookingStatusIfPending).not.toHaveBeenCalled();
+  });
+
+  it('owner taps Απόρριψη on a session booking → releaseSessionCapacity + findMembershipByBooking/restoreCredit called', async () => {
+    const rejectedSessionBooking = {
+      ...SESSION_BOOKING,
+      id: 6,
+      sessionInstanceId: 77,
+      bookingStatus: 'rejected',
+    };
+    mockedFindBookingByIdUnscoped.mockResolvedValue({ ...SESSION_BOOKING, id: 6, sessionInstanceId: 77 } as any);
+    mockedUpdateBookingStatusIfPending.mockResolvedValue(rejectedSessionBooking as any);
+    mockedFindMembershipByBooking.mockResolvedValue(33);
+
+    const res = await postToWebhook(
+      makeCallbackQueryUpdate(13, OWNER_TELEGRAM_ID, 'sbk:reject:6')
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockedUpdateBookingStatusIfPending).toHaveBeenCalledWith(6, 'rejected');
+    expect(mockedReleaseSessionCapacity).toHaveBeenCalledWith(77);
+    expect(mockedFindMembershipByBooking).toHaveBeenCalledWith(6);
+    expect(mockedRestoreCredit).toHaveBeenCalledWith(33, 6, 'booking:6:credit');
+  });
+
+  it('T-22-03 double-tap idempotency: updateBookingStatusIfPending returns null → no capacity release, no crash', async () => {
+    mockedUpdateBookingStatusIfPending.mockResolvedValue(null);
+
+    const res = await postToWebhook(
+      makeCallbackQueryUpdate(14, OWNER_TELEGRAM_ID, 'sbk:reject:5')
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockedReleaseSessionCapacity).not.toHaveBeenCalled();
+    expect(mockedRestoreCredit).not.toHaveBeenCalled();
   });
 });

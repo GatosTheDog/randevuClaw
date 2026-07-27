@@ -34,7 +34,7 @@ import { findMembershipByBooking, restoreCredit } from '../billing/queries';
 import { isoDateInAthens } from '../utils/timezone';
 import { approveSlotlessRequest, rejectSlotlessRequest } from '../session/slotless-requests';
 import { pendingRenewalBatches } from '../scheduler/membership-expiry';
-import { bookSessionInstance } from '../session/manager';
+import { bookSessionInstance, releaseSessionCapacity } from '../session/manager';
 import { db } from '../database/db';
 import { sessionInstances, sessionCatalog } from '../database/schema';
 import { eq } from 'drizzle-orm';
@@ -215,10 +215,15 @@ export type EscalationCallbackResult = {
   /** clientTelegramId to notify or approve for */
   clientTelegramId: string;
 };
+// Phase 22 (OWNR-05/06/07): owner approve/reject tap on a session-class booking.
+export type SessionBookingCallbackResult = {
+  sbkAction: 'approve' | 'reject';
+  bookingId: number;
+};
 
 export function parseCallbackData(
   data: string | undefined
-): BookingCallbackResult | BillingCallbackResult | SlotlessCallbackResult | RenewalCallbackResult | EscalationCallbackResult | MenuCallbackResult | ClientMenuCallbackResult | null {
+): BookingCallbackResult | BillingCallbackResult | SlotlessCallbackResult | RenewalCallbackResult | EscalationCallbackResult | MenuCallbackResult | ClientMenuCallbackResult | SessionBookingCallbackResult | null {
   // Existing booking action pattern (unchanged — T-02-17)
   const bookingMatch = data?.match(/^(approve|reject|client_cancel)_(\d+)$/);
   if (bookingMatch) {
@@ -297,6 +302,15 @@ export function parseCallbackData(
     return {
       clientMenuAction: clientMenuMatch[1],
       id: clientMenuMatch[2] ? Number(clientMenuMatch[2]) : undefined,
+    };
+  }
+
+  // Phase 22: owner approve/reject on a session-class booking — sbk:<approve|reject>:<bookingId>
+  const sbkMatch = data?.match(/^sbk:(approve|reject):(\d+)$/);
+  if (sbkMatch) {
+    return {
+      sbkAction: sbkMatch[1] as 'approve' | 'reject',
+      bookingId: Number(sbkMatch[2]),
     };
   }
 
@@ -426,7 +440,11 @@ async function handleCallbackQuery(
         escl.clientTelegramId,
         serviceId,
         idempotencyKey,
-        null   // activeMembership=null: bypass enforcement, use no-deduction path
+        null,   // activeMembership=null: bypass enforcement, use no-deduction path
+        // Phase 22 changed bookSessionInstance's default to pending_owner_approval;
+        // this call site must override it since the owner already approved this
+        // exception via the escl: keyboard tap.
+        'confirmed'
       );
 
       if (!result || result.status !== 'success') {
@@ -503,6 +521,89 @@ async function handleCallbackQuery(
       await editTelegramMessageReplyMarkup(senderTelegramId, callbackQuery.message.message_id, []);
     }
     await handleClientMenuCallback(clientResult, business, senderTelegramId);
+    return;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Phase 22: Session booking owner approve/reject routing (OWNR-05/06/07)
+  // Discriminant: 'sbkAction' in result → SessionBookingCallbackResult
+  // T-22-01/T-22-02/T-22-03: owner-only + same-business + idempotent-CAS
+  // guards, in that order, before any DB mutation runs.
+  // ---------------------------------------------------------------------------
+  if ('sbkAction' in parsed) {
+    const sbk = parsed as SessionBookingCallbackResult;
+
+    // T-22-01: owner-only guard — reuse the webhook-scoped, HMAC-verified
+    // `business` param (mirrors the escalationAction branch's own guard),
+    // never re-derived via findBusinessByOwnerTelegramId.
+    if (business.ownerTelegramId !== senderTelegramId) {
+      logger.warn({ senderTelegramId }, 'sbk callback from non-owner, ignoring');
+      return;
+    }
+
+    // T-22-02: cross-tenant guard — findBookingByIdUnscoped is intentionally
+    // unscoped by business; this explicit businessId check is what makes
+    // that safe (never re-derived via findBusinessByOwnerTelegramId, which
+    // has no uniqueness guarantee if one Telegram account owns multiple
+    // businesses).
+    const targetBooking = await findBookingByIdUnscoped(sbk.bookingId);
+    if (!targetBooking || targetBooking.businessId !== business.id) {
+      logger.warn(
+        { bookingId: sbk.bookingId, businessId: business.id, senderTelegramId },
+        'sbk callback for booking outside this business, ignoring'
+      );
+      return;
+    }
+
+    if (sbk.sbkAction === 'approve') {
+      // T-22-03: idempotent CAS — a second tap on an already-resolved booking
+      // finds no pending_owner_approval row and returns null, treated as a
+      // safe no-op (identical pattern to the existing plain-booking flow).
+      const updated = await updateBookingStatusIfPending(sbk.bookingId, 'confirmed');
+      if (!updated) {
+        await sendTelegramMessage(senderTelegramId, 'Η κράτηση δεν βρέθηκε ή έχει ήδη επεξεργαστεί.');
+        return;
+      }
+      try {
+        await sendTelegramMessage(
+          updated.clientPhone,
+          'Η κράτησή σας εγκρίθηκε από τον διαχειριστή! Θα σας δούμε σύντομα.'
+        );
+      } catch (err) {
+        logger.error({ err, bookingId: updated.id }, 'sbk approve: client notification failed (best-effort)');
+      }
+      await sendTelegramMessage(senderTelegramId, 'Κράτηση εγκρίθηκε.');
+    } else {
+      // sbk.sbkAction === 'reject'
+      const updated = await updateBookingStatusIfPending(sbk.bookingId, 'rejected');
+      if (!updated) {
+        await sendTelegramMessage(senderTelegramId, 'Η κράτηση δεν βρέθηκε ή έχει ήδη επεξεργαστεί.');
+        return;
+      }
+
+      // T-22-04: capacity release + credit restore run inside the ambient
+      // withBusinessContext transaction that already wraps this entire
+      // handleCallbackQuery call (see handleTelegramWebhookPost) — true
+      // single-transaction atomicity, no new wrapper needed here.
+      if (updated.sessionInstanceId !== null) {
+        await releaseSessionCapacity(updated.sessionInstanceId);
+        const membershipId = await findMembershipByBooking(updated.id);
+        if (membershipId !== null) {
+          await restoreCredit(membershipId, updated.id, `booking:${updated.id}:credit`);
+        }
+      }
+
+      try {
+        await sendTelegramMessage(updated.clientPhone, 'Δυστυχώς η αίτησή σας απορρίφθηκε. Δοκιμάστε άλλη ώρα.');
+      } catch (err) {
+        logger.error({ err, bookingId: updated.id }, 'sbk reject: client notification failed (best-effort)');
+      }
+      await sendTelegramMessage(senderTelegramId, 'Κράτηση απορρίφθηκε.');
+    }
+
+    if (callbackQuery.message?.message_id) {
+      await editTelegramMessageReplyMarkup(senderTelegramId, callbackQuery.message.message_id, []);
+    }
     return;
   }
 

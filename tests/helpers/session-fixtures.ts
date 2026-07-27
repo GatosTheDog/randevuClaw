@@ -2,7 +2,7 @@
 // Uses admin db (bypasses RLS) for direct test data setup. Pattern: billing-fixtures.ts.
 
 import { db } from '../../src/database/db';
-import { sessionCatalog, sessionInstances } from '../../src/database/schema';
+import { sessionCatalog, sessionInstances, bookings } from '../../src/database/schema';
 import { isoDateInAthens } from '../../src/utils/timezone';
 
 export interface TestSessionCatalogOptions {
@@ -66,6 +66,48 @@ export async function insertTestSessionInstance(
       bookedCount: overrides?.bookedCount !== undefined ? overrides.bookedCount : 0,
       isCancelled: overrides?.isCancelled !== undefined ? overrides.isCancelled : false,
       idempotencyKey: key,
+    })
+    .returning();
+  return rows[0];
+}
+
+export interface TestSessionBookingOptions {
+  bookingStatus?: string;
+  createdAt?: Date;
+  calendarDate?: string;
+  calendarTime?: string;
+}
+
+/**
+ * Inserts a bookings row directly for test setup, with sessionInstanceId set
+ * (a session-class booking). Needed because bookSessionInstance() always
+ * uses defaultNow() for createdAt, but expiry tests need a booking whose
+ * createdAt is backdated past the 2-hour expiry cutoff — mirrors the
+ * direct-insert pattern in tests/cancellation-cutoff.test.ts.
+ * Uses admin db (not getConn) to bypass RLS — matches this file's own pattern.
+ */
+export async function insertTestSessionBooking(
+  businessId: number,
+  sessionInstanceId: number,
+  clientPhone: string,
+  serviceId: number,
+  overrides?: TestSessionBookingOptions
+): Promise<typeof bookings.$inferSelect> {
+  const defaultDate = isoDateInAthens(new Date());
+  const requestId = `session-booking-fixture:${sessionInstanceId}:${clientPhone}:${Date.now()}:${Math.random()}`;
+
+  const rows = await db
+    .insert(bookings)
+    .values({
+      businessId,
+      clientPhone,
+      serviceId,
+      sessionInstanceId,
+      calendarDate: overrides?.calendarDate ?? defaultDate,
+      calendarTime: overrides?.calendarTime ?? '10:00',
+      bookingStatus: overrides?.bookingStatus ?? 'pending_owner_approval',
+      requestId,
+      createdAt: overrides?.createdAt ?? new Date(),
     })
     .returning();
   return rows[0];
