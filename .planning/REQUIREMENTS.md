@@ -18,11 +18,11 @@
 
 ### Bot Configuration (BOT)
 
-- [ ] **BOT-06**: Telegram bot exposes a persistent menu button (Bot API `setChatMenuButton` + registered commands) so admin and client each get one-tap access to their respective menu without retyping `/menu` or `/start`
+- [x] **BOT-06**: Telegram bot exposes a persistent menu button (Bot API `setChatMenuButton` + registered commands) so admin and client each get one-tap access to their respective menu without retyping `/menu` or `/start`
 
 ### Diagnostics (DIAG)
 
-- [ ] **DIAG-01**: When the bot sends the generic Greek fallback error message to a client, the owner's own chat receives a best-effort follow-up technical message (what step/tool failed, error type) — client-facing message stays unchanged (clean Greek only)
+- [x] **DIAG-01**: When the bot sends the generic Greek fallback error message to a client, the owner's own chat receives a best-effort follow-up technical message (what step/tool failed, error type) — client-facing message stays unchanged (clean Greek only)
 
 ### Client Invite (INVITE)
 
@@ -51,8 +51,8 @@ None identified yet — all 5 target features are scoped into v1.6.
 | OWNR-07 | Phase 22 | Complete |
 | CLSS-06 | Phase 23 | Complete (already shipped Phase 17; confirmed unmodified) |
 | CLSS-07 | Phase 23 | Complete |
-| BOT-06 | Phase 24 | Pending |
-| DIAG-01 | Phase 24 | Pending |
+| BOT-06 | Phase 24 | Complete |
+| DIAG-01 | Phase 24 | Complete |
 | INVITE-01 | Phase 25 | Pending |
 
 **Coverage:**
