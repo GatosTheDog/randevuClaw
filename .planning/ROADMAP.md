@@ -117,7 +117,7 @@ See: `.planning/milestones/v1.5-ROADMAP.md`
 | 20. Client Escalation | v1.4 | 2/2 | Complete | 2026-07-24 |
 | 21. AI-Driven Owner Onboarding | v1.5 | 3/3 | Complete | 2026-07-25 |
 | 22. Session Booking Approval Flow | v1.6 | 0/TBD | Not started | - |
-| 23. Lesson Deletion & Cascade Cancellation | v1.6 | 0/TBD | Not started | - |
+| 23. Lesson Deletion & Cascade Cancellation | v1.6 | 0/1 | Not started | - |
 | 24. Bot Access & Diagnostics Polish | v1.6 | 0/TBD | Not started | - |
 | 25. Client Invite Generator | v1.6 | 0/TBD | Not started | - |
 
@@ -185,7 +185,10 @@ Plans:
   2. Deleting a lesson with zero active bookings removes/cancels the instance with no other side effects.
   3. Deleting a lesson that has active client bookings cancels each of those bookings and restores each affected client's session credit (or capacity, for unlimited memberships) atomically.
   4. Each affected client receives a Greek notification that their booking for that lesson was cancelled by the business.
-**Plans**: TBD
+**Plans:** 1 plan
+
+Plans:
+- [ ] 23-01-PLAN.md — Cascade-cancel active bookings on lesson deletion (CLSS-07): query helper, cascadeCancelSessionBookings, admin-menu + free-chat wiring
 
 ### Phase 24: Bot Access & Diagnostics Polish
 **Goal**: Admin and clients get one-tap access to their own menu without retyping a command, and the owner gets actionable technical visibility whenever the bot's generic Greek fallback fires for a client — without changing what the client sees.
