@@ -13,7 +13,7 @@
  */
 
 import { parseCallbackData } from '../src/webhooks/telegram';
-import { showAdminRootMenu, handleMenuCallback } from '../src/telegram/handlers/admin-menu';
+import { showAdminRootMenu, handleMenuCallback, handleClassCancelExecute } from '../src/telegram/handlers/admin-menu';
 import { Business } from '../src/database/queries';
 
 // ---------------------------------------------------------------------------
@@ -197,5 +197,65 @@ describe('parseCallbackData — MenuCallbackResult discriminant uniqueness', () 
     expect('menuAction' in parsed!).toBe(true);
     // When findBusinessByOwnerTelegramId returns null in the dispatcher,
     // handleMenuCallback is never called — the discriminant is the gate condition.
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TEST GROUP 5: handleClassCancelExecute — cascade-cancel wiring (CLSS-07)
+// ---------------------------------------------------------------------------
+
+describe('handleClassCancelExecute — cascade-cancel wiring (CLSS-07)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+
+    const telegramClient = require('../src/telegram/client');
+    telegramClient.sendTelegramMessage.mockResolvedValue({ messageId: 1 });
+    telegramClient.sendTelegramMessageWithKeyboard.mockResolvedValue({ messageId: 2 });
+  });
+
+  test('reports affected count in Greek when cancelSession succeeds and bookings were cascade-cancelled', async () => {
+    const sessionManager = require('../src/session/manager');
+    sessionManager.cancelSession.mockResolvedValue(true);
+    sessionManager.cascadeCancelSessionBookings.mockResolvedValue(3);
+
+    const telegramClient = require('../src/telegram/client');
+
+    await handleClassCancelExecute('123', mockBusiness, 42);
+
+    expect(sessionManager.cascadeCancelSessionBookings).toHaveBeenCalledWith(mockBusiness, 42);
+
+    const sendCalls = (telegramClient.sendTelegramMessage as jest.Mock).mock.calls;
+    const messageTexts = sendCalls.map((c: [string, string]) => c[1]);
+    expect(messageTexts.some((t: string) => t.includes('3') && t.includes('πελάτες ειδοποιήθησαν'))).toBe(true);
+
+    // Trailing "what else" keyboard is still sent
+    expect(telegramClient.sendTelegramMessageWithKeyboard).toHaveBeenCalled();
+  });
+
+  test('does NOT call cascadeCancelSessionBookings when cancelSession returns false, but still sends the trailing keyboard', async () => {
+    const sessionManager = require('../src/session/manager');
+    sessionManager.cancelSession.mockResolvedValue(false);
+
+    const telegramClient = require('../src/telegram/client');
+
+    await handleClassCancelExecute('123', mockBusiness, 42);
+
+    expect(sessionManager.cascadeCancelSessionBookings).not.toHaveBeenCalled();
+    expect(telegramClient.sendTelegramMessageWithKeyboard).toHaveBeenCalled();
+  });
+
+  test('reports "no bookings" wording when cascadeCancelSessionBookings returns 0', async () => {
+    const sessionManager = require('../src/session/manager');
+    sessionManager.cancelSession.mockResolvedValue(true);
+    sessionManager.cascadeCancelSessionBookings.mockResolvedValue(0);
+
+    const telegramClient = require('../src/telegram/client');
+
+    await handleClassCancelExecute('123', mockBusiness, 42);
+
+    const sendCalls = (telegramClient.sendTelegramMessage as jest.Mock).mock.calls;
+    const messageTexts = sendCalls.map((c: [string, string]) => c[1]);
+    expect(messageTexts.some((t: string) => t.includes('δεν υπήρχαν κρατήσεις'))).toBe(true);
+    expect(messageTexts.some((t: string) => t.includes('ειδοποιήθησαν'))).toBe(false);
   });
 });

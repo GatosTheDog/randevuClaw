@@ -18,7 +18,7 @@ import { formatAgendaMessage } from '../../scheduler/agenda';
 import { isoDateInAthens } from '../../utils/timezone';
 import { logger } from '../../utils/logger';
 import { findBusinessByOwnerTelegramId } from '../../onboarding/queries';
-import { listSessions, cancelSession } from '../../session/manager';
+import { listSessions, cancelSession, cascadeCancelSessionBookings } from '../../session/manager';
 import { InlineKeyboard, sendTelegramMessage, sendTelegramMessageWithKeyboard, botTokenStore } from '../client';
 import { getAllClientsForBusiness, getClientActiveMembership } from '../../billing/queries';
 
@@ -317,7 +317,12 @@ export async function handleClassCancelExecute(
 ): Promise<void> {
   const cancelled = await cancelSession(business.id, instanceId);
   if (cancelled) {
-    await sendTelegramMessage(chatId, 'Το μάθημα ακυρώθηκε.');
+    const affectedCount = await cascadeCancelSessionBookings(business, instanceId);
+    if (affectedCount === 0) {
+      await sendTelegramMessage(chatId, 'Το μάθημα ακυρώθηκε (δεν υπήρχαν κρατήσεις).');
+    } else {
+      await sendTelegramMessage(chatId, `Το μάθημα ακυρώθηκε. ${affectedCount} πελάτες ειδοποιήθησαν.`);
+    }
   } else {
     await sendTelegramMessage(chatId, 'Το μάθημα δεν βρέθηκε ή είχε ήδη ακυρωθεί.');
   }
