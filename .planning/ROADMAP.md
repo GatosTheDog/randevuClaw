@@ -114,7 +114,11 @@ See: `.planning/milestones/v1.6-ROADMAP.md`
   2. A client-initiated reschedule request is sent to the owner as an approve/reject prompt instead of auto-confirming, reusing the same capacity-hold cascade already used for new session bookings.
   3. If the owner rejects a reschedule, the client's original booking remains intact and the client receives a Greek notification explaining the rejection.
   4. Reschedules already confirmed under the previous auto-confirm behavior continue to behave correctly after the new approval gate ships (no orphaned capacity holds or double-booked slots).
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 26-01-PLAN.md — Reverse the Phase 22 auto-confirm decision for session reschedules: bookSessionInstance links to the booking it replaces, and sbk:approve cascade-cancels it (CONF-02)
+- [ ] 26-02-PLAN.md — Uniform confirm-before-mutate policy for the 5 CONF-01 destructive owner actions, reusing the admin-menu cancel_session confirmation where it already exists (CONF-01)
 
 #### Phase 27: Client Consent & Registration
 **Goal**: Every client's first contact with the bot goes through a real, observable consent step, and the platform can tell a genuinely opted-in client apart from an incidental first-contact row.
