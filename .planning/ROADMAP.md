@@ -106,62 +106,82 @@ See: `.planning/milestones/v1.6-ROADMAP.md`
 - [ ] **Phase 30: Client Identification & Menu Reliability** - Owner tools accept client names instead of raw Telegram IDs; persistent menu button reliability investigated and fixed/documented
 
 #### Phase 26: Confirmation & Approval Policy
+
 **Goal**: Owner destructive actions and client-initiated reschedules follow one consistent, safe confirmation/approval model — nothing mutates without explicit confirmation, whether triggered from the admin menu or free chat, and a rejected reschedule never loses the client's original booking.
 **Depends on**: Nothing (first phase, v1.7)
 **Requirements**: CONF-01, CONF-02
 **Success Criteria** (what must be TRUE):
+
   1. Every destructive owner action (delete service, update price, close day, cancel class, assign client) shows the same Ναι/Όχι confirmation before mutating data, regardless of whether it was triggered via an admin menu button or a free-chat tool call.
   2. A client-initiated reschedule request is sent to the owner as an approve/reject prompt instead of auto-confirming, reusing the same capacity-hold cascade already used for new session bookings.
   3. If the owner rejects a reschedule, the client's original booking remains intact and the client receives a Greek notification explaining the rejection.
   4. Reschedules already confirmed under the previous auto-confirm behavior continue to behave correctly after the new approval gate ships (no orphaned capacity holds or double-booked slots).
+
 **Plans**: 2 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 26-01-PLAN.md — Reverse the Phase 22 auto-confirm decision for session reschedules: bookSessionInstance links to the booking it replaces, and sbk:approve cascade-cancels it (CONF-02)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 26-02-PLAN.md — Uniform confirm-before-mutate policy for the 5 CONF-01 destructive owner actions, reusing the admin-menu cancel_session confirmation where it already exists (CONF-01)
 
 #### Phase 27: Client Consent & Registration
+
 **Goal**: Every client's first contact with the bot goes through a real, observable consent step, and the platform can tell a genuinely opted-in client apart from an incidental first-contact row.
 **Depends on**: Nothing
 **Requirements**: COMP-01, COMP-02
 **Success Criteria** (what must be TRUE):
+
   1. A client who first messages the bot via `/start` sees the GDPR data-consent notice before any client-business relationship row is created.
   2. A client who first messages via free-form chat continues to see the same consent notice (parity with the `/start` path, no regression).
   3. The client-business relationship record carries an explicit opt-in flag that is only true once the client has seen and accepted the consent notice.
   4. Pre-existing (pre-v1.7) client relationships are backfilled to a safe default so no real client already using the bot gets silently blocked.
+
 **Plans**: TBD
 
 #### Phase 28: Admin Menu Discoverability
+
 **Goal**: The owner's highest-frequency and highest-stakes actions are all reachable from `/menu`, and no dead or decorative buttons remain in the admin UI.
 **Depends on**: Phase 26 (menu-triggered mutations reuse the uniform confirmation pattern established there)
 **Requirements**: ADMIN-01, ADMIN-02, ADMIN-03, ADMIN-04
 **Success Criteria** (what must be TRUE):
+
   1. Owner can record a client payment entirely from `/menu`, without needing to drop into free chat.
   2. Owner can reach hours, services, prices, and class setup editing from `/menu` entry points.
   3. Tapping "reply to client" either delivers the owner's next message to the escalating client, or the button no longer appears in the admin UI.
   4. The decorative "Νέο μάθημα (chat)" button (and any other no-op button found in the same sweep) is removed or wired to a real action.
+
 **Plans**: TBD
 
 #### Phase 29: Booking & List Clarity
+
 **Goal**: What clients and owners see in booking, cancellation, and callback flows accurately reflects bookable reality and shows meaningful context instead of raw IDs or dead ends.
 **Depends on**: Phase 26 (contextual cancel-confirm prompts extend the same confirmation pattern)
 **Requirements**: UX-01, UX-02, UX-04, UX-05, UX-06
 **Success Criteria** (what must be TRUE):
+
   1. A same-day session whose start time has already passed no longer appears as a bookable slot to clients.
   2. Cancel-confirmation prompts (admin lesson-cancel, client booking-cancel) show the date and service/class name instead of a raw internal ID.
   3. Booking and cancellation lists show the service/class name alongside date/time.
   4. The client's "Κράτηση μαθήματος" booking button is hidden or relabeled (not silently no-op) for businesses using open-slot (non-fixed-class) booking mode.
   5. Tapping a stale or unknown callback button on either the admin or client menu shows a back-to-menu recovery option instead of a dead-end error.
+
 **Plans**: TBD
 
 #### Phase 30: Client Identification & Menu Reliability
+
 **Goal**: Owners can find clients by name instead of copying raw Telegram IDs, and the persistent Telegram menu button behaves reliably — or its limitations are documented — across clients.
 **Depends on**: Nothing (independent; sequenced last as the most research-heavy phase, per research recommendation)
 **Requirements**: UX-03, ADMIN-05
 **Success Criteria** (what must be TRUE):
+
   1. Chat tools that currently require a raw Telegram numeric ID (view membership, assign client to session, send renewal reminder) instead accept a client name and match against real clients.
   2. When a name matches multiple clients, the owner sees a disambiguation prompt instead of an ambiguous or wrong match being applied.
   3. Telegram persistent-menu-button reliability has been investigated; any code-addressable gap is fixed, and any purely client-side limitation is documented.
+
 **Plans**: TBD
 
 ## Progress
