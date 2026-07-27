@@ -7,9 +7,9 @@
 
 ### Booking Approval (OWNR)
 
-- [ ] **OWNR-05**: Owner receives an approve/reject inline keyboard on a new session-class booking notification; the booking stays pending (client sees "request sent, awaiting confirmation") until the owner responds — mirrors the existing open-slots approve/reject pattern, applied to fixed_sessions bookings which currently auto-confirm with no owner say
-- [ ] **OWNR-06**: Session capacity is soft-held while a booking is pending owner approval, and released back to the class if the owner rejects (or the request expires)
-- [ ] **OWNR-07**: If owner approves, client gets the Greek confirmation message; if owner rejects, client gets a Greek rejection message and the slot reopens
+- [x] **OWNR-05**: Owner receives an approve/reject inline keyboard on a new session-class booking notification; the booking stays pending (client sees "request sent, awaiting confirmation") until the owner responds — mirrors the existing open-slots approve/reject pattern, applied to fixed_sessions bookings which currently auto-confirm with no owner say
+- [x] **OWNR-06**: Session capacity is soft-held while a booking is pending owner approval, and released back to the class if the owner rejects (or the request expires)
+- [x] **OWNR-07**: If owner approves, client gets the Greek confirmation message; if owner rejects, client gets a Greek rejection message and the slot reopens
 
 ### Class Management (CLSS)
 
@@ -46,9 +46,9 @@ None identified yet — all 5 target features are scoped into v1.6.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| OWNR-05 | Phase 22 | Executed (human-verify pending — real-DB tests need local Postgres) |
-| OWNR-06 | Phase 22 | Executed (human-verify pending — real-DB tests need local Postgres) |
-| OWNR-07 | Phase 22 | Executed (human-verify pending — real-DB tests need local Postgres) |
+| OWNR-05 | Phase 22 | Complete |
+| OWNR-06 | Phase 22 | Complete |
+| OWNR-07 | Phase 22 | Complete |
 | CLSS-06 | Phase 23 | Pending |
 | CLSS-07 | Phase 23 | Pending |
 | BOT-06 | Phase 24 | Pending |
