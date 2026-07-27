@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: Telegram Bot UX/Ops Improvements
-current_phase: 25
-current_phase_name: client-invite-generator
-status: verifying
+current_phase: 6
+status: Awaiting next milestone
 stopped_at: v1.6 ROADMAP.md created (Phases 22-25), REQUIREMENTS.md traceability updated, 8/8 requirements mapped
-last_updated: "2026-07-27T17:49:30.256Z"
+last_updated: "2026-07-27T22:13:02.596Z"
 last_activity: 2026-07-27
-last_activity_desc: Phase 25 execution started
+last_activity_desc: Milestone v1.6 completed and archived
 progress:
   total_phases: 4
   completed_phases: 4
   total_plans: 4
   completed_plans: 4
   percent: 100
+current_phase_name: client-invite-generator
 ---
 
 # Project State
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-07-24 after v1.4 milestone close)
 
 ## Current Position
 
-Phase: 25 (client-invite-generator) — EXECUTING
-Plan: 1 of 1
-Status: Phase complete — ready for verification
-Last activity: 2026-07-27 — Phase 25 execution started
+Phase: Milestone v1.6 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-07-27 — Milestone v1.6 completed and archived
 
 ## Performance Metrics
 
@@ -298,6 +298,20 @@ Items acknowledged and deferred at v1.5 milestone close on 2026-07-25:
 | todo | meta-business-verification-not-submitted.md | phase-1 (carry-forward from v1.0/v1.2/v1.4, blocked on external Meta process, moot under Telegram-first pivot) |
 | known_deferred: 2 (see above) | | |
 
+Items acknowledged and deferred at v1.6 milestone close on 2026-07-28:
+
+| Category | Item | Status |
+|----------|------|--------|
+| debug | knowledge-base | unknown (static reference doc used by gsd-debugger, not a real session — audit-tool false positive, no frontmatter status field by design) |
+| todo | 2026-07-07-pivot-to-per-business-whatsapp-numbers-post-poc.md | planning (carry-forward from v1.0/v1.2/v1.4/v1.5, still moot under Telegram-first pivot) |
+| todo | 2026-07-09-meta-business-verification-not-submitted.md | phase-1 (carry-forward, blocked on external Meta process) |
+| todo | 2026-07-27-add-client-registration-question-as-first-bot-message.md | onboarding (new feature idea, needs UX design — feed into v1.7 scoping) |
+| todo | 2026-07-27-fix-same-day-past-time-slots-showing-as-bookable.md | session-booking (narrow bug, quick fix candidate — feed into v1.7 scoping) |
+| todo | 2026-07-27-require-owner-approval-on-reschedule-not-just-new-bookings.md | session-booking (reverses Phase 22 decision, needs product decision — feed into v1.7 scoping) |
+| todo | 2026-07-27-research-telegram-persistent-menu-button-reliability.md | telegram-bot (needs actual research — feed into v1.7 scoping) |
+| todo | 2026-07-27-run-full-ux-audit-before-scoping-v1-7.md | planning (explicitly meant to be the first step of v1.7 scoping) |
+| known_deferred: 8 (see above) | | |
+
 ## Session Continuity
 
 Last session: 2026-07-27T00:00:00.000Z
@@ -336,4 +350,4 @@ Resume file: None
 
 ## Operator Next Steps
 
-- Plan Phase 22 (Session Booking Approval Flow) with `/gsd-plan-phase 22`
+- Start the next milestone with /gsd-new-milestone

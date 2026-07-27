@@ -2,26 +2,15 @@
 
 ## Current State
 
-**Shipped through v1.5 (AI-Driven Owner Onboarding, 2026-07-25).** A single per-business Telegram bot now handles both admin and client traffic — the old separate platform bot is gone. Admin gets a `/menu` command (Settings/Classes/Clients/Today's Agenda) and clients get a `/start` menu (Book/My Bookings/Cancel/Balance), both with Ναι/Όχι inline-keyboard confirmations; free-form Greek chat still works at any point on either side. Owner onboarding is now a fully freeform Gemini tool-calling agent (`ai-onboarding-agent.ts`, v1.5 Phase 21) that re-derives completeness from live DB state every turn — replacing the old regex-gated deterministic step machine, which rejected valid free-text Greek hours input. Blocked clients get a Greek apology and the admin gets an inline escalation with an approve-exception button (the "reply to client" half is prompt-only for now — see Backlog Phase 999.1).
+**Shipped through v1.6 (Telegram Bot UX/Ops Improvements, 2026-07-28).** Session-class bookings now require real owner approval (Έγκριση/Απόρριψη keyboard) instead of auto-confirming, with atomic capacity-hold + credit-restore on reject/expiry. Admin can delete a scheduled lesson from the menu or chat; any active bookings on it cascade-cancel with credit restore and a Greek notification to each affected client. Both admin and client get a persistent Telegram menu button (one-tap `/menu`/`/start` access), and when the bot hits its generic Greek error fallback, the owner's own chat now gets a best-effort technical diagnostic (requestId, error type) alongside it. Owners can generate a shareable invite for their business's bot — one message with a QR code (business name + Greek CTA baked into the image) plus the raw `t.me/<bot_username>` deep link as copyable text — from either the admin menu or free chat. The dormant WhatsApp Cloud API integration (webhook, client, config) was fully removed mid-milestone; the bot is Telegram-only with WhatsApp still shelved pending Meta Business Verification.
 
 ## What This Is
 
 A Telegram-native appointment booking platform for Greek service businesses (pilates studios, gyms, hair salons, etc.). Clients book, cancel, or ask questions by chatting with their business's own bot; an AI agent understands the request and handles the booking. Business owners run everything — setup, accepting/rejecting bookings, cancellations, daily agenda, billing — through chat too, no separate app or dashboard required.
 
-**PoC state (v1.5):** Each business runs its own Telegram bot, single entry point for both owner and clients. Owners onboard themselves via a freeform Gemini tool-calling conversation (including class schedule), configure billing packages, and record client payments entirely through guided chat. The bot tracks session balances, enforces membership policies, books/cancels specific class sessions with atomic capacity locking, and proactively notifies before memberships expire. WhatsApp is shelved pending Meta Business Verification (1-6 week external process); the same booking/billing logic wires to WhatsApp once verification clears.
+**PoC state (v1.6):** Each business runs its own Telegram bot, single entry point for both owner and clients. Owners onboard themselves via a freeform Gemini tool-calling conversation (including class schedule), configure billing packages, and record client payments entirely through guided chat. The bot tracks session balances, enforces membership policies, books/cancels specific class sessions with atomic capacity locking, and proactively notifies before memberships expire. Session-class bookings now require owner approval before confirming; owners can delete lessons (cascading to affected bookings), get a persistent menu button, and can invite new clients via a generated QR/deep-link message. The WhatsApp Cloud API integration was removed from the codebase (v1.6) — the bot is Telegram-only; re-introducing per-business WhatsApp is a deferred future decision (not blocked mid-build like before), tracked in `.planning/todos/pending/2026-07-07-pivot-to-per-business-whatsapp-numbers-post-poc.md`.
 
 **⚠ Documentation gap discovered at v1.4 close:** v1.3 (Studio Session Scheduling & Slotless Bookings) was marked shipped in ROADMAP.md but its `/gsd-complete-milestone` archival step never actually ran — no `.planning/milestones/v1.3-ROADMAP.md` or `v1.3-REQUIREMENTS.md` exists, and v1.3's original requirement IDs were lost when v1.4's REQUIREMENTS.md overwrote the live file without archiving v1.3 first. The Validated section below reconstructs v1.3's shipped scope from ROADMAP.md phase descriptions (reliable) rather than exact REQ-IDs (lost). Not fixed here — flagging for awareness; a full retroactive v1.3 archive would need to be reconstructed from git history if ever needed.
-
-## Current Milestone: v1.6 Telegram Bot UX/Ops Improvements
-
-**Goal:** Give owners real approval control over session bookings plus admin power tools (delete lessons, always-on menu, better error diagnostics), and give owners an easy way to invite new clients to the bot.
-
-**Target features:**
-- Owner can approve/reject a session-class booking (currently auto-confirmed with no owner say)
-- Admin can delete/cancel a scheduled lesson (session instance)
-- Persistent Telegram menu button so the admin always has quick access to the menu
-- Richer diagnostics surfaced when the bot hits its generic Greek error fallback
-- QR-code / deep-link generator so owners can easily invite clients to the bot
 
 ## Core Value
 
@@ -65,6 +54,11 @@ A client can book or cancel an appointment with a Greek business entirely throug
 - ✓ Class schedule setup added to onboarding (recurrence + capacity); σεζόν→μάθημα terminology fixed — v1.4 (CLSS-01..05, I18N-01..03)
 - ✓ Blocked client gets Greek apology; admin gets escalation notification with context + approve-exception button — v1.4 (ESCL-01, ESCL-02)
 - ✓ Owner onboarding is a stateless Gemini tool-calling agent that parses freeform Greek input (multi-field, split-range hours) instead of a regex-gated step machine; old step machine deleted — v1.5 (D-01, D-02, D-03)
+- ✓ Owner receives an approve/reject inline keyboard on new session-class bookings; booking stays pending until owner responds, with atomic capacity soft-hold/release — v1.6 Phase 22 (OWNR-05, OWNR-06, OWNR-07)
+- ✓ Admin can delete/cancel a scheduled lesson; active bookings on it cascade-cancel with credit restore + Greek client notification — v1.6 Phase 23 (CLSS-06, CLSS-07)
+- ✓ Persistent Telegram menu button for admin and client (one-tap `/menu`/`/start`) — v1.6 Phase 24 (BOT-06)
+- ✓ Owner gets a best-effort technical diagnostic in their own chat when the bot hits its generic Greek error fallback — v1.6 Phase 24 (DIAG-01)
+- ✓ Owner can generate a shareable QR + deep-link invite for their business's bot, from admin menu or free chat — v1.6 Phase 25 (INVITE-01)
 
 ### Active
 
@@ -91,13 +85,15 @@ A client can book or cancel an appointment with a Greek business entirely throug
 - v1.2 shipped 2026-07-22: 3 phases, 16 plans, 19 tasks, +5,364/-59 lines, 7,364 total src/ LOC, 320 tests
 - v1.3 + v1.4 shipped 2026-07-23/24 (combined — v1.3 never got a proper milestone close, see gap note above): 11 phases (10-20), +9,953/-303 lines since v1.2 close, 11,262 total src/ LOC, 344 tests in suite
 - v1.5 shipped 2026-07-25: 1 phase (21), 3 plans, 6 tasks, 27 commits since v1.4 tag, 36/36 onboarding tests passing
-- Tech stack: Node.js/TypeScript, Neon/Drizzle (Postgres + RLS), Telegraf (per-bot Telegram, now the sole bot per business as of v1.4), WhatsApp Cloud API (wired, pending Meta BV), @google/genai (Gemini 2.5 Flash-Lite), Google Calendar API, date-fns (rolling windows), rrule (v1.3 session recurrence), fly.io
+- v1.6 shipped 2026-07-28: 4 phases (22-25), 4 plans, +14,550/-1,098 lines since v1.5 tag, 93 files changed, 11,847 total src/ LOC, 2.5 days (2026-07-25 → 2026-07-28)
+- Tech stack: Node.js/TypeScript, Neon/Drizzle (Postgres + RLS), Telegraf (per-bot Telegram, sole bot per business as of v1.4), @google/genai (Gemini 2.5 Flash-Lite), Google Calendar API, date-fns (rolling windows), rrule (v1.3 session recurrence), qrcode + sharp (v1.6 invite generation), fly.io. **WhatsApp Cloud API integration fully removed from the codebase in v1.6** (quick task 260726-0x3) — bot is Telegram-only; re-adding per-business WhatsApp is a future decision, not a blocked-in-progress feature (see `.planning/todos/pending/2026-07-07-pivot-to-per-business-whatsapp-numbers-post-poc.md`)
 - Billing layer: billingPackages, memberships, membershipLedger, membershipExpiryNotifications tables; SELECT FOR UPDATE atomic deduction; in-process 6-hour expiry sweep
 - Session layer (v1.3): sessionCatalog, sessionInstances, slotlessRequests tables; RRule-expanded recurring classes; atomic capacity + credit deduction
+- Session booking approval (v1.6 Phase 22): fixed_sessions bookings default to `pending_owner_approval`, `releaseSessionCapacity` is the single shared release-on-reject/expiry implementation
 - Single-bot routing (v1.4): platform bot removed; each business's own bot handles admin (Telegram-ID match to owner_telegram_id) and client traffic; `businesses.webhook_id` (UUID) maps webhook path to tenant; AsyncLocalStorage threads RLS context per request
-- Meta Business Verification not yet submitted — submit immediately; gates real WhatsApp delivery (1-6 week approval)
+- DB connection reliability (v1.6, two debug sessions): fixed a pg-pool checked-out-client error-listener gap that could crash the Node process on `idle_in_transaction_session_timeout` (commit 2b70a74), and a drizzle-orm client leak on a failed initial `begin` statement (commit 766ca99, `runInTransaction` helper in `src/database/db.ts`) — both live-verified in production
 - OAuth consent flow (Google Calendar) CLI ready; tokens needed for live calendar sync demo
-- **Test suite health (as of v1.4 close): 247/344 passing, 94 failing across ~32 suites.** All failures pre-date v1.4 and are unrelated to phases 16-20 (confirmed via git stash comparison during milestone-close review) — stale test fixtures missing newer `Business`/`Booking` schema fields from v1.3, duplicate top-level `const` identifiers across some test files (`TS6200`), and a `config.test.ts` env-capture issue. `npx tsc --noEmit` on the actual `src/` app code is clean; the failures are confined to test-file maintenance debt, not production code. Not fixed during v1.4 close (out of scope — flagging as real, pre-existing debt rather than claiming a clean suite). Recommend a dedicated test-suite health phase early in the next milestone.
+- **Test suite health not re-measured at v1.6 close** (last measured at v1.4 close: 247/344 passing, 94 failing across ~32 suites, all pre-existing test-fixture drift unrelated to app code — `npx tsc --noEmit` on `src/` stays clean). v1.6 removed 4 WhatsApp-only test files and added several new ones; recommend a dedicated test-suite health pass early in v1.7 rather than assuming the v1.4 numbers still hold.
 
 ## Constraints
 
@@ -143,6 +139,16 @@ A client can book or cancel an appointment with a Greek business entirely throug
 | Onboarding agent (v1.5) mirrors aiOwnerAgent's tool-calling shape exactly, including reusing its GEMINI_MODEL export | One model constant, one pattern to maintain across both agents; avoids drift between owner-chat and onboarding-chat Gemini config | ✓ Good |
 | `return await withBusinessContext(...)` (not bare `return withBusinessContext(...)`) inside try/catch in the new onboarding executor | Bare `return` on a promise silently defeats the enclosing catch — a real JS async gotcha caught in code review (CR-01); ai-owner-agent.ts's pre-existing bare form left untouched as out-of-scope for this phase | ✓ Good — fixed in new code; flagged as pre-existing debt elsewhere |
 | onboarding_sessions DB table and edit-router.ts left inert (unused, not migrated away) after step-machine deletion | D-02 stateless resume made both unnecessary, but dropping the table/wiring was out of scope for a mechanical replacement phase | — Pending — future housekeeping pass can drop the table and either wire or delete edit-router.ts |
+| releaseSessionCapacity as the single shared implementation for reject + expiry capacity release (Phase 22) | One source of truth for the bookedCount-decrement SQL instead of duplicating it per caller | ✓ Good |
+| escl:approve/rescheduleSessionTool/assign_client_to_session keep passing 'confirmed' explicitly, bypassing the new pending-approval default (Phase 22) | Preserves each flow's pre-existing immediate-confirm behavior; only new session-class bookings needed the approval gate | ⚠️ Revisit — user has since said reschedule should also require approval (reverses this decision, tracked in pending todo 2026-07-27-require-owner-approval-on-reschedule-not-just-new-bookings.md) |
+| cascadeCancelSessionBookings uses no JOIN to clientBusinessRelationships when finding active bookings (Phase 23) | An INNER JOIN would silently exclude bookings created via assign_client_to_session with no prior relationship row | ✓ Good |
+| Booking-ID-scoped (not instance-level) idempotency key for lesson-deletion credit restore (Phase 23) | Prevents idempotency-key collisions when multiple bookings exist on the same cancelled instance | ✓ Good |
+| Telegram BotCommandScope wire format uses lowercase string types ('chat'/'all_private_chats'), not class names (Phase 24) | Corrected from RESEARCH.md's illustrative pseudocode during implementation | ✓ Good |
+| DIAG-01 diagnostic text carries only requestId/updateId/err.name/err.message — never clientPhone or business data (Phase 24) | Keeps the owner-facing technical alert free of the same client-data leak class already guarded against elsewhere in the codebase | ✓ Good |
+| qrcode + sharp as regular (not dev) dependencies; Dockerfile runtime stage installs fontconfig+fonts-dejavu-core (Phase 25) | Production npm ci --omit=dev + dist/-only copy needs both packages and system fonts at runtime for Greek/Latin glyph rasterization | ✓ Good |
+| sendBusinessInvite is the single call site for both admin-menu and free-chat invite triggers (Phase 25) | Zero duplicated Greek copy or deep-link construction between the two entry points | ✓ Good |
+| pg Pool 'connect'-event listener attached per-client, not just Pool-level 'error' (debug session, v1.6) | Pool-level .on('error') only covers idle clients; a client checked out mid-transaction had zero error listeners, crashing the process on idle_in_transaction_session_timeout | ✓ Good — live-verified, no crash recurrence post-fix |
+| runInTransaction helper wraps a manually-checked-out client instead of using drizzle's db.transaction() (debug session, v1.6) | drizzle-orm's node-postgres session leaks the pool client when the initial begin statement itself rejects (outside its own try/finally) — the helper guarantees client.release() regardless of where the transaction fails | ✓ Good |
 
 ## Evolution
 
@@ -159,4 +165,4 @@ A client can book or cancel an appointment with a Greek business entirely throug
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-25 after v1.5 milestone*
+*Last updated: 2026-07-28 after v1.6 milestone*

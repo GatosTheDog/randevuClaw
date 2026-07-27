@@ -1,5 +1,18 @@
 # Milestones
 
+## v1.6 Telegram Bot UX/Ops Improvements (Shipped: 2026-07-27)
+
+**Phases completed:** 4 phases, 4 plans, 11 tasks
+
+**Key accomplishments:**
+
+- Session-class bookings now default to `pending_owner_approval` with a real Έγκριση/Απόρριψη Telegram keyboard, atomic capacity-release + credit-restore on reject/expiry, and ownership/cross-tenant/idempotency guards on the new `sbk:` webhook callback route.
+- cascadeCancelSessionBookings shared service function wired into both admin-menu and free-chat lesson cancellation, restoring credit, releasing capacity, and sending Greek business-initiated notifications for every active booking on a cancelled session instance
+- Persistent Telegram menu button/commands for owner+client (BOT-06) plus best-effort owner diagnostics on both confirmed client-facing Gemini/routing fallback catch sites (DIAG-01)
+- QR + text-into-pixels business invite generator (qrcode + sharp SVG composition) wired into both the admin menu and free-chat Gemini tool-calling, sharing one orchestration function and a new multipart sendTelegramPhoto client helper.
+
+---
+
 ## v1.5 AI-Driven Owner Onboarding (Shipped: 2026-07-25)
 
 **Phases completed:** 1 phases, 3 plans, 6 tasks

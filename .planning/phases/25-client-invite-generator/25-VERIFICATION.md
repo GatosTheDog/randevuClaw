@@ -1,8 +1,9 @@
 ---
 phase: 25-client-invite-generator
 verified: 2026-07-27T00:00:00Z
-status: human_needed
+status: passed
 score: 9/9 must-haves verified
+human_verified: "2026-07-28 — user confirmed QR scan works against the live bot"
 behavior_unverified: 0
 overrides_applied: 0
 human_verification:
