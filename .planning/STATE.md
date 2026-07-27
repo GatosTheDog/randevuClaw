@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: UX & Trust Polish
 status: planning
-last_updated: "2026-07-27T22:27:43.511Z"
-last_activity: 2026-07-27
+last_updated: "2026-07-28T00:00:00.000Z"
+last_activity: 2026-07-28
 progress:
-  total_phases: 0
+  total_phases: 5
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -20,14 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-28 after v1.6 milestone close)
 
 **Core value:** A client can book or cancel an appointment with a Greek business entirely through a chat conversation, in Greek, with zero friction — and the owner's calendar updates automatically.
-**Current focus:** Planning next milestone (v1.7)
+**Current focus:** v1.7 UX & Trust Polish — Phase 26 (Confirmation & Approval Policy) ready to plan
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-07-27 — Milestone v1.7 started
+Phase: Phase 26 of 30 (v1.7 Phase 1/5) — Confirmation & Approval Policy
+Plan: — (not yet planned)
+Status: Ready to plan
+Last activity: 2026-07-28 — v1.7 ROADMAP.md created (Phases 26-30), REQUIREMENTS.md traceability updated, 15/15 requirements mapped
 
 ## Performance Metrics
 
@@ -215,14 +215,16 @@ Recent decisions affecting current work:
 - [Phase ?]: [Quick 260725-hlh]: 25000ms (25s) HTTP timeout added to all three GoogleGenAI client constructions to fix silent-hang bug where stalled Gemini responses never resolved/rejected
 - [Roadmap v1.6]: 4 phases derived from 8 requirements — Phase 22 (session booking approval + capacity hold/release), Phase 23 (lesson deletion + cascade-cancel bookings), Phase 24 (persistent menu button + owner diagnostics follow-up), Phase 25 (QR + deep-link invite generator)
 - [Roadmap v1.6]: BOT-06 and DIAG-01 grouped into one phase (24) rather than two single-requirement phases — both are small, independent bot-ops config/behavior changes with no natural neighbor closer than each other
+- [Roadmap v1.7]: 5 phases derived from 15 requirements — Phase 26 (CONF-01+CONF-02 confirmation/approval policy foundation), Phase 27 (COMP-01+COMP-02 client consent & registration), Phase 28 (ADMIN-01..04 admin menu discoverability, depends on Phase 26's confirmation pattern), Phase 29 (UX-01/02/04/05/06 booking & list clarity, depends on Phase 26's confirmation pattern), Phase 30 (UX-03+ADMIN-05 client identification & menu-button reliability, sequenced last as the most research-heavy pair)
+- [Roadmap v1.7]: Research's suggested 5-6 phase split (confirmation, reschedule-reversal, menu-standardization, booking-clarity, advanced-consent/fuzzy, dead-feature-cleanup) was consolidated to 5 phases — CONF-01/CONF-02 share one phase instead of two (both are "approval/confirmation policy" work), and the two dead-button items (ADMIN-01/02) were folded into the admin-menu-discoverability phase instead of a standalone cleanup phase, avoiding thin single-requirement phases
 
 ### Pending Todos
 
-- [session-booking] Fix same-day past-time slots showing as bookable — .planning/todos/pending/2026-07-27-fix-same-day-past-time-slots-showing-as-bookable.md
-- [telegram-bot] Research Telegram persistent menu button reliability — .planning/todos/pending/2026-07-27-research-telegram-persistent-menu-button-reliability.md
-- [session-booking] Require owner approval on reschedule, not just new bookings (reverses Phase 22 decision) — .planning/todos/pending/2026-07-27-require-owner-approval-on-reschedule-not-just-new-bookings.md
-- [onboarding] Add client registration question as first bot message — .planning/todos/pending/2026-07-27-add-client-registration-question-as-first-bot-message.md
-- [planning] Run full UX audit before scoping v1.7 — .planning/todos/pending/2026-07-27-run-full-ux-audit-before-scoping-v1-7.md
+- [session-booking] Fix same-day past-time slots showing as bookable — .planning/todos/pending/2026-07-27-fix-same-day-past-time-slots-showing-as-bookable.md (feeds Phase 29, UX-01)
+- [telegram-bot] Research Telegram persistent menu button reliability — .planning/todos/pending/2026-07-27-research-telegram-persistent-menu-button-reliability.md (feeds Phase 30, ADMIN-05)
+- [session-booking] Require owner approval on reschedule, not just new bookings (reverses Phase 22 decision) — .planning/todos/pending/2026-07-27-require-owner-approval-on-reschedule-not-just-new-bookings.md (feeds Phase 26, CONF-02)
+- [onboarding] Add client registration question as first bot message — .planning/todos/pending/2026-07-27-add-client-registration-question-as-first-bot-message.md (feeds Phase 27, COMP-02)
+- [planning] Run full UX audit before scoping v1.7 — .planning/todos/pending/2026-07-27-run-full-ux-audit-before-scoping-v1-7.md (done — v1.7 research + requirements complete)
 
 ### Quick Tasks Completed
 
@@ -248,6 +250,8 @@ Recent decisions affecting current work:
 - [Phase 9]: Expiry sweep isRunning guard required (same pattern as v1.0 reminder poller) to prevent overlapping sweep executions.
 - [Phase 22]: OWNR-06's capacity soft-hold must reuse the same SELECT FOR UPDATE atomic pattern already proven in bookSessionInstance/deductSession — don't invent a second locking strategy.
 - [Phase 23]: CLSS-07's credit restore must reuse the existing restoreCredit path from Phase 8 (billing/queries.ts) rather than duplicating unlimited-membership/null-guard logic.
+- [Phase 26]: CONF-02 reschedule-approval reversal has in-flight data risk — reschedules already auto-confirmed under the old Phase 22 behavior must not become invisible/orphaned once the new approval filter goes live (research PITFALLS.md #2).
+- [Phase 27]: COMP-01/COMP-02 consent-timing fix has a concurrency risk — two threads on the same client's first contact could race past the consent upsert; use an atomic INSERT...ON CONFLICT, not read-then-write (research PITFALLS.md #3).
 
 ## Deferred Items
 
@@ -301,17 +305,17 @@ Items acknowledged and deferred at v1.6 milestone close on 2026-07-28:
 | debug | knowledge-base | unknown (static reference doc used by gsd-debugger, not a real session — audit-tool false positive, no frontmatter status field by design) |
 | todo | 2026-07-07-pivot-to-per-business-whatsapp-numbers-post-poc.md | planning (carry-forward from v1.0/v1.2/v1.4/v1.5, still moot under Telegram-first pivot) |
 | todo | 2026-07-09-meta-business-verification-not-submitted.md | phase-1 (carry-forward, blocked on external Meta process) |
-| todo | 2026-07-27-add-client-registration-question-as-first-bot-message.md | onboarding (new feature idea, needs UX design — feed into v1.7 scoping) |
-| todo | 2026-07-27-fix-same-day-past-time-slots-showing-as-bookable.md | session-booking (narrow bug, quick fix candidate — feed into v1.7 scoping) |
-| todo | 2026-07-27-require-owner-approval-on-reschedule-not-just-new-bookings.md | session-booking (reverses Phase 22 decision, needs product decision — feed into v1.7 scoping) |
-| todo | 2026-07-27-research-telegram-persistent-menu-button-reliability.md | telegram-bot (needs actual research — feed into v1.7 scoping) |
-| todo | 2026-07-27-run-full-ux-audit-before-scoping-v1-7.md | planning (explicitly meant to be the first step of v1.7 scoping) |
+| todo | 2026-07-27-add-client-registration-question-as-first-bot-message.md | onboarding (fed into v1.7 Phase 27, COMP-02) |
+| todo | 2026-07-27-fix-same-day-past-time-slots-showing-as-bookable.md | session-booking (fed into v1.7 Phase 29, UX-01) |
+| todo | 2026-07-27-require-owner-approval-on-reschedule-not-just-new-bookings.md | session-booking (fed into v1.7 Phase 26, CONF-02) |
+| todo | 2026-07-27-research-telegram-persistent-menu-button-reliability.md | telegram-bot (fed into v1.7 Phase 30, ADMIN-05) |
+| todo | 2026-07-27-run-full-ux-audit-before-scoping-v1-7.md | planning (done — v1.7 research/requirements/roadmap complete) |
 | known_deferred: 8 (see above) | | |
 
 ## Session Continuity
 
-Last session: 2026-07-27T00:00:00.000Z
-Stopped at: v1.6 ROADMAP.md created (Phases 22-25), REQUIREMENTS.md traceability updated, 8/8 requirements mapped
+Last session: 2026-07-28T00:00:00.000Z
+Stopped at: v1.7 ROADMAP.md created (Phases 26-30), REQUIREMENTS.md traceability updated, 15/15 requirements mapped
 Resume file: None
 
 **Phase 12 Plan 01 completed:** a940588, 6c5830e, 7d64f85
@@ -346,4 +350,4 @@ Resume file: None
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Run `/gsd-plan-phase 26` to start planning Phase 26 (Confirmation & Approval Policy), the first phase of v1.7.

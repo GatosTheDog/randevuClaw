@@ -58,31 +58,29 @@ Deferred to future release. Tracked but not in current roadmap.
 
 ## Traceability
 
-Populated during roadmap creation.
-
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CONF-01 | TBD | Pending |
-| CONF-02 | TBD | Pending |
-| ADMIN-01 | TBD | Pending |
-| ADMIN-02 | TBD | Pending |
-| ADMIN-03 | TBD | Pending |
-| ADMIN-04 | TBD | Pending |
-| ADMIN-05 | TBD | Pending |
-| UX-01 | TBD | Pending |
-| UX-02 | TBD | Pending |
-| UX-03 | TBD | Pending |
-| UX-04 | TBD | Pending |
-| UX-05 | TBD | Pending |
-| UX-06 | TBD | Pending |
-| COMP-01 | TBD | Pending |
-| COMP-02 | TBD | Pending |
+| CONF-01 | Phase 26 | Pending |
+| CONF-02 | Phase 26 | Pending |
+| COMP-01 | Phase 27 | Pending |
+| COMP-02 | Phase 27 | Pending |
+| ADMIN-01 | Phase 28 | Pending |
+| ADMIN-02 | Phase 28 | Pending |
+| ADMIN-03 | Phase 28 | Pending |
+| ADMIN-04 | Phase 28 | Pending |
+| UX-01 | Phase 29 | Pending |
+| UX-02 | Phase 29 | Pending |
+| UX-04 | Phase 29 | Pending |
+| UX-05 | Phase 29 | Pending |
+| UX-06 | Phase 29 | Pending |
+| UX-03 | Phase 30 | Pending |
+| ADMIN-05 | Phase 30 | Pending |
 
 **Coverage:**
 - v1 requirements: 15 total
-- Mapped to phases: 0/15
-- Unmapped: 15 ⚠️ (roadmap not yet created)
+- Mapped to phases: 15/15 ✓
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-07-28*
-*Last updated: 2026-07-28 after v1.7 requirements definition*
+*Last updated: 2026-07-28 after v1.7 roadmap creation (Phases 26-30)*
