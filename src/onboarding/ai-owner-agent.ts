@@ -31,7 +31,7 @@ import {
 } from '../billing/tools';
 import { showClientSelection } from '../telegram/handlers/payment-flow';
 import { sendTelegramMessage, sendTelegramMessageWithKeyboard } from '../telegram/client';
-import { createSessionCatalogWithExpansion, bookSessionInstance, cancelSession, listSessions, buildRRuleString } from '../session/manager';
+import { createSessionCatalogWithExpansion, bookSessionInstance, cancelSession, cascadeCancelSessionBookings, listSessions, buildRRuleString } from '../session/manager';
 
 // Bounds the Gemini HTTP call to 25s so a stalled owner-agent response settles
 // instead of hanging silently — the existing try/catch already logs + returns
@@ -745,8 +745,12 @@ async function executeOwnerTool(
       if (!cancelled) {
         return `Το μάθημα στις ${session_date} ${session_time} ήταν ήδη ακυρωμένο.`;
       }
-      // NOTE: do NOT call sendTelegramMessage here — async notification poller handles it
-      return `Το μάθημα στις ${session_date} ${session_time} ακυρώθηκε. Οι κρατημένοι πελάτες θα ειδοποιηθούν αυτόματα.`;
+      const affectedCount = await cascadeCancelSessionBookings(business, target.instanceId);
+      const notifyMsg =
+        affectedCount > 0
+          ? `${affectedCount} πελάτες ειδοποιήθησαν αμέσως.`
+          : 'Δεν υπήρχαν κρατήσεις να ακυρωθούν.';
+      return `Το μάθημα στις ${session_date} ${session_time} ακυρώθηκε. ${notifyMsg}`;
     }
 
     case 'assign_client_to_session': {
