@@ -118,7 +118,7 @@ See: `.planning/milestones/v1.5-ROADMAP.md`
 | 21. AI-Driven Owner Onboarding | v1.5 | 3/3 | Complete | 2026-07-25 |
 | 22. Session Booking Approval Flow | v1.6 | 0/TBD | Not started | - |
 | 23. Lesson Deletion & Cascade Cancellation | v1.6 | 0/1 | Not started | - |
-| 24. Bot Access & Diagnostics Polish | v1.6 | 0/TBD | Not started | - |
+| 24. Bot Access & Diagnostics Polish | v1.6 | 0/1 | Not started | - |
 | 25. Client Invite Generator | v1.6 | 0/TBD | Not started | - |
 
 ## Backlog
@@ -192,13 +192,16 @@ Plans:
 
 ### Phase 24: Bot Access & Diagnostics Polish
 **Goal**: Admin and clients get one-tap access to their own menu without retyping a command, and the owner gets actionable technical visibility whenever the bot's generic Greek fallback fires for a client — without changing what the client sees.
-**Depends on**: Nothing new — small, independent additions: Telegram Bot API `setChatMenuButton`/command registration (extends Phase 17/18 menus), and a follow-up send at the existing generic-fallback call sites across `src/conversation/ai-agent.ts`, `src/onboarding/ai-owner-agent.ts`, `src/onboarding/ai-onboarding-agent.ts`, and `src/webhooks/telegram.ts`
+**Depends on**: Nothing new — small, independent additions: Telegram Bot API `setChatMenuButton`/command registration (extends Phase 17/18 menus), and a follow-up send at the two confirmed client-facing generic-fallback call sites in `src/conversation/ai-agent.ts` and `src/webhooks/telegram.ts`
 **Requirements**: BOT-06, DIAG-01
 **Success Criteria** (what must be TRUE):
   1. Admin sees a persistent Telegram menu button that opens the admin `/menu` directly, without typing the command.
   2. Client sees a persistent Telegram menu button that opens the client `/start` menu directly, without typing the command.
   3. When the bot sends the generic Greek fallback error message to a client, the owner's own chat receives a best-effort follow-up message identifying what step/tool failed and the error type, while the client-facing message stays unchanged (clean Greek only).
-**Plans**: TBD
+**Plans:** 1 plan
+
+Plans:
+- [ ] 24-01-PLAN.md — Persistent Telegram menu button (BOT-06: setChatMenuButton/setMyCommands wired into finish_onboarding) + owner diagnostic on client-facing fallback (DIAG-01: best-effort notification at the two confirmed call sites)
 
 ### Phase 25: Client Invite Generator
 **Goal**: Owner can generate a single, ready-to-share invite for their business's bot — a printable QR code plus a copyable deep link — so bringing on a new client needs no manual setup.
