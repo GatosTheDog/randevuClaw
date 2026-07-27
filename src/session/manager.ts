@@ -4,12 +4,20 @@
 
 import { and, eq, gte, inArray, sql } from 'drizzle-orm';
 import { sessionCatalog, sessionInstances, bookings } from '../database/schema';
-import { getConn, withBusinessContext } from '../database/queries';
-import { getActiveMembershipForDeduction, deductSession } from '../billing/queries';
+import { getConn, withBusinessContext, findActiveBookingsForSessionInstance } from '../database/queries';
+import type { Business } from '../database/queries';
+import {
+  getActiveMembershipForDeduction,
+  deductSession,
+  findMembershipByBooking,
+  restoreCredit,
+} from '../billing/queries';
 import type { ActiveMembershipForDeduction } from '../billing/queries';
 import { isoDateInAthens, addCalendarDays } from '../utils/timezone';
 import { logger } from '../utils/logger';
 import { RRule } from 'rrule';
+import { deleteBookingFromCalendar } from '../calendar/sync';
+import { botTokenStore, sendTelegramMessage } from '../telegram/client';
 
 // ---------------------------------------------------------------------------
 // Exported TypeScript interfaces
@@ -365,6 +373,95 @@ export async function cancelSession(
       .returning({ id: sessionInstances.id });
 
     return rows.length > 0;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// cascadeCancelSessionBookings
+// ---------------------------------------------------------------------------
+
+/**
+ * Phase 23 (CLSS-07): cascade-cancels every active booking tied to a
+ * session instance that was just cancelled via cancelSession(). Always
+ * invoked AFTER cancelSession() returns true — that ordering, combined with
+ * cancelSession's own idempotent isCancelled=false guard, is what makes a
+ * second call for the same instance a safe no-op (T-23-02).
+ *
+ * For each active booking found:
+ *   1. A per-booking CAS status update closes the narrow TOCTOU gap between
+ *      the initial SELECT and this mutation (e.g. a client cancelling their
+ *      own booking concurrently). Zero rows returned => skip this booking
+ *      entirely (some other path already owns its restore).
+ *   2. findMembershipByBooking + restoreCredit (Phase 8, reused verbatim) —
+ *      booking-ID-scoped idempotency key prevents cross-booking key
+ *      collisions on the same instance.
+ *   3. releaseSessionCapacity (Phase 22, reused verbatim) — exactly once per
+ *      successfully-CAS'd booking.
+ *   4. Best-effort calendar delete (never throws internally; wrapped anyway
+ *      as defense-in-depth).
+ *   5. Best-effort Greek client notification, business-initiated wording
+ *      distinct from the poller's own message (T-23-03: isolated per client,
+ *      a thrown error here never blocks processing for the rest of the loop).
+ *
+ * Returns the count of bookings actually cancelled by this call (NOT the
+ * count of successful notification sends).
+ */
+export async function cascadeCancelSessionBookings(
+  business: Business,
+  sessionInstanceId: number
+): Promise<number> {
+  return withBusinessContext(business.id, async () => {
+    const candidates = await findActiveBookingsForSessionInstance(business.id, sessionInstanceId);
+
+    let processedCount = 0;
+
+    for (const booking of candidates) {
+      // Per-booking CAS: closes the TOCTOU gap between the initial SELECT and
+      // this mutation. Zero rows back => someone else already transitioned
+      // this booking; skip credit/capacity/notification for it.
+      const casRows = await getConn()
+        .update(bookings)
+        .set({ bookingStatus: 'cancelled' })
+        .where(
+          and(
+            eq(bookings.id, booking.id),
+            inArray(bookings.bookingStatus, ['confirmed', 'pending_owner_approval'])
+          )
+        )
+        .returning({ id: bookings.id });
+
+      if (casRows.length === 0) continue;
+
+      processedCount += 1;
+
+      const membershipId = await findMembershipByBooking(booking.id);
+      if (membershipId !== null) {
+        await restoreCredit(
+          membershipId,
+          booking.id,
+          `lesson-deletion:${sessionInstanceId}:booking:${booking.id}`
+        );
+      }
+
+      await releaseSessionCapacity(sessionInstanceId);
+
+      try {
+        await deleteBookingFromCalendar(booking, business);
+      } catch (err) {
+        logger.warn({ err, bookingId: booking.id, sessionInstanceId }, 'cascadeCancelSessionBookings: calendar delete failed');
+      }
+
+      try {
+        if (business.botToken) {
+          const msg = `Η κράτησή σας για το μάθημα ${booking.calendarDate} ${booking.calendarTime} ακυρώθηκε από την επιχείρηση.`;
+          await botTokenStore.run(business.botToken, () => sendTelegramMessage(booking.clientPhone, msg));
+        }
+      } catch (err) {
+        logger.warn({ err, bookingId: booking.id, sessionInstanceId }, 'cascadeCancelSessionBookings: client notification failed');
+      }
+    }
+
+    return processedCount;
   });
 }
 

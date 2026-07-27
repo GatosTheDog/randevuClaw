@@ -350,6 +350,35 @@ export async function findActiveBookingSlotsForDate(
     );
 }
 
+/**
+ * Phase 23 (CLSS-07): returns all active (confirmed / pending_owner_approval)
+ * bookings tied to a given session instance, scoped to businessId. Used by
+ * cascadeCancelSessionBookings to find every booking that must be flipped to
+ * 'cancelled' when the owner deletes/cancels the underlying lesson.
+ *
+ * Deliberately does NOT join clientBusinessRelationships (T-23-01): a booking
+ * created via assign_client_to_session can exist with no prior relationship
+ * row, and an INNER JOIN would silently exclude it from cascade-cancellation,
+ * leaking an un-refunded, un-released booking. businessId is part of the
+ * WHERE clause (not re-derived), so an instance belonging to another business
+ * can never leak bookings here.
+ */
+export async function findActiveBookingsForSessionInstance(
+  businessId: number,
+  sessionInstanceId: number
+): Promise<Booking[]> {
+  return getConn()
+    .select()
+    .from(bookings)
+    .where(
+      and(
+        eq(bookings.businessId, businessId),
+        eq(bookings.sessionInstanceId, sessionInstanceId),
+        inArray(bookings.bookingStatus, ['confirmed', 'pending_owner_approval'])
+      )
+    );
+}
+
 export async function insertBooking(values: {
   businessId: number;
   clientPhone: string;
