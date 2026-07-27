@@ -12,7 +12,7 @@ import {
   Service,
 } from '../database/queries';
 import { checkAvailability } from '../business/availability';
-import { sendTelegramMessage, sendTelegramMessageWithKeyboard } from '../telegram/client';
+import { sendTelegramMessage, sendTelegramMessageWithKeyboard, InlineKeyboard } from '../telegram/client';
 import { deleteBookingFromCalendar } from '../calendar/sync';
 import { logger } from '../utils/logger';
 import { getClientActiveMembership, getActiveMembershipForDeduction, deductSession, getClientName, findMembershipByBooking, restoreCredit, linkRescheduledBooking } from '../billing/queries';
@@ -609,8 +609,33 @@ async function bookSessionTool(
         key,
         enfResult.membership
       );
-      if (result.status === 'success') booked.push(instanceId);
-      else if (result.status === 'full') full.push(instanceId);
+      if (result.status === 'success') {
+        booked.push(instanceId);
+        // Phase 22 (OWNR-05/06): every newly pending multi-booked instance
+        // needs its own approval keyboard — this branch previously sent NO
+        // owner notification at all. Best-effort, mirrors the single-booking
+        // branch below.
+        try {
+          if (context.business.ownerTelegramId && result.bookingId) {
+            const approveData = `sbk:approve:${result.bookingId}`;
+            const rejectData = `sbk:reject:${result.bookingId}`;
+            const keyboard: InlineKeyboard = [
+              [
+                { text: 'Έγκριση', callback_data: approveData },
+                { text: 'Απόρριψη', callback_data: rejectData },
+              ],
+            ];
+            const msgResp = await sendTelegramMessageWithKeyboard(
+              context.business.ownerTelegramId,
+              'Νέα κράτηση αναμονής ' + session.sessionDate + ' ' + session.sessionTime + ' — πελάτης: ' + context.clientPhone,
+              keyboard
+            );
+            await updateBookingOwnerMessageId(result.bookingId, msgResp.messageId);
+          }
+        } catch (err) {
+          logger.error({ err }, 'Multi-booking session owner alert failed (best-effort)');
+        }
+      } else if (result.status === 'full') full.push(instanceId);
       else conflict.push(instanceId);
     }
 
@@ -663,13 +688,27 @@ async function bookSessionTool(
     return { success: false, error: 'session_not_available', message: 'Το μάθημα δεν είναι διαθέσιμο (ακυρωμένο ή δεν βρέθηκε).' };
   }
 
-  // Best-effort owner alert — session bookings are auto-confirmed; no approve/reject keyboard needed
+  // Best-effort owner alert — Phase 22 (OWNR-05/06): session bookings are now
+  // created pending_owner_approval by default, so this sends an
+  // Έγκριση/Απόρριψη approval keyboard instead of a plain text alert. This
+  // call site relies on the ambient botTokenStore context already established
+  // further up the call chain (no botTokenStore.run wrapper of its own).
   try {
-    if (context.business.ownerTelegramId) {
-      await sendTelegramMessage(
+    if (context.business.ownerTelegramId && result.bookingId) {
+      const approveData = `sbk:approve:${result.bookingId}`;
+      const rejectData = `sbk:reject:${result.bookingId}`;
+      const keyboard: InlineKeyboard = [
+        [
+          { text: 'Έγκριση', callback_data: approveData },
+          { text: 'Απόρριψη', callback_data: rejectData },
+        ],
+      ];
+      const msgResp = await sendTelegramMessageWithKeyboard(
         context.business.ownerTelegramId,
-        'Νέα κράτηση μαθήματος ' + session.sessionDate + ' ' + session.sessionTime + ' — πελάτης: ' + context.clientPhone
+        'Νέα κράτηση αναμονής ' + session.sessionDate + ' ' + session.sessionTime + ' — πελάτης: ' + context.clientPhone,
+        keyboard
       );
+      await updateBookingOwnerMessageId(result.bookingId, msgResp.messageId);
     }
   } catch (err) {
     logger.error({ err }, 'Session booking owner alert failed (best-effort)');
@@ -742,7 +781,14 @@ async function rescheduleSessionTool(
     context.clientPhone,
     newSession.serviceId,
     newKey,
-    activeMembership
+    activeMembership,
+    // Phase 22: reschedule keeps its pre-existing immediate-confirm behavior
+    // deliberately — a client rescheduling an already-confirmed booking to a
+    // new slot is not a new approval request. Without this override the new
+    // pending-by-default default would leave every reschedule stuck pending
+    // with no keyboard ever sent (this call site sends no owner notification
+    // at all, before or after this phase).
+    'confirmed'
   );
 
   if (result.status !== 'success') {

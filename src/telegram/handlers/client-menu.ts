@@ -15,6 +15,7 @@ import {
   listClientBookings,
   findBookingByIdUnscoped,
   updateBookingStatus,
+  updateBookingOwnerMessageId,
 } from '../../database/queries';
 import { sendEscalationToAdmin, EscalationReason } from '../escalation';
 import {
@@ -245,27 +246,40 @@ export async function handleBookSessionExecute(
 
   // Owner notification — best-effort (mirrors handleCancelExecute's pattern
   // below and bookSessionTool's equivalent AI-chat alert in
-  // function-executor.ts). Session bookings are auto-confirmed, so this is a
-  // plain informational alert — no approve/reject keyboard needed.
+  // function-executor.ts). Phase 22 (OWNR-05/06): session bookings are now
+  // created pending_owner_approval by default, so this sends an
+  // Έγκριση/Απόρριψη approval keyboard instead of a plain informational alert.
   try {
     if (business.ownerTelegramId && business.botToken) {
       const clientDisplayName = (await getClientName(business.id, senderTelegramId)) ?? senderTelegramId;
       const ownerText =
-        'Νέα κράτηση μαθήματος:\nΗμερομηνία: ' +
+        'Νέα κράτηση αναμονής:\nΗμερομηνία: ' +
         (instanceRow[0]?.sessionDate ?? '?') +
         '\nΏρα: ' +
         (instanceRow[0]?.sessionTime ?? '?') +
         '\nΠελάτης: ' +
         clientDisplayName;
+      const approveData = `sbk:approve:${bookResult.bookingId}`;
+      const rejectData = `sbk:reject:${bookResult.bookingId}`;
+      assertCallbackDataSize(approveData);
+      assertCallbackDataSize(rejectData);
       await botTokenStore.run(business.botToken, async () => {
-        await sendTelegramMessage(business.ownerTelegramId!, ownerText);
+        const msgResp = await sendTelegramMessageWithKeyboard(business.ownerTelegramId!, ownerText, [
+          [
+            { text: 'Έγκριση', callback_data: approveData },
+            { text: 'Απόρριψη', callback_data: rejectData },
+          ],
+        ]);
+        if (bookResult.bookingId) {
+          await updateBookingOwnerMessageId(bookResult.bookingId, msgResp.messageId);
+        }
       });
     }
   } catch (err) {
     logger.error({ err, businessId: business.id, senderTelegramId, instanceId }, 'Owner booking notification failed (best-effort)');
   }
 
-  await sendTelegramMessage(chatId, 'Η κράτησή σας επιβεβαιώθηκε! Θα σας δούμε σύντομα.');
+  await sendTelegramMessage(chatId, 'Το αίτημά σας στάλθηκε στον διαχειριστή! Αναμονή επιβεβαίωσης...');
 
   const backKeyboard: InlineKeyboard = [
     [{ text: '« Αρχικό μενού', callback_data: 'cmenu:root' }],

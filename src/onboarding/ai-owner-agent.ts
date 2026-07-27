@@ -766,12 +766,20 @@ async function executeOwnerTool(
       }
       // T-10-12: businessId ownership guard enforced inside bookSessionInstance via FK subquery
       const idempotencyKey = `owner-assign:${business.id}:${session_date}:${session_time}:${client_phone}`;
+      // Phase 22: this is a direct owner decision (the owner is assigning the
+      // client themselves via chat), so it must not enter the new
+      // pending-approval cycle — the client is already told "Σε περιμένουμε!"
+      // (we're expecting you) immediately below, which would be misleading
+      // for a pending booking. `undefined` for activeMembership (6th arg)
+      // preserves the existing internal-resolution fallback.
       const bookResult = await bookSessionInstance(
         business.id,
         target.instanceId,
         client_phone,
         target.serviceId,
-        idempotencyKey
+        idempotencyKey,
+        undefined,
+        'confirmed'
       );
       if (bookResult.status === 'full') {
         return 'Το μάθημα είναι γεμάτο. Δεν είναι δυνατή η ανάθεση.';
