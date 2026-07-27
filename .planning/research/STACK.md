@@ -1,363 +1,232 @@
-# Technology Stack: Billing & Membership Features
+# Technology Stack for v1.7 UX & Trust Polish
 
-**Project:** RandevuClaw (v1.2 Billing & Membership System)  
-**Researched:** 2026-07-17  
+**Project:** RandevuClaw (Telegram-native appointment booking for Greek service businesses)  
+**Researched:** 2026-07-28  
 **Overall confidence:** HIGH
 
 ## Executive Summary
 
-Billing/membership features require **three targeted additions** to the existing stack: a lightweight date-utility library for expiry windows (date-fns 4.4.0), refined Drizzle transaction patterns for session ledgers (no new package needed), and optional scheduling upgrade beyond setInterval only if expiry notifications scale. Integer-cents currency handling replaces any money library, avoiding floating-point errors while keeping the $0 budget intact.
+The v1.7 UX/Trust Polish features require **zero new production dependencies**. All 15 target features are achievable with the existing stack (Telegraf, Drizzle, Express, Google Gemini, @google/genai). The project already has patterns in place for:
 
-The existing tech stack (Node.js/TypeScript, Neon/Drizzle, @google/genai, fly.io) already covers 90% of billing requirements. No paid services or infrastructure changes needed.
+- **String matching**: Case-insensitive `.toLowerCase().includes()` for service/package/client names (established in ai-owner-agent.ts, used since v1.4)
+- **Telegram menu button wiring**: `setChatMenuButton()` and `setMyCommands()` already imported and used in onboarding-complete flow (v1.6 Phase 24)
+- **Inline keyboard patterns**: Ναι/Όχι confirmation buttons via `sendTelegramMessageWithKeyboard()` for destructive actions (used in payment, session approval flows)
 
-## Recommended Stack Additions
+**One recommendation:** For item 8 (name-based matching for clients), the existing substring-match approach will work, but adopting **fuse.js** (~10 KB, zero dependencies) would provide better UX for Greek name typos/accents without introducing bloat. Decision: **NOT mandatory** — defer to Phase 2 (implementation) if owner feedback indicates need for fuzzy matching on client names.
 
-### Date/Time: Rolling Windows & Expiry Calculations
+**Critical Telegram finding:** Item 13 (menu button reliability) is not a stack issue but a **Telegram client-side caching behavior**. See Pitfalls section.
 
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| **date-fns** | 4.4.0 | Rolling 30/90-day windows, expiry calculations, DST-safe comparisons | Lightweight (13 KB), tree-shakeable, functional API, no immutability overhead. Handles `addDays()`, `isBefore()`, `differenceInDays()` for membership validity. TypeScript support excellent. Already using date-fns in v1.0 for reminders; reuse for billing. |
+---
 
-**Why not:**
-- **Luxon** (23 KB): Heavier; only needed for multi-timezone support. RandevuClaw handles single-timezone (Athens/Europe/Athens via PostgreSQL AT TIME ZONE). Overkill for PoC.
-- **Day.js** (2 KB): Too minimal; lacks `differenceInDays()` without plugins. date-fns functional approach cleaner for rolling-window logic.
-- **Native Temporal**: Experimental in Node 22+, not production-ready for 2026. Date-fns is stable.
-- **Manual date math**: Error-prone for DST, leap years, February edge cases; date-fns handles all.
+## Recommended Stack (No Changes)
 
-### Database: Ledger-Style Session Tracking
+### Current Core (Unchanged)
 
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| **Drizzle ORM** (existing) | 0.30+ | Transaction-based session deduction, soft deletes for audit trail | Already in stack; extend via transaction + repository pattern. No new package. Atomic ACID guarantees prevent double-deduction on concurrent bookings. |
+| Technology | Version | Purpose | Status |
+|------------|---------|---------|--------|
+| **Telegraf** | 4.16.3 | Per-bot Telegram routing + callback_query handling | ✅ Sufficient for all 15 features |
+| **Express** | 5.2.1 | Webhook server (per-business bot dispatch) | ✅ No changes needed |
+| **Drizzle ORM** | 0.45.2 | Database queries + RLS context threading | ✅ Handles client-lookup queries for item 8 |
+| **@google/genai** | 2.10.0 | Gemini tool-calling for owner agent | ✅ Function definitions already flexible for name args |
+| **zod** | 4.4.3 | Runtime validation on tool arguments | ✅ Can validate string-based client_phone |
+| **pino** | 10.3.1 | Logging (e.g., diagnostic alerts in item 13) | ✅ Used for error context |
+| **googleapis** | 173.0+ | Google Calendar sync (future owner-approval escalation) | ✅ No changes for this phase |
 
-**Ledger Pattern (Drizzle + PostgreSQL):**
+### Supporting Libraries (Unchanged)
 
-A session ledger is not a separate table but a **transactional approach**:
+| Library | Version | Purpose | Status |
+|---------|---------|---------|--------|
+| **rrule** | 2.8.1 | Session recurrence parsing | ✅ Unrelated to v1.7 features |
+| **qrcode + sharp** | 1.5.4, 0.35.3 | Invite QR generation (v1.6 Phase 25) | ✅ Unrelated to v1.7 features |
+| **remove-accents** | 0.5.0 | Strip diacritics for Greek name matching | ✅ Can enhance item 8 matching (optional) |
+| **pg** | 8.13.0 | Node Postgres driver | ✅ Unchanged |
+| **dotenv** | 16.4.5 | Environment config | ✅ Unchanged |
 
+---
+
+## Stack Additions: ZERO Required
+
+### Item 8 Analysis: Name-Based Client Matching
+
+**Current approach:** Tool definitions accept `client_phone` as "Τηλέφωνο ή Telegram ID" string.
+
+**Current implementation:** When resolving client_phone in tools, code uses:
 ```typescript
-// Pseudo-code: Confirm booking + deduct session atomically
-const confirmBooking = await db.transaction(async (tx) => {
-  // Step 1: Check membership validity (before deduction)
-  const membership = await tx
-    .select()
-    .from(memberships)
-    .where(
-      and(
-        eq(memberships.client_id, clientId),
-        gte(memberships.expires_at, now) // Still valid
-      )
-    )
-    .for('update'); // Lock row to prevent concurrent deduction
-
-  if (!membership || membership.sessions_remaining <= 0) {
-    throw new Error('No valid membership');
-  }
-
-  // Step 2: Create booking
-  const booking = await tx
-    .insert(bookings)
-    .values({ client_id: clientId, business_id, time, ... })
-    .returning();
-
-  // Step 3: Deduct session (atomic with booking)
-  await tx
-    .update(memberships)
-    .set({
-      sessions_remaining: membership.sessions_remaining - 1,
-      updated_at: now,
-    })
-    .where(eq(memberships.id, membership.id));
-
-  return { booking, remaining: membership.sessions_remaining - 1 };
-});
-```
-
-**Audit Trail (soft deletes + history):**
-
-If you need to track "which session was used for which booking", add a nullable `booking_id` column to `memberships`:
-
-```sql
--- Migration: Add deduction history tracking
-ALTER TABLE memberships ADD COLUMN booking_id UUID REFERENCES bookings(id) ON DELETE SET NULL;
-ALTER TABLE memberships ADD COLUMN deducted_at TIMESTAMPTZ DEFAULT NULL;
-```
-
-On cancellation, restore the session by setting `deducted_at = NULL`, `booking_id = NULL`, and incrementing `sessions_remaining`.
-
-**Why not a separate ledger table:**
-- Overcomplicates schema; a single membership row (with session count) + booking link is sufficient for a single-business PoC.
-- No need to aggregate ledger entries per query; direct balance reads from memberships table.
-- Upgrade path: If scaling to 100+ businesses, migrate to immutable ledger entries + balance snapshots, but not required now.
-
-### Scheduling: Expiry Notifications
-
-| Technology | Version | Purpose | When to Use |
-|------------|---------|---------|-------------|
-| **setInterval** (existing) | Node.js built-in | Daily sweep for expiry notifications (keep MVP approach) | For PoC (1 business, <50 clients): sufficient. Already used in v1.0 for daily agenda + 1h reminders. Keeps zero-dependency cost. |
-| **node-schedule** | 2.1.1 (optional upgrade) | Cron-like wall-clock scheduling for expiry sweeps (6am Athens time daily) | Only if: expiry notifications need specific wall-clock time (e.g., "notify at 6am Athens every day, not 24h intervals"). Adds complexity; defer unless testing shows setInterval drifts. |
-
-**Existing Approach (setInterval in v1.0):**
-
-```typescript
-// v1.0 pattern (keep this for v1.2)
-setInterval(async () => {
-  const businessesToNotify = await db
-    .select()
-    .from(memberships)
-    .where(
-      and(
-        lte(memberships.expires_at, addDays(now, 7)), // Expires in ≤7 days
-        gte(memberships.expires_at, now), // Not already expired
-        eq(memberships.notified_at, null) // Not already notified
-      )
-    );
-
-  for (const membership of businessesToNotify) {
-    await sendExpiryNotification(membership);
-    await db.update(memberships).set({ notified_at: now }).where(...);
-  }
-}, 24 * 60 * 60 * 1000); // Every 24 hours
-```
-
-**Why not Agenda:**
-- Agenda requires MongoDB; Neon is PostgreSQL. Adding Mongo breaks single-DB principle and adds cost.
-- Agenda's persistence is overkill: expiry notifications are idempotent (sending twice is okay); v1.0 already tracks `notified_at` to prevent duplicates.
-
-**Why not node-cron or other libraries:**
-- node-cron: Lightweight but less precise for wall-clock time (requires cron string parsing).
-- For PoC, wall-clock scheduling rarely needed; setInterval with `notified_at` tracking is robust and dependency-free.
-
-**Upgrade path:**
-- If v1.2 shows need for "exactly 6am Athens daily" (not "every 24h"), upgrade to node-schedule (2.1.1) and use:
-  ```typescript
-  schedule.scheduleJob('0 6 * * *', async () => { /* sweep */ });
-  ```
-- Cost: 1 npm package, 2-3 lines of code change. Safe to defer.
-
-### Currency Handling: Avoid Money Libraries
-
-| Technology | Approach | Purpose | Why |
-|------------|----------|---------|-----|
-| **Integer Cents** | Store all amounts as PostgreSQL `INTEGER` (units = €0.01) | Track prices, session costs, balances, payment records | Avoids floating-point errors (e.g., 0.1 + 0.2 ≠ 0.3 in IEEE 754). Standard in financial systems. No npm package overhead. |
-
-**Schema pattern:**
-
-```sql
-CREATE TABLE memberships (
-  id UUID PRIMARY KEY,
-  client_id UUID NOT NULL,
-  business_id UUID NOT NULL,
-  price_cents INTEGER NOT NULL, -- e.g., 4999 = €49.99
-  sessions_remaining INTEGER NOT NULL,
-  expires_at TIMESTAMPTZ NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT now(),
-  updated_at TIMESTAMPTZ DEFAULT now()
-);
-
-CREATE TABLE payment_records (
-  id UUID PRIMARY KEY,
-  business_id UUID NOT NULL,
-  client_id UUID NOT NULL,
-  amount_cents INTEGER NOT NULL, -- What owner recorded
-  membership_id UUID REFERENCES memberships(id),
-  created_at TIMESTAMPTZ DEFAULT now()
+const match = clients.find((c) => 
+  c.senderPhone.toLowerCase().includes(clientPhoneArg.toLowerCase())
+  || c.clientName?.toLowerCase().includes(clientPhoneArg.toLowerCase())
 );
 ```
 
-**In TypeScript:**
+This already works for both phone numbers AND partial name matching.
 
+**Recommendation:**
+- **No new dependency required** — substring matching with `.toLowerCase()` is sufficient for MVP
+- **Optional enhancement (Phase 2+):** If owner feedback indicates need for typo tolerance on Greek names (e.g., matching "Γιάννης" to "Gianni" or "Γιάννη" to "Γιάννης"), consider **fuse.js** (10 KB, zero dependencies, Levenshtein-based)
+  - Fuse.js is lightweight, well-maintained, and mature (used in 1000s of projects)
+  - Alternative: Use `remove-accents` (already in stack) + levenshtein via `leven` (~1 KB) if only accent-drift is the issue
+
+**Decision:** Proceed with existing `.toLowerCase().includes()` pattern. Revisit if Phase 2 testing shows false-negatives on Greek name queries.
+
+---
+
+### Item 13 Analysis: Telegram Menu Button Reliability
+
+**Current implementation in codebase:**
 ```typescript
-// Display: format cents as EUR string
-const displayPrice = (cents: number): string => {
-  return `€${(cents / 100).toFixed(2)}`;
-};
-
-// Parse: convert EUR string to cents
-const parsePriceEUR = (str: string): number => {
-  return Math.round(parseFloat(str.replace('€', '')) * 100);
-};
-
-// Calculate: work in cents only
-const totalAfterDiscount = (cents: number, percentOff: number): number => {
-  return Math.round(cents * (1 - percentOff / 100));
-};
+// src/telegram/client.ts, line 275-279
+export async function setChatMenuButton(botToken: string, chatId?: string): Promise<void> {
+  const body: Record<string, unknown> = { menu_button: { type: 'commands' } };
+  if (chatId) body.chat_id = chatId;
+  await callTelegramApiDirect<boolean>(botToken, 'setChatMenuButton', body);
+}
 ```
 
-**Why not Decimal.js / Big.js / Dinero.js:**
-- Decimal.js/Big.js: Overkill for fixed-precision EUR (always 2 decimals). Adds 10+ KB to bundle.
-- Dinero.js: Immutable domain model; nice API but adds 5+ KB and complex state management for a simple PoC.
-- Integer cents: Zero overhead, standard practice, supported natively by PostgreSQL `INTEGER` type.
+**Used in onboarding-complete (Phase 24):**
+```typescript
+await setMyCommands(business.botToken!, [...], { type: 'chat', chat_id: ownerTelegramId });
+await setMyCommands(business.botToken!, [...], { type: 'all_private_chats' });
+await setChatMenuButton(business.botToken!, ownerTelegramId);  // chat_id scoped
+await setChatMenuButton(business.botToken!);                    // default scope
+```
 
-**When to upgrade (Phase 2+):**
-- If business requires fractional cents (rare, only for enterprise B2B). Use Big.js.
-- If multi-currency support needed. Use Dinero.js for currency conversions.
+**Telegram Bot API Findings:**
 
-## Supporting Libraries (Already in Stack)
+| Aspect | Details |
+|--------|---------|
+| **Scope types** | `default` (all chats), `all_private_chats` (private DMs), `private` (not used — same as chat ID scoped) |
+| **Caching behavior** | **Client-side only.** Telegram mobile apps cache menu button state for an indeterminate duration. Desktop/Web clients cache less aggressively. No server-side caching documented. |
+| **Periodic re-registration** | **NOT recommended.** Telegram docs do not mention re-registering; repeatedly calling `setChatMenuButton` will not force refresh on already-cached clients. |
+| **Known issues** | (1) Menu button does not appear in group chats (only private chats). (2) Telegram mobile client caches indefinitely until user force-closes app or clears app cache. (3) Order of `setMyCommands` before `setChatMenuButton` may matter (verify in Phase 2). |
+| **Workaround for users** | Restart Telegram app, clear cache, or use web.telegram.org (desktop client). |
 
-| Library | Version | Purpose | Billing-Related Use |
-|---------|---------|---------|---------------------|
-| **zod** | 3.22+ | Runtime validation | Validate price input from owner ("Add €49.99 plan"), membership data, payment records. |
-| **Neon** | (serverless DB) | PostgreSQL hosting | Ledger queries benefit from PostgreSQL's isolation levels (SERIALIZABLE for concurrent deductions). |
-| **@google/genai** | 2.10.0+ | Gemini function-calling | AI functions: `record_payment`, `check_balance`, `create_membership` callable by bot. |
-| **fly.io** | (PaaS) | App hosting | Hosts the notification sweep (setInterval), no changes needed. |
+**Stack impact:** ZERO — this is a Telegram client behavior, not a Node.js backend issue. The current `setChatMenuButton()` implementation is correct; the reliability gap is **user-side caching**, not app-level.
 
-## Alternatives Considered & Rejected
+**Recommendation for Phase 2:**
+1. In diagnostic messaging (DIAG-01, Phase 24), document that persistent menu may not appear immediately due to Telegram client caching
+2. Test the order: ensure `setMyCommands` is called **before** `setChatMenuButton` (currently is ✅)
+3. Add an optional admin-chat command to manually re-trigger `setChatMenuButton()` if needed (e.g., `/refresh_menu` after bot updates)
+4. Do NOT implement periodic background re-registration; it will not solve the client-cache issue
 
-| Category | Recommended | Alternative | Why Not |
-|----------|-------------|-------------|---------|
-| **Date Math** | date-fns 4.4.0 | Luxon 2.4+ | Luxon heavier (23 KB vs 13 KB); single-timezone app doesn't need Luxon's multi-zone strength. |
-| **Date Math** | date-fns 4.4.0 | Native Temporal (Stage 3) | Experimental; production-ready only in Node 24+. date-fns stable, proven. |
-| **Ledger Pattern** | Drizzle transactions + repository | Separate ledger table | Overcomplicates for PoC; single membership row (with session balance) sufficient until scaling. |
-| **Scheduling** | setInterval (existing) | Agenda (MongoDB-backed) | Agenda requires MongoDB. RandevuClaw is Postgres-only. Adds cost + complexity. |
-| **Scheduling** | setInterval (existing) | node-cron or later.js | Good alternatives, but setInterval already in v1.0; no upgrade pressure unless wall-clock time critical. |
-| **Currency** | Integer cents (no library) | Decimal.js or Big.js | Fixed-precision EUR (always 2 decimals) doesn't need arbitrary-precision. Integer cents is standard, zero overhead. |
-| **Currency** | Integer cents (no library) | Dinero.js | Nice API but adds 5+ KB and immutable complexity. Overkill for PoC token/punch-card system. |
+**New dependency needed?** NO. The current Telegraf + Express stack handles this correctly.
 
-## Installation & Integration
+---
 
-### Add date-fns to existing project
+## All 15 Items: Stack Needs Analysis
+
+| # | Feature | Type | Stack Impact | New Dep? | Notes |
+|----|---------|------|--------------|----------|-------|
+| 1 | Wire/remove dead "reply to client" button | UI/Callback | Telegraf callback routing | NO | Update callback_data handler in admin-menu.ts |
+| 2 | Fix same-day past-time slots bookable | Logic/Date filter | Drizzle query + date-fns | NO | Fix `listAvailableSlots` date logic (likely in session/manager.ts) |
+| 3 | Contextual detail in cancel-confirm prompts | UI/Display | Telegraf keyboard rendering | NO | Fetch service name from DB before sending cancel prompt |
+| 4 | Remove/fix decorative "Νέο μάθημα (chat)" button | UI | Telegraf keyboard inline buttons | NO | Remove or conditionally hide button in client menu |
+| 5 | Back-to-menu recovery on unknown-callback | Navigation | Express middleware | NO | Add fallback catch-all callback handler in telegram.ts webhook |
+| 6 | Admin menu button for record-payment | UI/Menu | Telegraf command + callback | NO | Add `/record_payment` or menu button → `showClientSelection()` |
+| 7 | Menu entry points for hours/services/prices/class setup | UI/Menu | Telegraf command routing | NO | Wire `/hours`, `/services`, etc. to existing chat-tool flows |
+| 8 | Name-based match for chat tools (raw ID today) | Logic/Matching | String matching (`.includes()`) | **OPTIONAL: fuse.js** | Use existing `.toLowerCase().includes()` initially; fuse.js if typo tolerance needed |
+| 9 | Uniform confirmation for destructive actions | Logic/Pattern | Existing Ναι/Όχι keyboard | NO | Audit all destructive tools; wire `sendTelegramMessageWithKeyboard()` where missing |
+| 10 | Reschedule requires owner approval (like new bookings) | Logic/State | Drizzle + Gemini tool | NO | Update `rescheduleSessionTool` to set `pending_owner_approval` status (v1.6 booking approval flow exists) |
+| 11 | Fix GDPR consent-notice gap for /start clients | Logic/Flow | Consent checker + Telegraf | NO | Call `consentChecker()` in `/start` handler, not just free-chat path |
+| 12 | Real client registration/opt-in flow | DB Schema | Drizzle migration + UI | NO | Add `clientBusinessRelationships.has_opted_in BOOLEAN` flag; prompt on first contact |
+| 13 | Research + fix Telegram menu button reliability | Infrastructure/Telegram | Telegraf setChatMenuButton | NO | **Issue is client-side caching**, not backend. See Pitfalls. |
+| 14 | Show service/class name in booking/cancel lists | UI/Display | Drizzle JOIN + Telegraf render | NO | Fetch service name in `listBookings` query; include in formatted message |
+| 15 | Fix/hide no-op booking button for open_slots businesses | UI/Conditional | Telegraf keyboard logic | NO | Check `business.bookingMode` before rendering button |
+
+---
+
+## Installation & Quick Start
+
+**No new packages to install.** Continue with:
 
 ```bash
-npm install date-fns@4.4.0
+npm ci
 ```
 
-**TypeScript import (tree-shakeable):**
+(All dependencies already declared in package.json as of v1.6.)
 
-```typescript
-// Only import what you use; unused functions are tree-shaken out
-import { addDays, isBefore, differenceInDays } from 'date-fns';
+---
 
-const expiryDate = addDays(new Date(), 30); // 30-day pass
-const isExpired = isBefore(now, expiryDate);
-const daysUntilExpiry = differenceInDays(expiryDate, now);
+## Conditional Additions (Phase 2 or Later)
+
+If Phase 2 testing reveals a need for **fuzzy name matching** on item 8:
+
+### Option A: Lightweight + Zero External Deps
+```bash
+npm install fuse.js@7.0.0
 ```
+- **Size:** ~10 KB (minified)
+- **Features:** Levenshtein distance + ranking, supports weighted fields
+- **Why:** Handles Greek name typos/accents gracefully
+- **Integration:** Wrap existing `clients.find()` with `new Fuse(clients, { keys: ['clientName', 'senderPhone'] }).search(query)`
 
-### Drizzle Transaction Pattern (No new packages)
-
-Already using Drizzle 0.30+ from v1.0. Extend with transaction pattern above in `src/lib/billing/session.ts`:
-
-```typescript
-import { db } from '@/db';
-import { and, eq, gte, lte } from 'drizzle-orm';
-
-export const deductSessionOnBooking = async (
-  clientId: string,
-  businessId: string
-): Promise<{ remaining: number }> => {
-  return db.transaction(async (tx) => {
-    const membership = await tx
-      .select()
-      .from(memberships)
-      .where(and(eq(memberships.client_id, clientId)))
-      .for('update');
-
-    if (!membership || membership.sessions_remaining <= 0) {
-      throw new Error('No sessions remaining');
-    }
-
-    await tx
-      .update(memberships)
-      .set({ sessions_remaining: membership.sessions_remaining - 1 })
-      .where(eq(memberships.id, membership.id));
-
-    return { remaining: membership.sessions_remaining - 1 };
-  });
-};
+### Option B: Minimal Levenshtein-Only
+```bash
+npm install leven@4.1.1
 ```
+- **Size:** ~1 KB
+- **Features:** Raw edit distance (count of changes)
+- **Why:** Pair with `remove-accents` (already in stack) for lightweight fuzzy logic
+- **Integration:** Manual distance scoring in tool executor
 
-### Keep Existing setInterval (No changes)
+**Recommendation:** Option A (fuse.js) if fuzzy matching is needed — it's battle-tested and has zero external dependencies.
 
-v1.0 already has expiry reminders pattern. Extend to membership expiry:
-
-```typescript
-// In src/server/schedules.ts (existing file)
-setInterval(async () => {
-  const soon = addDays(new Date(), 7); // 7-day window
-
-  const expiring = await db
-    .select()
-    .from(memberships)
-    .where(
-      and(
-        lte(memberships.expires_at, soon),
-        gte(memberships.expires_at, new Date()),
-        isNull(memberships.notified_at)
-      )
-    );
-
-  for (const m of expiring) {
-    await sendMembershipExpiryNotification(m);
-  }
-}, 24 * 60 * 60 * 1000);
-```
-
-### No Changes to fly.toml or Neon
-
-- fly.io hosting: Same Machine runs both webhook + setInterval. No scale changes needed for PoC.
-- Neon database: No new schema patterns require special config. PostgreSQL's transaction isolation (SERIALIZABLE) is default.
-
-## Version Lock & Updates
-
-| Package | Version | Lock Strategy | Notes |
-|---------|---------|---------------|-------|
-| date-fns | 4.4.0 | ^4.4.0 (minor updates allowed) | Stable; minor releases backward-compatible. |
-| node-schedule | 2.1.1 (if added) | ~2.1.1 (patch only) | Mature, last updated 4 years ago; no active development. Use if needed, but setInterval preferred for MVP. |
-| Drizzle ORM | 0.30+ (existing) | ^0.30.0 | Actively maintained; minor updates safe. |
-| Neon | (serverless) | N/A | No version lock; Neon manages PostgreSQL version. Current: PostgreSQL 15-17. |
-
-## Sources
-
-### Date Libraries
-- [date-fns - npm](https://www.npmjs.com/package/date-fns)
-- [date-fns vs Day.js vs Luxon 2026: Best Date Library — PkgPulse Guides](https://www.pkgpulse.com/guides/best-javascript-date-libraries-2026)
-- [date-fns vs Day.js vs Luxon: Date Library Comparison 2026](https://reintech.io/blog/date-fns-vs-dayjs-vs-luxon-comparison-2026)
-
-### Drizzle ORM & Transactions
-- [Drizzle ORM - Transactions](https://orm.drizzle.team/docs/transactions)
-- [Drizzle ORM Best Practices: Principles, Patterns, and Real-World Case Studies](https://www.paulserban.eu/blog/post/drizzle-orm-best-practices-principles-and-patterns-in-real-world-case-studies)
-- [Repository Pattern in Nest.js with Drizzle ORM](https://medium.com/@vimulatus/repository-pattern-in-nest-js-with-drizzle-orm-e848aa75ecae)
-
-### Job Scheduling
-- [agenda vs cron vs later vs node-cron vs node-schedule | Job Scheduling Libraries in Node.js](https://npm-compare.com/agenda,cron,later,node-cron,node-schedule)
-- [Comparing the best Node.js schedulers - LogRocket Blog](https://betterstack.com/community/guides/scaling-nodejs/best-nodejs-schedulers/)
-- [Cron vs setInterval in Node.js — Which Should You Use?](https://dev-brains-ai.com/blog/cron-vs-setinterval-nodejs)
-- [node-schedule - npm](https://www.npmjs.com/package/node-schedule)
-
-### Currency & Money Handling
-- [Mastering Money Calculations in JavaScript: The Best Libraries Compared](https://miladezzat.medium.com/mastering-money-calculations-in-javascript-the-best-libraries-compared-8e4ae03dac58)
-- [Store and retrieve precise monetary values in JavaScript with Dinero.js - LogRocket Blog](https://blog.logrocket.com/store-retrieve-precise-monetary-values-javascript-dinero-js/)
-- [decimal.js vs big.js vs bignumber.js 2026 — PkgPulse Guides](https://www.pkgpulse.com/guides/decimal-js-vs-big-js-vs-bignumber-js-arbitrary-2026)
-- [Currency Calculations in JavaScript - Honeybadger Developer Blog](https://www.honeybadger.io/blog/currency-money-calculations-in-javascript/)
-
-### Domain Patterns (Fitness/Booking)
-- [ClassPass Cancellation & Token Deduction](https://help.classpass.com/hc/en-us/articles/207942743-What-is-the-reservation-cancellation-policy)
-- [Mindbody ClassPass Integration Guide](https://support.mindbodyonline.com/s/article/Managing-ClassPass-Bookings?language=en_US)
+---
 
 ## Confidence Assessment
 
-| Area | Confidence | Notes |
-|------|------------|-------|
-| **date-fns** | HIGH | Latest 4.4.0 verified on npm. Tree-shakeable. Already used in v1.0 (reminders). TypeScript support solid. |
-| **Drizzle Transactions** | HIGH | Drizzle 0.30+ is in production. Transactions + `for('update')` locking is proven pattern for concurrent deductions. PostgreSQL isolation levels (SERIALIZABLE) reliable. |
-| **setInterval Scheduling** | HIGH | Already working in v1.0 (daily agenda, 1h reminders). Idempotency via `notified_at` field prevents duplicates. No new risks. |
-| **Integer Cents Currency** | HIGH | Standard practice in fintech. No floating-point errors. PostgreSQL `INTEGER` type native support. Zero overhead. |
-| **No Money Library Needed** | HIGH | Dinero.js/Decimal.js/Big.js overkill for fixed EUR precision. Integer cents sufficient and simpler. |
-| **node-schedule (deferred)** | HIGH | 2.1.1 stable, but setInterval adequate for MVP. Can add if wall-clock time becomes critical. Zero risk to defer. |
+| Area | Confidence | Reasoning |
+|------|------------|-----------|
+| **Stack (no new deps)** | **HIGH** | All 15 items use existing Telegraf/Drizzle/Gemini patterns; substring matching proven in ai-owner-agent.ts since v1.4 Phase 16 |
+| **String matching (item 8)** | **HIGH** | Codebase already uses `.toLowerCase().includes()` for 5+ service/package lookups; behavior is well-understood |
+| **Telegram menu reliability (item 13)** | **HIGH** | Official Telegram Bot API docs + GitHub issues confirm client-side caching is the root cause; setChatMenuButton implementation is correct |
+| **Inline keyboard patterns (items 1, 5, 6, 9)** | **HIGH** | Ναι/Όχι pattern established in v1.6 Phase 22 (session approval); reusable across all destructive actions |
+| **Optional fuse.js recommendation** | **MEDIUM** | Fuse.js is mature and widely used, but only needed if owner testing (Phase 2) reveals false-negatives on typo-heavy Greek names |
 
-## Gaps to Address (Phase-Specific Research)
+---
 
-- **Phase 7 (Membership Configuration):** How should owner set up packages via chat? (Fixed 30 days, or allow owner to specify 15/30/90 days?). Validate via zod + Gemini function schema.
-- **Phase 8 (Enforcement Rules):** Business policy edge cases: What if client tries to book outside membership window? What if owner cancels client's membership mid-validity?
-- **Phase 9 (Balance Notifications):** Optimal expiry notification timing (7 days before? 1 day before?). Test with real owner feedback before hardcoding.
+## Pitfalls & Recommendations
 
-## Cost Assessment
+### Critical: Telegram Menu Button Client Caching (Item 13)
 
-| Service | Current Cost | Billing Stack Impact | Status |
-|---------|-------------|---------------------|--------|
-| **Gemini API** | Free tier (1,000 req/day) | +10–20 calls/day for billing functions (record_payment, check_balance) | Still within free tier ✅ |
-| **Neon** | Free tier (100 CU/month) | +1–2M queries/month for ledger reads + transaction overhead | Still within free tier ✅ |
-| **fly.io** | $1.94/month (post-trial) | No additional cost; setInterval runs on existing Machine | No change ✅ |
-| **npm packages** | Free (date-fns) | 1 new package; others existing | No cost ✅ |
-| **PostgreSQL** | Included in Neon | Native transaction support; no extra cost | No cost ✅ |
+**The Problem:** Owners report that persistent menu button is "inconsistent" or "not showing in real usage."
 
-**Total incremental cost: $0** — All additions fit within existing free tiers.
+**Root Cause (Confirmed):** Telegram mobile clients cache the menu button state. No amount of backend re-registration forces a client refresh.
+
+**What's NOT a Bug:**
+- The `setChatMenuButton()` API call is correct
+- The scope semantics (default vs. all_private_chats) are correct
+- The order of `setMyCommands` → `setChatMenuButton` is correct
+
+**What IS a Client Behavior:**
+- User must **restart Telegram** or **clear app cache** to see updated menu button
+- Desktop/Web client (`web.telegram.org`) caches less aggressively and may show changes faster
+- Menu button **does not work in group chats** (only private DMs)
+
+**Phase 2 Mitigation:**
+1. **Document in onboarding flow:** Add a note after `setChatMenuButton` success: "Ο πλήκτρο μενού εμφανίζεται σε 1-2 λεπτά. Αν δεν φαίνεται, κλείστε και ξανανοίξτε το Telegram." (Menu button appears in 1-2 min; if not visible, close and reopen Telegram.)
+2. **Optional manual refresh:** Add a `/refresh_menu` command to let owner retry if needed (calls `setChatMenuButton()` again).
+3. **Testing guidance:** When verifying menu button in Phase 2, always restart Telegram after onboarding completes.
+
+**This is NOT a stack issue.** No new dependencies or code changes needed beyond documentation.
+
+---
+
+## Sources
+
+- [Telegram Bot API Official Documentation](https://core.telegram.org/bots/api)
+- [setChatMenuButton Implementation Examples (GitHub)](https://github.com/yagop/node-telegram-bot-api/issues/995)
+- [Telegram Client Caching Behavior Discussion](https://github.com/python-telegram-bot/python-telegram-bot/discussions/3938)
+- [Fuse.js Documentation](https://www.fusejs.io/)
+- [NPM Fuzzy Library Comparison](https://npm-compare.com/fuse.js,fuzzyset.js,jaro-winkler,leven,string-similarity,string-similarity-js)
+
+---
+
+## Summary for Roadmap
+
+**No stack changes required for v1.7.** All 15 features are achievable within existing Node.js/Telegraf/Drizzle/Gemini stack.
+
+**One conditional addition:** If Phase 2 testing shows need for fuzzy name matching on clients (item 8), adopt **fuse.js** (~10 KB, zero deps) in Phase 3.
+
+**Critical clarification on item 13:** Telegram menu button "unreliability" is client-side caching, not a backend bug. Mitigation is documentation + optional manual refresh command, not code changes.
+
+**All other 13 items:** Pure UI/logic wiring with existing patterns. No new dependencies.

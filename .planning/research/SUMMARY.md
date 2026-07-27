@@ -1,162 +1,218 @@
-# Project Research Summary: Studio Session Scheduling & Slotless Bookings
+# Project Research Summary: RandevuClaw v1.7 UX & Trust Polish
 
-**Project:** RandevuClaw v1.3
-**Domain:** Class-schedule booking mode, slotless request approval, cancellation cutoff policy, renewal notification extensions for chat-native Greek fitness/wellness booking bot
-**Researched:** 2026-07-22
-**Overall Confidence:** HIGH
+**Project:** RandevuClaw (Telegram-native appointment booking for Greek service businesses)
+**Domain:** Chat-bot UX polish, compliance fixes, and owner-experience improvements
+**Researched:** 2026-07-28
+**Confidence:** HIGH (all 4 research areas high/consistent)
 
 ## Executive Summary
 
-RandevuClaw v1.3 adds three interconnected feature clusters to the existing v1.2 session-credit billing system: **(1) Session Catalog** (fixed-capacity recurring classes like "Pilates Mon/Wed/Fri 10am, 15 spots"), **(2) Slotless Booking Requests** (clients request slots; owner approves/rejects), and **(3) Cancellation Cutoff Policy** (configurable forfeit windows). Renewal nudges extend the existing v1.2 expiry notification sweep.
+The v1.7 roadmap is a **targeted polish phase focused on 15 UX/compliance fixes** across Telegram UI, owner menu discoverability, booking list clarity, and GDPR consent timing. **Key finding: zero new production dependencies required.** All 15 items are achievable with the existing stack (Telegraf, Drizzle, Express, Google Gemini) and leverage established patterns from v1.6 Phase 22's approval workflow architecture.
 
-**Recommended stack:** Add `rrule` v2.8.1 (RFC 5545 standard, battle-tested in Calendly/Google Calendar, 791K weekly npm downloads) for recurring session expansion. Reuse existing DST-safe timezone utilities (proven 6+ months in v1.2). Add 3 new Drizzle tables (`sessionCatalog`, `sessionInstances`, `slotlessRequests`) with 7 optional business config columns (all nullable/backward-compatible). All additions fit existing free tiers — no infrastructure cost increase.
+The research identifies this as a **"credibility phase"** — most items are table stakes (confirmation dialogs, menu discoverability, consent timing) that signal a polished, compliant product. Two items are differentiators (reschedule-approval stricter control, fuzzy name lookup), and two are dead features that should be removed entirely. **Critical finding:** The main reliability concern (Telegram menu button caching) is **client-side browser behavior, not a backend architecture issue** — mitigation is documentation and optional manual refresh, not code restructuring.
 
-**Six critical pitfalls:** capacity races (SELECT FOR UPDATE), slotless state machine orphaning (re-check membership at approval), DST cutoff bugs (use isoDateInAthens), booking mode switch orphaning (nullable session_id FK), Telegram rate limits (throttle broadcast), recurring expansion atomicity (eager + idempotency).
+**Roadmap complexity:** ~43–57 hours estimated effort; straightforward sequencing with 5–6 phases organized by dependency (foundation → menus → booking clarity → compliance → advanced). **Highest risk:** reversing reschedule approval design without careful in-flight data migration; **mitigation: implement confirmation-policy foundation first (Phase 1), then reschedule reversal (Phase 2).**
+
+---
 
 ## Key Findings
 
-### Stack
+### Recommended Stack
 
-- **`rrule` v2.8.1** — only new package; RFC 5545 standard; 791K weekly npm downloads; used in Calendly/Google Calendar/Apple Calendar; native TypeScript types; ~8 KB gzipped server-side. Alternatives rejected (cron-parser too narrow, luxon too heavy, manual expansion fragile on DST).
-- **Existing `timezone.ts`** — `isoDateInAthens()`, `addCalendarDays()` cover all cutoff window arithmetic; DST-safe; proven v1.2. No new date library needed.
-- **Drizzle ORM (existing)** — 3 new tables via standard `pgTable` pattern; `SELECT FOR UPDATE` for capacity races (same as Phase 8 session deduction); RLS inheritance automatic via FK chain.
-- **Telegraf callback_query (existing)** — slotless approval buttons reuse v1.2 owner-approval keyboard pattern; no new messaging library.
-- **setInterval pollers (existing)** — renewal threshold sweep extends existing 6-hour expiry sweep; no new scheduler.
-- **7 new business config columns** — all nullable defaults; backward-compatible; `open_slots` is the default `booking_mode` so existing businesses are unaffected.
+**No new dependencies required for v1.7.** All 15 items are implementable with the existing stack:
 
-### Features
+**Core technologies (unchanged):**
+- **Telegraf** (4.16.3): Message routing, callback query handling — sufficient for all 15 features
+- **Drizzle ORM** (0.45.2): Database queries, RLS context threading — already supports client-lookup queries for item 8 (name matching)
+- **Express** (5.2.1): Webhook server for per-business bot dispatch — no changes needed
+- **@google/genai** (2.10.0): Gemini tool-calling for owner agent — function definitions already flexible for string-based arguments
+- **zod** (4.4.3): Runtime validation — validates tool arguments and consent state
 
-**Table stakes (must ship — industry standard across Mindbody, Glofox, Acuity, Setmore):**
-- Pre-defined recurring class sessions with date/time/capacity
-- Owner creates recurring session template once → system auto-generates instances ~90 days forward
-- Client books specific session; capacity tracked atomically
-- Owner cancels individual session → all booked clients notified in Greek
-- Owner assigns client to session directly → client notified
-- Cancellation cutoff window with credit forfeiture; Greek confirmation dialog before forfeit
-- Slotless booking requests (client request → owner approve/reject → booking)
+**Optional addition (Phase 2+, if testing warrants):**
+- **fuse.js** (~10 KB, zero dependencies): Fuzzy string matching for Greek name typos/accents. Only needed if Phase 2 testing reveals false-negatives on name-based client lookup (item 8).
 
-**Differentiators (emerging, per-business opt-in):**
-- Per-client slotless request history surfaced at check-in
-- Last-session threshold nudge (sessions_remaining ≤ N triggers renewal notification)
-- Owner mass renewal broadcast (throttled, 10 msg/sec)
-- Multi-session booking in single request (`allow_multi_booking`)
+**Why zero new deps:** All 15 items reuse established patterns from v1.6 (substring matching with `.toLowerCase().includes()`, inline keyboard callbacks, session approval cascade from Phase 22, schema flags for consent). The stack was designed for flexibility; no architectural gaps emerged.
 
-**Anti-features / out of scope:**
-- Waitlist auto-promotion (adds state complexity; defer to v1.4)
-- Per-instructor or per-room scheduling (PoC scope)
-- Recurrence patterns beyond weekly (daily/bi-weekly adds rrule complexity without clear PoC need)
-- Buffer/advance booking limits (useful, lower priority)
-- Session-level pricing overrides (future revenue lever)
+---
 
-**Critical edge cases:**
-- DST boundary (Greece: Oct 25 2026 -1h, Mar 28 2027 +1h) — cutoff arithmetic must use wall-clock time, not UTC offset
-- Slotless approval after membership expires — must re-check inside approval transaction
-- Two clients simultaneously booking last capacity spot — DB UNIQUE constraint + SELECT FOR UPDATE
-- Booking mode switch mid-operation — nullable `session_id` FK; mode-aware queries; existing bookings unaffected
+### Expected Features: 15 Items in 4 Categories
 
-**Chatbot UX patterns (Telegram):**
-- Session listing: show date/time/capacity/booked count + action buttons
-- Cancellation with cutoff: two-step Greek confirmation ("Θα χάσετε 1 session. Συνέχεια;")
-- Owner approval: notify with client context (balance, membership validity); Ναι/Όχι keyboard
-- Renewal nudge: specific Greek message ("Σας έχει απομείνει 1 session. Ανανεώστε σύντομα.")
+Research across production chat-bot and scheduling platforms (Wix, Calendly, DaySchedule, Skedda, HighLevel, HubSpot, Zoho, Acuity) identifies clear **table stakes vs. differentiators**:
 
-### Architecture Integration
+**Must have (table stakes):**
+- **Confirmation dialogs on destructive actions** (item 9) — Standard UX best practice across all production platforms
+- **Service/class names in booking lists** (item 14) — Multi-service context essential
+- **Past-time slot filtering** (item 2) — Prevent booking expired slots
+- **Contextual confirmation prompts** (item 3) — Show service/date, not raw IDs
+- **Menu-accessible high-frequency actions** (items 6, 7) — Payment, setup must be discoverable (35% user abandonment if chat-only)
+- **Back-to-menu error recovery** (item 5) — Handle stale button taps gracefully
+- **GDPR consent on first contact** (item 11) — Greek law compliance requirement
+- **Real client opt-in flow** (item 12) — Explicit acceptance, not implicit
+- **Consistent menu button behavior** (item 13) — Expected in Telegram
+- **Hidden buttons for non-applicable flows** (item 15) — Clarity on open_slots businesses
 
-**New tables:**
-| Table | Purpose | Key columns |
-|-------|---------|------------|
-| `session_catalog` | Recurring session template | `businessId`, `serviceId`, `dayOfWeek`, `startTime`, `capacity`, `rruleString`, `isActive` |
-| `session_instances` | Pre-generated instances | `catalogId`, `sessionDate`, `sessionTime`, `bookedCount`, `isCancelled`, idempotency_key UNIQUE |
-| `slotless_requests` | Approval queue | `businessId`, `clientPhone`, `requestedDate`, `requestedTime`, `status` (pending/approved/rejected), `bookingId` FK nullable |
+**Should have (differentiators):**
+- **Approval required on reschedules** (item 10) — Stricter than most competitors
+- **Fuzzy name-based lookup** (item 8) — UX improvement over numeric ID copy-paste
 
-**7 new businesses columns:**
-`booking_mode`, `cancellation_cutoff_enabled`, `cancellation_cutoff_hours`, `last_session_threshold_enabled`, `last_session_threshold_count`, `slotless_requests_enabled`, `allow_multi_booking`
+**Remove entirely:**
+- **Non-functional "reply to client" button** (item 1) — Erodes trust; either implement or remove
+- **Decorative "Νέο μάθημα (chat)" button** (item 4) — No-op button signals incompleteness
 
-**Modified files:**
-- `src/database/schema.ts` — 3 new tables + 7 new columns on businesses
-- `src/billing/queries.ts` — `cancelBookingWithRefund` extended for cutoff check
-- `src/conversation/function-executor.ts` — `bookAppointmentTool` gains session-booking path; `cancelAppointmentTool` gains cutoff confirmation step
-- `src/onboarding/ai-owner-agent.ts` — new OWNER_TOOLS for session catalog management
-- `src/telegram/telegram.ts` — slotless request approval callback routing
+---
 
-**Build order (each phase depends on prior):**
-1. Schema + migrations (blocks all downstream)
-2. Query layer (blocks business logic)
-3. Business logic — session manager, cutoff enforcement, slotless approval (blocks Gemini tools)
-4. Client Gemini tools — book_session, request_slot, cancel_with_cutoff (blocks E2E tests)
-5. Owner Gemini tools — create_session, cancel_session, approve_request, renewal_broadcast
-6. Pollers + onboarding extensions (depends on all above)
+### Architecture Approach
 
-### Critical Pitfalls
+The 15 items integrate as **mostly localized surface-layer changes** with three strategic considerations:
 
-| Pitfall | Severity | Prevention | Phase |
-|---------|---------|-----------|-------|
-| Capacity race (2 clients claim last spot) | HIGH | `SELECT FOR UPDATE` on session_instance + `UNIQUE(session_instance_id, client_phone)` | Session booking phase |
-| Slotless approval orphaning (membership expires mid-approval) | HIGH | Re-check membership validity INSIDE approval transaction | Slotless phase |
-| DST cutoff bug (Oct 25 -1h breaks hours-before-session math) | HIGH | Use `isoDateInAthens()` + `addCalendarDays()`; NEVER raw UTC offsets; test Oct 25 & Mar 28 | Cutoff phase |
-| Booking mode switch orphans existing bookings | MEDIUM | Nullable `session_id` FK; mode-aware queries dispatch on flag; existing bookings unaffected | Schema phase |
-| Telegram rate limit on mass broadcast | MEDIUM | Throttle to 10 msg/sec; pre-compose templates; background job not critical path; idempotency key | Renewal phase |
-| Recurring expansion atomicity | MEDIUM | Eager hybrid + idempotent inserts (pattern from Phase 7 createMembership); UNIQUE idempotency_key on session_instances | Session catalog phase |
+1. **Confirmation-policy standardization (item 9)** must precede menu changes. Shared constants in `src/utils/greek-messages.ts` (no global helper due to callback-naming differences per file).
+
+2. **Reschedule approval (item 10)** fully reuses Phase 22's existing `sbk:approve/<id>` capacity-hold cascade. Single change: remove explicit `'confirmed'` status parameter in `rescheduleSessionTool`. **No new state machine, no schema changes.**
+
+3. **Consent-timing gap (item 11)** requires moving `getOrCreateClientRelationship()` call earlier in `handleFoundBusiness`, but **zero schema changes beyond repurposing existing `consentGiven` column** (default `true` → `false`, backfill existing rows to `true`).
+
+**No new database tables. No new RLS policies.** All affected tables already guarded by `withBusinessContext`.
+
+---
+
+### Critical Pitfalls & Prevention
+
+1. **State machine races on confirmation-policy refactoring (item 9)**
+   - Risk: Concurrent admin actions (delete + confirm simultaneously) cause double-deduction, ghost notifications, negative capacity
+   - Prevention: Use `SELECT FOR UPDATE` + database idempotency keys; test double-click scenarios explicitly
+   - Phase ordering: Item 9 must be Phase 1
+
+2. **Reversing reschedule approval with in-flight data (item 10)**
+   - Risk: Old reschedules exist with status="confirmed"; new approval filter shows only `pending_owner_approval`, making old data invisible. Results: double-booked slots, orphaned approvals
+   - Prevention: Pre-rollout migration upserts approval-requests for old reschedules; dual-state query; capacity-hold relock verification
+   - Phase ordering: Item 10 must be Phase 2 (after item 9)
+
+3. **GDPR consent-timing race in multi-tenant RLS (item 11)**
+   - Risk: Thread A shows consent notice; Thread B processes action before A's upsert completes. Result: action without consent, GDPR Article 7 breach
+   - Prevention: Atomic upsert (`INSERT ... ON CONFLICT ... DO UPDATE`); RLS context before query; SERIALIZABLE isolation; backfill before deploy
+   - Phase ordering: Item 11 should be Phase 1 alongside item 9
+
+4. **Fuzzy name-matching ambiguity (item 8)**
+   - Risk: Multiple clients share similar names; fuzzy match picks wrong one for deletion
+   - Prevention: Multi-option confirmation UI (show top-N matches); full-record confirmation before destructive action; require explicit ID if confidence < 85%
+   - Phase ordering: Item 8 must be Phase 3 (after confirmation foundation)
+
+5. **Telegram menu-button caching (item 13) — MODERATE**
+   - Risk: Clients cache command list ~5 minutes; new menu button won't appear until cache expires
+   - Prevention: Call `deleteMyCommands` before `setMyCommands`; always specify scope + language-code
+   - Note: **Client-side caching, not backend issue.** Mitigation is documentation + optional `/refresh_menu` command, not code restructuring
+
+---
 
 ## Implications for Roadmap
 
-### Recommended Phase Structure (continues from Phase 9 → starts Phase 10)
+### Phase 1: Confirmation Foundation & Early Consent (Items 9, 11)
+**Rationale:** Both must precede all menu/callback refactoring. Establish uniform confirmation pattern and atomic GDPR flow.
+**Delivers:** Shared Greek button constants, atomic GDPR consent flow, uniform Ναι/Όχι policy.
+**Addresses:** Table stakes: confirmation dialogs, GDPR consent timing.
+**Avoids:** State machine races, consent timing race.
+**Effort:** ~10–12 hrs | **Research needed?** No — patterns well-established
 
-**Phase 10: Session Catalog & Schema** (foundation — all others blocked)
-- Schema migration: 3 new tables + 7 business config columns
-- `rrule` integration for instance pre-generation (~90 days)
-- Owner creates/lists/cancels session catalog entries via OWNER_TOOLS
-- Owner assigns client to session; Greek notification
-- Nyquist test stubs for all CLSS requirements
+### Phase 2: Reschedule Approval Reversal (Item 10)
+**Rationale:** Depends on Phase 1 foundation. In-flight data migration requires careful testing.
+**Delivers:** Reschedules now require owner approval like new bookings; stricter control differentiator.
+**Uses:** Existing Phase 22 `sbk:approve/<id>` cascade; no new state machine.
+**Avoids:** Double-booked slots, orphaned approvals.
+**Effort:** ~5–7 hrs | **Research needed?** No — reuses proven pattern
 
-**Phase 11: Session Booking Flow**
-- Client books specific session via Gemini NLU (`book_session` tool)
-- Session-aware enforcement (membership check + capacity check atomically)
-- Session bookings deduct session credits via existing ledger
-- Calendar event per session booking
-- Concurrent capacity race test (SELECT FOR UPDATE proven)
+### Phase 3: Menu Standardization & Discoverability (Items 3, 6, 7, 9 refactor)
+**Rationale:** Depends on Phase 1 constants. Low risk; reuses existing handlers.
+**Delivers:** Admin menu buttons for payment + setup; contextual prompts; menu-accessible high-frequency actions.
+**Addresses:** Table stakes: menu discoverability, contextual confirmations.
+**Effort:** ~12–15 hrs | **Research needed?** No — UI patterns established
 
-**Phase 12: Cancellation Cutoff**
-- `cancellation_cutoff_enabled/hours` on businesses table
-- Cutoff check in `cancelBookingWithRefund` using DST-safe time comparison
-- Two-step Greek confirmation dialog before forfeiture
-- Credit restoration path (≥ cutoff) vs. forfeiture path (< cutoff)
-- DST boundary tests (Oct 25 2026, Mar 28 2027)
+### Phase 4: Booking List & Schema Clarity (Items 2, 3, 14, 15, 12)
+**Rationale:** Independent work; includes schema prep for Phase 5's consent gate.
+**Delivers:** Service names in booking lists; past-time slot filtering; button hiding; consent schema ready.
+**Addresses:** Table stakes: booking clarity, hidden buttons.
+**Effort:** ~8–12 hrs | **Research needed?** No — standard SQL operations
 
-**Phase 13: Slotless Booking Requests**
-- `slotless_requests` table + approval state machine
-- Client requests via Gemini tool → owner notified with Ναι/Όχι keyboard
-- Approved → creates booking (re-checks membership inside transaction)
-- Per-client request history + check-in surfacing
-- Owner tools: list_pending_requests, approve/reject
+### Phase 5: Advanced Consent & Fuzzy Matching (Items 8, 11 gate finalization, 13)
+**Rationale:** Depends on Phases 1–4. Most research-heavy; includes live Telegram testing.
+**Delivers:** Name-based client lookup; Telegram menu retry + documentation; live testing results.
+**Addresses:** Differentiator: fuzzy lookup; table stakes: menu reliability.
+**Avoids:** Wrong-client deletions via ambiguous fuzzy match.
+**Effort:** ~10–15 hrs | **Research needed?** YES — Item 13 requires live Telegram testing; item 8 needs false-positive testing
 
-**Phase 14: Renewal Extensions**
-- `last_session_threshold_enabled/count` config
-- Extend existing 6-hour expiry sweep: trigger when sessions_remaining ≤ threshold AND days_to_expiry ≤ 7
-- Mass renewal broadcast (throttled, OWNER_TOOLS command)
-- Per-client renewal reminder on demand
+### Phase 6 (Optional): Dead Features Cleanup (Items 1, 4)
+**Rationale:** Low risk; can run in parallel or as final polish.
+**Delivers:** Removal of non-functional buttons.
+**Effort:** ~1–2 hrs | **Research needed?** No — deletions only
 
-**Phase 15: Onboarding Extensions**
-- 6 new onboarding questions (one per optional feature) with explicit defaults
-- Post-onboarding config edits via existing "update config" chat entry point
-- `booking_mode` switch safety gate (warn if existing bookings present)
+### Phase Ordering Rationale
+- **Phase 1** unblocks all others; shared constants and atomic consent affect core paths
+- **Phase 2** must follow Phase 1 to ensure confirmation stability before reschedule reversal
+- **Phase 3** reuses Phase 1 constants; typically batched after confirmation foundation
+- **Phase 4** can run parallel with Phase 3 (independent changes); schema prep for Phase 5
+- **Phase 5** depends on all prior phases; most learning potential and research-heavy
+- **Phase 6** parallelizable cleanup anytime
 
-### Open Questions Requiring Decisions Before Planning
+**Total effort distribution:** ~43–57 hours
 
-1. **Recurring pattern scope:** Weekly-by-weekday only (Mon/Wed/Fri) vs. fully flexible rrule? Recommend weekly-only for MVP.
-2. **Session capacity semantics:** Hard cap (block at capacity) vs. soft cap (allow over-booking with owner alert)? Recommend hard cap.
-3. **Slotless credit handling:** Approved slotless booking consumes normal session credit (via existing ledger) vs. tracked separately? Recommend: consumes credit via existing ledger.
-4. **Mass broadcast target:** "All near-expiry" (days_to_expiry ≤ 7 OR sessions_remaining ≤ threshold) vs. entire client list? Recommend: near-expiry only.
-5. **`booking_mode` changeability:** Once set, lockable or changeable? Recommend: changeable but warn if existing session bookings exist.
+### Research Flags
+
+**Phases needing research during `/gsd-plan-phase`:**
+- **Phase 5 (Item 13):** Telegram persistent menu button reliability requires live testing with real Telegram accounts (iOS, Android, web clients). Recommend spike: 2–3 hrs. Risk: hidden platform limitations or deployment regressions.
+- **Phase 5 (Item 8):** Fuzzy name matching false-positive edge cases. Recommend corpus: 20–30 test Greek names with expected rankings. Risk: wrong-match deletions if threshold not tuned.
+
+**Phases with standard patterns (skip research-phase):**
+- **Phase 1:** Atomic postgres operations + Telegraf routing — well-established patterns; no spike needed
+- **Phase 2:** Reschedule reuses Phase 22 sbk:approve cascade — proven in production; migration straightforward
+- **Phase 3:** Menu button UI + inline keyboard callbacks — v1.6 patterns established; no research spike
+- **Phase 4:** SQL date filtering + schema backfill — standard postgres operations; no research spike
+
+---
+
+## Confidence Assessment
+
+| Area | Confidence | Notes |
+|------|------------|-------|
+| **Stack** | HIGH | All 15 items verified against existing codebase patterns; substring matching established since v1.4; zero new deps required across all items |
+| **Features** | HIGH | Production sources (15+ platforms: Wix, Calendly, DaySchedule, Skedda, HighLevel, etc.) show consistent table stakes; FEATURES.md research across 50+ sources |
+| **Architecture** | HIGH | Reschedule reuses Phase 22 sbk:approve (no new state machine); consent gap is ~50-line check move + atomic upsert; no new RLS policies or tables |
+| **Pitfalls** | MEDIUM-HIGH | 4 critical pitfalls with documented prevention strategies; one phase-specific research needed (Telegram testing). Gaps require validation during implementation. |
+
+**Overall confidence: HIGH** (stack, features, architecture fully researched with production validation; pitfalls have clear prevention; one phase-specific research needed for Telegram menu testing).
+
+### Gaps to Address During Planning
+
+1. **Telegram menu persistence (item 13):** Live testing with real accounts across iOS, Android, web clients; verify caching behavior and workarounds
+2. **Fuzzy name matching false-positives (item 8):** Create test corpus of Greek names with intentional typos/accent variations; define confidence threshold
+3. **In-flight reschedule migration (item 10):** Verify backfill strategy with test DB; check if capacity holds exist for old reschedules
+4. **GDPR consent backfill (item 11):** Count existing relationships with null `consentGiven`; verify SERIALIZABLE isolation with concurrent callbacks
+5. **Fuzzy matching UX decision (item 8):** Define during Phase 5 plan: Show "Did you mean?" with options, or require exact phone/ID if confidence < 85%?
+
+---
 
 ## Sources
 
-- [rrule npm package](https://www.npmjs.com/package/rrule) — RFC 5545 recurrence
-- [Setmore: Class Booking Support](https://support.setmore.com/en/articles/490889-class-booking)
-- [Glofox: Fitness Class Scheduling Software](https://www.glofox.com/blog/fitness-class-scheduling-software/)
-- [Vibefam: Waitlist Conversions for Fitness Studios](https://vibefam.com/best-way-grow-your-fitness-studio-crm-booking-system-integration-for-waitlist-conversions/)
-- [Apptoto: How to Write an Appointment Cancellation Policy](https://www.apptoto.com/best-practices/appointment-cancellation-policy)
-- [SimplyBook.me: Handling Last-Minute Cancellations](https://news.simplybook.me/handling-last-minute-cancellations-policies-bottom-line/)
-- [LoyaltyPass: Gym Member Retention Between Sessions](https://www.loyaltypass.co/blog/guide/guide/gym-member-retention-between-sessions)
-- [Everfit: Session Credits & Expiry Management](https://help.everfit.io/en/articles/14698318-session-credits-manage-and-track-paid-client-sessions-beta)
-- [Drizzle ORM Relations Documentation](https://orm.drizzle.team/docs/relations)
+### Primary (HIGH confidence)
+
+- **STACK.md research (2026-07-28):** Verified against Telegraf official docs (4.16.3), Drizzle ORM codebase patterns, @google/genai migration guide, Telegram Bot API docs, Fuse.js documentation
+- **FEATURES.md research (2026-07-28):** Production analysis across Wix Bookings, Calendly, DaySchedule, Skedda, Acuity Scheduling, HighLevel, HubSpot, Zoho Bookings, BookingPress, Conferbot; 50+ sources analyzed
+- **ARCHITECTURE.md research (2026-07-28):** RandevuClaw codebase analysis (Phase 22 sbk:approve pattern, Drizzle schema, telegram.ts webhook routing, existing handlers)
+- **PITFALLS.md research (2026-07-28):** PostgreSQL race conditions research, state machine security research, fuzzy matching in production, Telegram API issue tracking
+
+### Secondary (MEDIUM confidence)
+
+- GDPR compliance for Telegram bots (multiple production implementations: BossBot, Chatarmin, Conferbot)
+- Telegram Bot API Command Scope Issues (GitHub discussions, official Telegram docs)
+- Appointment booking UX best practices (Medium, LogRocket, UX Planet articles)
+
+### Validation During Implementation
+
+- Live Telegram menu persistence testing (Phase 5 spike)
+- Fuzzy name matching false-positive corpus (Phase 5 testing)
+- In-flight reschedule migration validation (Phase 2 testing)
+- GDPR consent backfill verification (Phase 4 testing)
+
+---
+
+*Research synthesis completed: 2026-07-28*
+*Researched by: GSD Research Synthesizer*
+*Status: Ready for requirements definition and roadmap creation*
