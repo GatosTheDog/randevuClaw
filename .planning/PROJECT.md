@@ -12,6 +12,27 @@ A Telegram-native appointment booking platform for Greek service businesses (pil
 
 **⚠ Documentation gap discovered at v1.4 close:** v1.3 (Studio Session Scheduling & Slotless Bookings) was marked shipped in ROADMAP.md but its `/gsd-complete-milestone` archival step never actually ran — no `.planning/milestones/v1.3-ROADMAP.md` or `v1.3-REQUIREMENTS.md` exists, and v1.3's original requirement IDs were lost when v1.4's REQUIREMENTS.md overwrote the live file without archiving v1.3 first. The Validated section below reconstructs v1.3's shipped scope from ROADMAP.md phase descriptions (reliable) rather than exact REQ-IDs (lost). Not fixed here — flagging for awareness; a full retroactive v1.3 archive would need to be reconstructed from git history if ever needed.
 
+## Current Milestone: v1.7 UX & Trust Polish
+
+**Goal:** Close UX/trust gaps surfaced by a full-bot audit — fix broken/inconsistent owner tooling, make high-frequency actions discoverable, close a real compliance hole, and give clients a genuine opt-in path.
+
+**Target features:**
+- Wire or remove dead "reply to client" escalation button
+- Fix same-day past-time slots showing as bookable
+- Contextual detail in cancel-confirm prompts (show date/service, not raw ID)
+- Remove/fix decorative "Νέο μάθημα (chat)" button
+- Back-to-menu recovery on unknown-callback fallback
+- Admin menu button for record-payment (currently chat-only)
+- Menu entry points for hours/services/prices/class setup
+- Name-based match for chat tools needing raw Telegram ID today
+- Uniform Ναι/Όχι confirmation policy for destructive owner actions
+- Reverse reschedule to require owner approval (like new bookings)
+- Fix GDPR consent-notice gap for /start-first clients
+- Real client registration/opt-in flow
+- Research + fix Telegram persistent menu button reliability
+- Show service/class name in booking/cancel lists
+- Fix/hide decorative booking button for open_slots businesses
+
 ## Core Value
 
 A client can book or cancel an appointment with a Greek business entirely through a chat conversation, in Greek, with zero friction — and the owner's calendar updates automatically.

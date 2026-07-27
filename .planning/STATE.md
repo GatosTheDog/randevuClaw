@@ -1,20 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.6
-milestone_name: Telegram Bot UX/Ops Improvements
-current_phase: 6
-status: Awaiting next milestone
-stopped_at: v1.6 ROADMAP.md created (Phases 22-25), REQUIREMENTS.md traceability updated, 8/8 requirements mapped
-last_updated: "2026-07-27T22:13:02.596Z"
+milestone: v1.7
+milestone_name: UX & Trust Polish
+status: planning
+last_updated: "2026-07-27T22:27:43.511Z"
 last_activity: 2026-07-27
-last_activity_desc: Milestone v1.6 completed and archived
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 4
-  completed_plans: 4
-  percent: 100
-current_phase_name: client-invite-generator
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -28,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-07-28 after v1.6 milestone close)
 
 ## Current Position
 
-Phase: Milestone v1.6 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-07-27 — Milestone v1.6 completed and archived
+Status: Defining requirements
+Last activity: 2026-07-27 — Milestone v1.7 started
 
 ## Performance Metrics
 
