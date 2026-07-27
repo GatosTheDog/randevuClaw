@@ -171,7 +171,10 @@ See: `.planning/milestones/v1.5-ROADMAP.md`
   3. The owner's chat receives an inline approve/reject keyboard identifying the client and session/class details for every new pending session booking.
   4. If the owner rejects (or the request expires), the held capacity is released back to the class and the client receives a Greek rejection message.
   5. If the owner approves, the client receives the Greek confirmation message and the booking becomes confirmed.
-**Plans**: TBD
+**Plans:** 1 plan
+
+Plans:
+- [ ] 22-01-PLAN.md — Session booking approval flow: pending-by-default creation, capacity release, credit restore, owner approve/reject webhook routing
 
 ### Phase 23: Lesson Deletion & Cascade Cancellation
 **Goal**: Admin can remove a scheduled lesson entirely, and any clients already booked into it are cleanly unwound — credit/capacity restored, clients notified in Greek.
