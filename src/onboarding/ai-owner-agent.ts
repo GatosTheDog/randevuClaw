@@ -32,6 +32,7 @@ import {
 import { showClientSelection } from '../telegram/handlers/payment-flow';
 import { sendTelegramMessage, sendTelegramMessageWithKeyboard } from '../telegram/client';
 import { createSessionCatalogWithExpansion, bookSessionInstance, cancelSession, cascadeCancelSessionBookings, listSessions, buildRRuleString } from '../session/manager';
+import { sendBusinessInvite } from '../invites/generator';
 
 // Bounds the Gemini HTTP call to 25s so a stalled owner-agent response settles
 // instead of hanging silently — the existing try/catch already logs + returns
@@ -391,6 +392,20 @@ export const OWNER_TOOLS = [
         },
       },
       required: ['mode'],
+    },
+  },
+  // ---------------------------------------------------------------------------
+  // Phase 25: Client invite generator tool (INVITE-01, D-03 free-chat trigger)
+  // ---------------------------------------------------------------------------
+  {
+    type: 'function' as const,
+    name: 'send_invite',
+    description:
+      'Δημιουργεί και στέλνει ένα QR invite με το όνομα της επιχείρησης και τον σύνδεσμο Telegram του bot — έτοιμο για εκτύπωση ή προώθηση σε νέους πελάτες.',
+    parameters: {
+      type: 'object',
+      properties: {},
+      required: [],
     },
   },
 ];
@@ -855,6 +870,15 @@ async function executeOwnerTool(
       await setBookingMode(business.id, mode);
       const modeLabel = mode === 'fixed_sessions' ? 'πρόγραμμα τάξεων' : 'ελεύθερες θέσεις';
       return `Ο τρόπος κράτησης άλλαξε σε "${modeLabel}".`;
+    }
+
+    // -----------------------------------------------------------------------
+    // Phase 25: Client invite generator case (INVITE-01, D-03)
+    // -----------------------------------------------------------------------
+
+    case 'send_invite': {
+      await sendBusinessInvite(business, ownerTelegramId);
+      return '';
     }
 
     default:
