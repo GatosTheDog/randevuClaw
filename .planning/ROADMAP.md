@@ -119,7 +119,7 @@ See: `.planning/milestones/v1.5-ROADMAP.md`
 | 22. Session Booking Approval Flow | v1.6 | 0/TBD | Not started | - |
 | 23. Lesson Deletion & Cascade Cancellation | v1.6 | 0/1 | Not started | - |
 | 24. Bot Access & Diagnostics Polish | v1.6 | 0/1 | Not started | - |
-| 25. Client Invite Generator | v1.6 | 0/TBD | Not started | - |
+| 25. Client Invite Generator | v1.6 | 0/1 | Not started | - |
 
 ## Backlog
 
@@ -211,4 +211,7 @@ Plans:
   1. Owner can request an invite (via admin menu or free chat) and receives one message containing a QR image composed with the business name and a Greek call-to-action caption, ready to print standalone.
   2. The same message includes the raw `t.me/<bot_username>` deep link as copyable plain text.
   3. The owner can either print/post the QR image or forward/paste the link text into any other channel (Telegram forward, SMS, WhatsApp, Instagram, email).
-**Plans**: TBD
+**Plans:** 1 plan
+
+Plans:
+- [ ] 25-01-PLAN.md — QR + text-into-pixels invite image (sharp+qrcode), sendTelegramPhoto, admin-menu button + send_invite AI-agent tool wiring
