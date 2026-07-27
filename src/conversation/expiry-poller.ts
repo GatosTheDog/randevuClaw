@@ -2,9 +2,13 @@ import {
   expireStalePendingBookings,
   findBusinessById,
   listAllBusinessIds,
+  withBusinessContext,
 } from '../database/queries';
+import type { Booking } from '../database/queries';
 import { botTokenStore, editTelegramMessageReplyMarkup, sendTelegramMessage } from '../telegram/client';
 import { logger } from '../utils/logger';
+import { releaseSessionCapacity } from '../session/manager';
+import { findMembershipByBooking, restoreCredit } from '../billing/queries';
 
 // D-09: pending bookings the owner never acted on are auto-expired 2 hours
 // after creation. Matches Plan 02-01's insertBooking's own expiresAt
@@ -15,6 +19,24 @@ const EXPIRY_CUTOFF_MS = 2 * 60 * 60 * 1000;
 
 const EXPIRY_NOTICE_GREEK =
   'Το ραντεβού σας δεν επιβεβαιώθηκε εγκαίρως από την επιχείρηση και ακυρώθηκε αυτόματα. Παρακαλούμε δοκιμάστε ξανά.';
+
+// Phase 22 (OWNR-07): releases the held session capacity and restores any
+// deducted session credit for an expired session-class booking. No-ops for
+// non-session bookings (sessionInstanceId null/undefined — covers both real
+// open-slot bookings and this file's own mocked test fixtures, which omit
+// the field entirely). Mirrors the exact restoreCredit call shape already
+// used by handleCancelExecute — no new credit-restore path invented.
+export async function releaseExpiredSessionBooking(businessId: number, booking: Booking): Promise<void> {
+  if (!booking.sessionInstanceId) return;
+
+  await withBusinessContext(businessId, async () => {
+    await releaseSessionCapacity(booking.sessionInstanceId!);
+    const membershipId = await findMembershipByBooking(booking.id);
+    if (membershipId !== null) {
+      await restoreCredit(membershipId, booking.id, `booking:${booking.id}:credit`);
+    }
+  });
+}
 
 // Sweeps every business's stale pending_owner_approval bookings (D-09) and
 // proactively notifies the affected clients. Returns the count of
@@ -46,6 +68,13 @@ export async function runExpirySweep(): Promise<number> {
         // must not permanently silence notification for the rest of this
         // already-expired batch.
         try {
+          // Phase 22 (OWNR-07): release held capacity + restore any deducted
+          // credit for session-class bookings before notifying the client.
+          // Stays inside this same per-booking try/catch (CR-04) — a failure
+          // here is caught and logged exactly like an existing notification
+          // failure, never aborting the rest of the batch.
+          await releaseExpiredSessionBooking(businessId, booking);
+
           // botTokenStore.run ensures callTelegramApi picks up the correct
           // per-business bot token (CR-03: pollers have no inherited context).
           await botTokenStore.run(business.botToken, async () => {

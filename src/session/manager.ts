@@ -185,7 +185,13 @@ export async function bookSessionInstance(
   clientPhone: string,
   serviceId: number,
   idempotencyKey: string,
-  activeMembership?: ActiveMembershipForDeduction | null
+  activeMembership?: ActiveMembershipForDeduction | null,
+  // Phase 22 (OWNR-05/06/07): defaults to pending_owner_approval so the owner
+  // gets a real approve/reject say over every new session booking. Call sites
+  // that represent an owner's OWN decision (escalation-exception approval,
+  // reschedule, direct owner assignment) explicitly pass 'confirmed' to
+  // preserve their pre-existing immediate-confirm behavior.
+  initialStatus: 'pending_owner_approval' | 'confirmed' = 'pending_owner_approval'
 ): Promise<BookSessionResult> {
   return withBusinessContext(businessId, async () => {
     // SELECT FOR UPDATE: serialize concurrent bookings on the same instance.
@@ -246,9 +252,11 @@ export async function bookSessionInstance(
         sessionInstanceId,
         calendarDate: instance.sessionDate,
         calendarTime: instance.sessionTime,
-        bookingStatus: 'confirmed',
+        bookingStatus: initialStatus,
         requestId: idempotencyKey,
-        expiresAt: null,
+        // Matches the existing 2-hour cutoff constant used by insertBooking/
+        // approveSlotlessRequest and the expiry sweep's own EXPIRY_CUTOFF_MS.
+        expiresAt: initialStatus === 'pending_owner_approval' ? new Date(Date.now() + 2 * 3600 * 1000) : null,
       })
       .onConflictDoNothing()
       .returning({ id: bookings.id });
@@ -294,6 +302,28 @@ export async function bookSessionInstance(
 
     return { status: 'success', bookingId };
   });
+}
+
+// ---------------------------------------------------------------------------
+// releaseSessionCapacity
+// ---------------------------------------------------------------------------
+
+/**
+ * Decrements a session instance's bookedCount by 1, floored at 0. Shared by
+ * both the owner-reject path (webhooks/telegram.ts) and the expiry sweep
+ * (conversation/expiry-poller.ts) — one source of truth for the capacity-
+ * release SQL (RESEARCH.md Pitfall 1: double-release).
+ *
+ * The GREATEST(...,0) floor is defensive-only; the real double-release guard
+ * is the WHERE-guarded CAS on the booking row upstream of every call site
+ * (updateBookingStatusIfPending / expireStalePendingBookings's own WHERE
+ * clause), which ensures this is only ever invoked once per booking.
+ */
+export async function releaseSessionCapacity(sessionInstanceId: number): Promise<void> {
+  await getConn()
+    .update(sessionInstances)
+    .set({ bookedCount: sql`GREATEST(${sessionInstances.bookedCount} - 1, 0)` })
+    .where(eq(sessionInstances.id, sessionInstanceId));
 }
 
 // ---------------------------------------------------------------------------
