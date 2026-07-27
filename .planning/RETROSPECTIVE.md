@@ -245,6 +245,46 @@ The deterministic step-machine onboarding flow (`steps.ts`, `router.ts`) was rep
 
 ---
 
+## Milestone: v1.6 — Telegram Bot UX/Ops Improvements
+
+**Shipped:** 2026-07-28
+
+**Phases:** 4 (22-25) | **Plans:** 4
+
+### What Was Built
+
+Session-class bookings switched from auto-confirm to a real owner approve/reject flow (Έγκριση/Απόρριψη keyboard) with atomic capacity soft-hold and release-on-reject/expiry, reusing the slotless-request approval pattern from v1.3. Admin gained the ability to delete a scheduled lesson, cascading a clean cancel + credit restore + Greek notification to every affected client via a new shared `cascadeCancelSessionBookings` function. Both admin and client got a persistent Telegram menu button, and the owner now gets a best-effort technical diagnostic in their own chat whenever the bot's generic Greek fallback fires for a client. Owners can generate a shareable QR + `t.me/<bot_username>` deep-link invite from either the admin menu or free chat, sharing one `sendBusinessInvite` orchestration function. Outside the planned scope, the dormant WhatsApp Cloud API integration was fully removed (quick task), and two live-production debug sessions fixed real DB reliability bugs (a pg-pool checked-out-client error-listener gap that crashed the process, and a drizzle-orm client leak on a failed `begin` statement).
+
+### What Worked
+
+- Both Phase 22 (booking approval) and Phase 23 (lesson deletion) explicitly reused an already-proven pattern (slotless-request approve/reject keyboard; existing capacity-release SQL) instead of inventing a second approach — zero new architectural surface for either phase
+- The two mid-milestone production incidents (webhook silent-hang, DB idle-in-transaction crash) were each root-caused with direct source reads of the actual installed SDK/driver code (not guessed from docs) and verified live in production before being marked resolved — both fixes held under a real recurrence of the triggering condition
+- Phase 25's verification independently re-ran the QR generation and decoded the output with `jsQR` rather than trusting the implementation's own claim — caught nothing wrong here, but is the right level of rigor for a compose-an-image feature
+
+### What Was Inefficient
+
+- The `webhook-hang-no-reply.md` debug session's own frontmatter was left at `status: investigating` after its root symptom was fully fixed, because a distinct follow-on issue (CYCLE 4 candidate) was spun into two *separate* debug sessions rather than being folded back into this one's closure — the file sat as a false "open" item for 3 days until this milestone's audit caught it
+- Phase 25's human-verification gap (physical QR phone scan) stayed unresolved for a day after code-verification passed 9/9 — the automated `jsQR` decode already gave strong confidence the QR payload was correct; closing the loop just needed the user's one-line confirmation, which should have been asked for immediately after verification rather than left as a dangling milestone-close blocker
+- Milestone close surfaced 9 open audit items (2 stale debug sessions, 1 missing quick-task SUMMARY.md, 1 pending human-verify, 5 todos); 3 of the 4 non-todo items were each a 5-minute fix (write a summary, move a file, ask one question) that could have been done at the time they were created instead of accumulating
+
+### Patterns Established
+
+- When a debug session spins off a distinct follow-on issue into a new session, immediately update the original session's frontmatter `status` (and add a closeout note pointing to the new session) rather than leaving it open — the open-artifact audit treats "no explicit resolved status" as a real gap, not a soft one
+- A quick-task's `SUMMARY.md` should be written in the same sitting as the last commit — writing it retroactively (as done here for 260726-0x3) is straightforward when commits are well-documented, but is pure avoidable rework if skipped in the first place
+
+### Key Lessons
+
+1. Closing a milestone with real "resolve first" intent (vs. blanket-acknowledging everything) is cheap when the open items are genuinely stale bookkeeping rather than unfinished work — 6 of 9 open items here were writable/archivable in under 15 minutes total, leaving only the todos (correctly deferred, since they're future-milestone material) and the human-verify (a one-line user confirmation) as truly external.
+2. A todo explicitly titled "run X before scoping v-next" is a signal the milestone-close conversation and the next milestone's requirements-gathering conversation should be treated as one continuous handoff, not two disconnected steps.
+
+### Cost Observations
+
+- Sessions: 1 session covering phases 22-25 execution + 2 unplanned debug sessions + 1 quick task + milestone close
+- Model: Claude Sonnet 5 throughout
+- Notable: milestone close itself required as much back-and-forth as a small phase (9 open audit items triaged, PROJECT.md full evolution review, ROADMAP.md reorganization) — worth budgeting close-time proportional to elapsed milestone duration, not just phase count
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -256,6 +296,8 @@ The deterministic step-machine onboarding flow (`steps.ts`, `router.ts`) was rep
 | v1.2 | 3 | 16 | Billing layer + enforcement + proactive notifications; Wave 0 scaffolding mature |
 | v1.3 | 6 | ~20 | Session scheduling + slotless bookings — close never ran, exact count lost |
 | v1.4 | 5 | 16 | Single-bot merge + menus + escalation; first milestone with a retroactive verification sweep at close |
+| v1.5 | 1 | 3 | AI-driven onboarding replaces step-machine; ad-hoc phase retroactively versioned at close |
+| v1.6 | 4 | 4 | Booking approval + admin power tools + invite generator; first close to run a full open-artifact audit (9 items triaged) |
 
 ### Cumulative Quality
 
@@ -266,6 +308,8 @@ The deterministic step-machine onboarding flow (`steps.ts`, `router.ts`) was rep
 | v1.2 | 320 (42 suites) | Clean | SELECT FOR UPDATE + UNIQUE dedup pattern established |
 | v1.3 | unknown | unknown | No archive — figures lost |
 | v1.4 | 344 total, 247 passing | Clean (src/) | 94 pre-existing test failures unrelated to v1.4 (stale fixtures, TS6200 collisions) — test-suite health debt flagged, not fixed |
+| v1.5 | 36/36 (onboarding) | Clean | Full-suite figure not re-measured |
+| v1.6 | not re-measured | Clean (src/) | 4 WhatsApp-only test files removed; v1.4's 247/344 figure no longer trustworthy — recommend a fresh full measurement early v1.7 |
 
 ### Top Lessons (Verified Across Milestones)
 
@@ -276,4 +320,6 @@ The deterministic step-machine onboarding flow (`steps.ts`, `router.ts`) was rep
 5. Wave 0 it.todo scaffolding pays off across 3+ phases — invest in stubs early, implement late, keep ts-jest green throughout.
 6. UAT → gap plan → re-verify cycle catches real UX regressions that static code review cannot surface.
 7. A milestone's `/gsd-complete-milestone` close can be silently skipped (v1.3) with no forcing function to catch it — the next milestone's fresh REQUIREMENTS.md just overwrites the unshipped one's history. Verify the archive step actually ran, don't just trust the ROADMAP.md "SHIPPED" badge.
+8. A debug session that spins off a distinct follow-on issue into a new session must have its own frontmatter `status` updated at that moment — otherwise it sits as a false "open" item until the next milestone's audit catches it (v1.6).
+9. Human-verification gaps backed by strong automated proxy evidence (e.g. `jsQR`-decoded QR payload matching exactly) are usually a one-line user confirmation away from closing — ask immediately rather than letting them become a milestone-close blocker (v1.6).
 8. Phases executed without per-phase code review + verification accumulate risk invisibly — a milestone-close sweep that retroactively verifies every phase (not just the currently active one) is the last safety net, but it's much cheaper to catch bugs per-phase than to batch-discover 3 of them at once during close.

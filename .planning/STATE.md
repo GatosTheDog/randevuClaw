@@ -21,10 +21,10 @@ current_phase_name: client-invite-generator
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-07-24 after v1.4 milestone close)
+See: .planning/PROJECT.md (updated 2026-07-28 after v1.6 milestone close)
 
 **Core value:** A client can book or cancel an appointment with a Greek business entirely through a chat conversation, in Greek, with zero friction — and the owner's calendar updates automatically.
-**Current focus:** Phase 25 — client-invite-generator
+**Current focus:** Planning next milestone (v1.7)
 
 ## Current Position
 
