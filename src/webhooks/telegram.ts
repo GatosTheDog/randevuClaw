@@ -177,6 +177,35 @@ async function handleFoundBusiness(
         'handleFoundBusiness: failed to send fallback error message to client'
       );
     }
+
+    // DIAG-01: best-effort owner diagnostic. This catch is shared by every
+    // branch above (owner /menu, owner free-chat, onboarding, AND the client
+    // conversation branch) — re-check the sender against the owner (T-16-04
+    // style) to only notify when the failing branch was actually the
+    // client-facing one. When the sender IS the owner, the fallback text
+    // above already reached them directly — sending a second "diagnostic"
+    // about their own error would be a confusing duplicate (24-RESEARCH.md
+    // Pitfall 2).
+    const isClientSender = business.ownerTelegramId === null || business.ownerTelegramId !== senderTelegramId;
+    if (isClientSender && business.ownerTelegramId && business.botToken) {
+      try {
+        const errorType = err instanceof Error ? err.name : 'UnknownError';
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        const diagnosticText =
+          `⚠️ Σφάλμα bot (πελάτης)\n` +
+          `Τύπος: ${errorType}\n` +
+          `Μήνυμα: ${errorMessage}\n` +
+          `Update ID: ${updateId}`;
+        await botTokenStore.run(business.botToken, async () => {
+          await sendTelegramMessage(business.ownerTelegramId!, diagnosticText);
+        });
+      } catch (notifyErr) {
+        logger.error(
+          { err: notifyErr, updateId, businessId: business.id },
+          'handleFoundBusiness: owner diagnostic notification failed'
+        );
+      }
+    }
   }
 }
 

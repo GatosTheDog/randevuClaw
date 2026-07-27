@@ -6,6 +6,7 @@ import * as router from '../src/conversation/router';
 import * as calendarSync from '../src/calendar/sync';
 import * as registryModule from '../src/telegram/registry';
 import * as billingQueries from '../src/billing/queries';
+import * as aiOwnerAgentModule from '../src/onboarding/ai-owner-agent';
 import { parseCallbackData } from '../src/webhooks/telegram';
 
 jest.mock('../src/database/queries');
@@ -17,6 +18,9 @@ jest.mock('../src/calendar/sync');
 jest.mock('../src/telegram/registry');
 // Phase 8: mock billing queries so findMembershipByBooking/restoreCredit do not reach real DB
 jest.mock('../src/billing/queries');
+// DIAG-01: only used by the owner-branch diagnostic test below — every other
+// test in this file already routes through the client or onboarding branches.
+jest.mock('../src/onboarding/ai-owner-agent');
 
 // Phase 4: per-bot secret — hardcoded test constant (ONB-04: TEST_BOT_* removed from jest.setup.ts)
 const SECRET = 'test-bot-1-webhook-secret';
@@ -34,6 +38,14 @@ const KNOWN_BUSINESS = {
   webhookId: 'test-webhook-id-1',
   webhookSecret: 'test-bot-1-webhook-secret',
   enforcementPolicy: 'allow',
+  bookingMode: 'open_slots',
+  allowMultiBooking: false,
+  cancellationCutoffEnabled: false,
+  cancellationCutoffHours: 0,
+  slotlessRequestsEnabled: false,
+  lastSessionThresholdEnabled: false,
+  lastSessionThresholdCount: 0,
+  onboardingCompleted: true,
   createdAt: new Date(),
 };
 
@@ -50,6 +62,14 @@ const KNOWN_BUSINESS_2 = {
   webhookId: 'test-webhook-id-2',
   webhookSecret: 'test-bot-2-webhook-secret',
   enforcementPolicy: 'allow',
+  bookingMode: 'open_slots',
+  allowMultiBooking: false,
+  cancellationCutoffEnabled: false,
+  cancellationCutoffHours: 0,
+  slotlessRequestsEnabled: false,
+  lastSessionThresholdEnabled: false,
+  lastSessionThresholdCount: 0,
+  onboardingCompleted: true,
   createdAt: new Date(),
 };
 
@@ -117,6 +137,9 @@ const mockedFindMembershipByBooking = billingQueries.findMembershipByBooking as 
 >;
 const mockedRestoreCredit = billingQueries.restoreCredit as jest.MockedFunction<
   typeof billingQueries.restoreCredit
+>;
+const mockedAiOwnerAgent = aiOwnerAgentModule.aiOwnerAgent as jest.MockedFunction<
+  typeof aiOwnerAgentModule.aiOwnerAgent
 >;
 
 function makeMessageUpdate(updateId: number, text: string, fromId = 111222333) {
@@ -284,6 +307,45 @@ describe('POST /webhooks/telegram/:webhookId', () => {
     const resMissing = await postWebhook('test-webhook-id-1', makeMessageUpdate(22, 'some-text'), null);
     expect(resMissing.status).toBe(401);
   });
+
+  it('DIAG-01: client-conversation branch failure sends the unchanged client fallback AND one owner diagnostic containing updateId', async () => {
+    mockedFindBusinessByWebhookId.mockResolvedValue(KNOWN_BUSINESS);
+    mockedRouteConversationMessage.mockRejectedValueOnce(new Error('routing exploded'));
+
+    // Default fromId (111222333) differs from KNOWN_BUSINESS.ownerTelegramId (999999999),
+    // so this update is on the client-conversation branch.
+    const res = await postWebhook('test-webhook-id-1', makeMessageUpdate(30, 'γεια'));
+
+    expect(res.status).toBe(200);
+    expect(mockedSendTelegramMessage).toHaveBeenCalledTimes(2);
+    expect(mockedSendTelegramMessage).toHaveBeenNthCalledWith(
+      1,
+      '111222333',
+      'Παρουσιάστηκε πρόβλημα. Δοκιμάστε ξανά σε λίγο.'
+    );
+    const [ownerChatId, diagnosticText] = mockedSendTelegramMessage.mock.calls[1];
+    expect(ownerChatId).toBe(KNOWN_BUSINESS.ownerTelegramId);
+    expect(diagnosticText).toContain('30');
+  });
+
+  it('DIAG-01: owner-branch failure sends exactly one message total (the direct fallback), no second diagnostic', async () => {
+    const onboardedBusiness = { ...KNOWN_BUSINESS, onboardingCompleted: true };
+    mockedFindBusinessByWebhookId.mockResolvedValue(onboardedBusiness);
+    mockedAiOwnerAgent.mockRejectedValueOnce(new Error('owner agent exploded'));
+
+    // fromId matches the business's own ownerTelegramId -> owner branch.
+    const res = await postWebhook(
+      'test-webhook-id-1',
+      makeMessageUpdate(31, 'κάτι', Number(onboardedBusiness.ownerTelegramId))
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockedSendTelegramMessage).toHaveBeenCalledTimes(1);
+    expect(mockedSendTelegramMessage).toHaveBeenCalledWith(
+      onboardedBusiness.ownerTelegramId,
+      'Παρουσιάστηκε πρόβλημα. Δοκιμάστε ξανά σε λίγο.'
+    );
+  });
 });
 
 describe('parseCallbackData', () => {
@@ -314,6 +376,7 @@ describe('POST /webhooks/telegram/:webhookId — callback_query owner approval (
     calendarSyncRetryCount: 0,
     reminder24hSentAt: null,
     reminder1hSentAt: null,
+    sessionInstanceId: null,
     createdAt: new Date(),
     expiresAt: new Date(),
   };
@@ -330,6 +393,14 @@ describe('POST /webhooks/telegram/:webhookId — callback_query owner approval (
     webhookId: null,
     webhookSecret: null,
     enforcementPolicy: 'allow',
+    bookingMode: 'open_slots',
+    allowMultiBooking: false,
+    cancellationCutoffEnabled: false,
+    cancellationCutoffHours: 0,
+    slotlessRequestsEnabled: false,
+    lastSessionThresholdEnabled: false,
+    lastSessionThresholdCount: 0,
+    onboardingCompleted: true,
     createdAt: new Date(),
   };
 

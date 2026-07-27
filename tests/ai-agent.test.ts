@@ -21,10 +21,18 @@ jest.mock('../src/database/queries', () => ({
   listServicesForBusiness: jest.fn(),
   listBusinessHours: jest.fn(),
 }));
+// Spread of jest.requireActual keeps the real botTokenStore so .run() actually
+// invokes its callback — a plain automock would make .run() a no-op (Phase
+// 04-05 "explicit call-through mock" lesson, STATE.md).
+jest.mock('../src/telegram/client', () => ({
+  ...jest.requireActual('../src/telegram/client'),
+  sendTelegramMessage: jest.fn(),
+}));
 
 import * as genai from '@google/genai';
 import * as queries from '../src/database/queries';
 import * as functionExecutor from '../src/conversation/function-executor';
+import { sendTelegramMessage } from '../src/telegram/client';
 import { aiBookingAgent, RATE_LIMIT_REPLY_GREEK, AGENT_ERROR_REPLY_GREEK } from '../src/conversation/ai-agent';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -38,6 +46,7 @@ const mockedListBusinessHours = queries.listBusinessHours as jest.MockedFunction
 const mockedExecuteTool = functionExecutor.executeTool as jest.MockedFunction<
   typeof functionExecutor.executeTool
 >;
+const mockedSendTelegramMessage = sendTelegramMessage as jest.MockedFunction<typeof sendTelegramMessage>;
 
 const BUSINESS = {
   id: 1,
@@ -82,6 +91,7 @@ describe('aiBookingAgent', () => {
     jest.clearAllMocks();
     mockedListServicesForBusiness.mockResolvedValue(SERVICES);
     mockedListBusinessHours.mockResolvedValue(HOURS);
+    mockedSendTelegramMessage.mockResolvedValue({ messageId: 1 });
   });
 
   it('Test 1: no function calls -> returns text/interactionId directly, executeTool never called', async () => {
@@ -237,6 +247,50 @@ describe('aiBookingAgent', () => {
     expect(mockCreate).toHaveBeenCalledTimes(1);
     expect(result.text).toBe(AGENT_ERROR_REPLY_GREEK);
     expect(result.interactionId).toBeNull();
+  });
+
+  it('DIAG-01: generic/unrecoverable failure sends exactly one owner diagnostic containing requestId + error type, client text unchanged', async () => {
+    const businessWithBot = { ...BUSINESS, botToken: 'bot-token-xyz' };
+    const timeoutErr = new Error('The operation was aborted due to timeout');
+    timeoutErr.name = 'TimeoutError';
+    mockCreate.mockRejectedValue(timeoutErr);
+
+    const result = await aiBookingAgent('γεια', businessWithBot, 'c1', null);
+
+    expect(result.text).toBe(AGENT_ERROR_REPLY_GREEK);
+    expect(mockedSendTelegramMessage).toHaveBeenCalledTimes(1);
+    const [ownerChatId, diagnosticText] = mockedSendTelegramMessage.mock.calls[0];
+    expect(ownerChatId).toBe(businessWithBot.ownerTelegramId);
+    expect(diagnosticText).toContain(result.requestId);
+    expect(diagnosticText).toContain('TimeoutError');
+  });
+
+  it('DIAG-01: a rejecting owner-notification sendTelegramMessage never changes the resolved result', async () => {
+    const businessWithBot = { ...BUSINESS, botToken: 'bot-token-xyz' };
+    const timeoutErr = new Error('The operation was aborted due to timeout');
+    timeoutErr.name = 'TimeoutError';
+    mockCreate.mockRejectedValue(timeoutErr);
+    mockedSendTelegramMessage.mockRejectedValueOnce(new Error('Telegram API down'));
+
+    const result = await aiBookingAgent('γεια', businessWithBot, 'c1', null);
+
+    expect(result.text).toBe(AGENT_ERROR_REPLY_GREEK);
+    expect(result.interactionId).toBeNull();
+  });
+
+  it('DIAG-01: the rate-limit (429-exhausted) branch never calls sendTelegramMessage for an owner diagnostic', async () => {
+    jest.useFakeTimers();
+    const businessWithBot = { ...BUSINESS, botToken: 'bot-token-xyz' };
+    mockCreate.mockRejectedValue({ status: 429 });
+
+    const resultPromise = aiBookingAgent('γεια', businessWithBot, 'c1', null);
+    await jest.runAllTimersAsync();
+    const result = await resultPromise;
+
+    expect(result.text).toBe(RATE_LIMIT_REPLY_GREEK);
+    expect(mockedSendTelegramMessage).not.toHaveBeenCalled();
+
+    jest.useRealTimers();
   });
 
   it('Test 10 (CR-01): a Gemini mock that never stops returning function_call steps still returns within MAX_TOOL_ROUNDS calls, with the graceful bail-out text', async () => {

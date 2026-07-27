@@ -4,6 +4,7 @@ import { config } from '../config';
 import { listServicesForBusiness, listBusinessHours, Business, Service, BusinessHours } from '../database/queries';
 import { executeTool } from './function-executor';
 import { logger } from '../utils/logger';
+import { botTokenStore, sendTelegramMessage } from '../telegram/client';
 
 // Bounds the Gemini HTTP call to 25s so a stalled booking-conversation response
 // rejects instead of hanging silently — the existing try/catch already logs
@@ -414,6 +415,30 @@ export async function aiBookingAgent(
         { err, requestId, businessId: business.id, round, elapsedMs: Date.now() - agentStartedAt },
         'aiBookingAgent: unrecoverable Gemini call failure, returning fallback reply'
       );
+
+      // DIAG-01: best-effort owner diagnostic. Never allowed to alter or
+      // block the client-facing fallback below (T-24-05) — errors here are
+      // caught and only logged.
+      if (business.ownerTelegramId && business.botToken) {
+        try {
+          const errorType = err instanceof Error ? err.name : 'UnknownError';
+          const errorMessage = err instanceof Error ? err.message : String(err);
+          const diagnosticText =
+            `⚠️ Σφάλμα bot (round ${round})\n` +
+            `Τύπος: ${errorType}\n` +
+            `Μήνυμα: ${errorMessage}\n` +
+            `Request ID: ${requestId}`;
+          await botTokenStore.run(business.botToken, async () => {
+            await sendTelegramMessage(business.ownerTelegramId!, diagnosticText);
+          });
+        } catch (notifyErr) {
+          logger.error(
+            { err: notifyErr, requestId, businessId: business.id },
+            'aiBookingAgent: owner diagnostic notification failed'
+          );
+        }
+      }
+
       return {
         text: AGENT_ERROR_REPLY_GREEK,
         interactionId: currentInteractionId ?? null,
