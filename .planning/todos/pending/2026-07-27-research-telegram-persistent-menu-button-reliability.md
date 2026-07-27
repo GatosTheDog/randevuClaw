@@ -2,6 +2,7 @@
 created: 2026-07-27T21:54:32.536Z
 title: Research Telegram persistent menu button reliability
 area: telegram-bot
+resolves_phase: 30
 files:
   - src/telegram/client.ts (setChatMenuButton, setMyCommands)
   - src/onboarding/ai-onboarding-agent.ts (finish_onboarding wiring, Phase 24)

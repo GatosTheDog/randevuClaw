@@ -2,8 +2,14 @@
 created: 2026-07-27T21:54:32.536Z
 title: Run full UX audit before scoping v1.7
 area: planning
+resolved: 2026-07-28
+resolves_phase: 26-30
 files: []
 ---
+
+## Resolution (2026-07-28)
+
+Audit run as the first step of `/gsd-new-milestone` for v1.7. General-purpose agent walked both client (`/start` + free-chat) and admin (`/menu` + free-chat) flows end-to-end against the actual code, cross-referenced against the 4 already-captured todos. 17 findings surfaced; all folded into v1.7's 15 requirements (CONF-01/02, ADMIN-01..05, UX-01..06, COMP-01/02) across Phases 26-30. A few low-priority findings (client roster pagination, pending-slotless-requests view, divergent today's-schedule implementations, raw exception text to owner) were explicitly deferred to v2 Requirements / Out of Scope in REQUIREMENTS.md rather than scheduled.
 
 ## Problem
 

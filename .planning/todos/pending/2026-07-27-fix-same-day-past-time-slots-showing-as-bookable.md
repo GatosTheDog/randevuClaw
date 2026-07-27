@@ -2,6 +2,7 @@
 created: 2026-07-27T21:54:32.536Z
 title: Fix same-day past-time slots showing as bookable
 area: session-booking
+resolves_phase: 29
 files:
   - src/session/manager.ts:483 (listSessions)
 ---

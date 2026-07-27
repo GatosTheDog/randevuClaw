@@ -2,6 +2,7 @@
 created: 2026-07-27T21:54:32.536Z
 title: Require owner approval on reschedule, not just new bookings
 area: session-booking
+resolves_phase: 26
 files:
   - src/conversation/function-executor.ts:723 (rescheduleSessionTool)
 ---

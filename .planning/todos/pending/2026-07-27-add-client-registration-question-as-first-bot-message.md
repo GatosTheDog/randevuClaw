@@ -2,6 +2,7 @@
 created: 2026-07-27T21:54:32.536Z
 title: Add client registration question as first bot message
 area: onboarding
+resolves_phase: 27
 files:
   - src/webhooks/telegram.ts (handleFoundBusiness, first-contact routing)
   - src/database/queries.ts (clientBusinessRelationships)
