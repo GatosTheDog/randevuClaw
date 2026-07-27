@@ -222,7 +222,11 @@ Recent decisions affecting current work:
 
 ### Pending Todos
 
-None yet.
+- [session-booking] Fix same-day past-time slots showing as bookable — .planning/todos/pending/2026-07-27-fix-same-day-past-time-slots-showing-as-bookable.md
+- [telegram-bot] Research Telegram persistent menu button reliability — .planning/todos/pending/2026-07-27-research-telegram-persistent-menu-button-reliability.md
+- [session-booking] Require owner approval on reschedule, not just new bookings (reverses Phase 22 decision) — .planning/todos/pending/2026-07-27-require-owner-approval-on-reschedule-not-just-new-bookings.md
+- [onboarding] Add client registration question as first bot message — .planning/todos/pending/2026-07-27-add-client-registration-question-as-first-bot-message.md
+- [planning] Run full UX audit before scoping v1.7 — .planning/todos/pending/2026-07-27-run-full-ux-audit-before-scoping-v1-7.md
 
 ### Quick Tasks Completed
 
