@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: Telegram Bot UX/Ops Improvements
-current_phase: 23
-current_phase_name: lesson-deletion-cascade-cancellation
+current_phase: 24
+current_phase_name: bot-access-diagnostics-polish
 status: verifying
 stopped_at: v1.6 ROADMAP.md created (Phases 22-25), REQUIREMENTS.md traceability updated, 8/8 requirements mapped
-last_updated: "2026-07-27T13:52:36.180Z"
+last_updated: "2026-07-27T15:23:27.943Z"
 last_activity: 2026-07-27
-last_activity_desc: Phase 23 execution started
+last_activity_desc: Phase 24 execution started
 progress:
   total_phases: 4
-  completed_phases: 2
-  total_plans: 2
-  completed_plans: 2
-  percent: 50
+  completed_phases: 3
+  total_plans: 3
+  completed_plans: 3
+  percent: 75
 ---
 
 # Project State
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-24 after v1.4 milestone close)
 
 **Core value:** A client can book or cancel an appointment with a Greek business entirely through a chat conversation, in Greek, with zero friction — and the owner's calendar updates automatically.
-**Current focus:** Phase 23 — lesson-deletion-cascade-cancellation
+**Current focus:** Phase 24 — bot-access-diagnostics-polish
 
 ## Current Position
 
-Phase: 23 (lesson-deletion-cascade-cancellation) — EXECUTING
+Phase: 24 (bot-access-diagnostics-polish) — EXECUTING
 Plan: 1 of 1
 Status: Phase complete — ready for verification
-Last activity: 2026-07-27 — Phase 23 execution started
+Last activity: 2026-07-27 — Phase 24 execution started
 
 ## Performance Metrics
 
