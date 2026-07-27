@@ -46,9 +46,9 @@ None identified yet — all 5 target features are scoped into v1.6.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| OWNR-05 | Phase 22 | Pending |
-| OWNR-06 | Phase 22 | Pending |
-| OWNR-07 | Phase 22 | Pending |
+| OWNR-05 | Phase 22 | Executed (human-verify pending — real-DB tests need local Postgres) |
+| OWNR-06 | Phase 22 | Executed (human-verify pending — real-DB tests need local Postgres) |
+| OWNR-07 | Phase 22 | Executed (human-verify pending — real-DB tests need local Postgres) |
 | CLSS-06 | Phase 23 | Pending |
 | CLSS-07 | Phase 23 | Pending |
 | BOT-06 | Phase 24 | Pending |
