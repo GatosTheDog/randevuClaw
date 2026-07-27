@@ -210,3 +210,30 @@ export async function registerBotWebhook(
 export async function unregisterBotWebhook(botToken: string): Promise<void> {
   await callTelegramApiDirect<boolean>(botToken, 'deleteWebhook', {});
 }
+
+/**
+ * Sets the persistent Telegram menu button for a chat (or bot-wide when
+ * chatId is omitted). type: 'commands' shows the bot's registered command
+ * list as a one-tap menu instead of requiring the user to type a command.
+ */
+export async function setChatMenuButton(botToken: string, chatId?: string): Promise<void> {
+  const body: Record<string, unknown> = { menu_button: { type: 'commands' } };
+  if (chatId) body.chat_id = chatId;
+  await callTelegramApiDirect<boolean>(botToken, 'setChatMenuButton', body);
+}
+
+/**
+ * Registers the bot's slash-command list, optionally scoped to a specific
+ * chat (BotCommandScope) — otherwise applies as the bot's default scope.
+ * Telegram's wire format expects scope.type as the lowercase string
+ * ("chat" | "all_private_chats"), not a BotCommandScope* class name.
+ */
+export async function setMyCommands(
+  botToken: string,
+  commands: Array<{ command: string; description: string }>,
+  scope?: { type: 'chat' | 'all_private_chats'; chat_id?: string }
+): Promise<void> {
+  const body: Record<string, unknown> = { commands };
+  if (scope) body.scope = scope;
+  await callTelegramApiDirect<boolean>(botToken, 'setMyCommands', body);
+}

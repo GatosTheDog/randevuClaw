@@ -98,6 +98,10 @@ const mockedRegisterBotWebhook = telegramClient.registerBotWebhook as jest.Mocke
 const mockedUnregisterBotWebhook = telegramClient.unregisterBotWebhook as jest.MockedFunction<
   typeof telegramClient.unregisterBotWebhook
 >;
+const mockedSetMyCommands = telegramClient.setMyCommands as jest.MockedFunction<typeof telegramClient.setMyCommands>;
+const mockedSetChatMenuButton = telegramClient.setChatMenuButton as jest.MockedFunction<
+  typeof telegramClient.setChatMenuButton
+>;
 const mockedActivateBusiness = onboardingQueries.activateBusiness as jest.MockedFunction<
   typeof onboardingQueries.activateBusiness
 >;
@@ -273,6 +277,8 @@ describe('executeOnboardingTool', () => {
     mockedRegisterBotWebhook.mockResolvedValue(undefined);
     mockedUnregisterBotWebhook.mockResolvedValue(undefined);
     mockedActivateBusiness.mockResolvedValue(undefined);
+    mockedSetMyCommands.mockResolvedValue(undefined);
+    mockedSetChatMenuButton.mockResolvedValue(undefined);
   });
 
   it('set_business_name updates name+slug inside withBusinessContext', async () => {
@@ -471,6 +477,51 @@ describe('executeOnboardingTool', () => {
       expect(registerOrder).toBeLessThan(activateOrder);
       expect(mockedWithBusinessContext).toHaveBeenCalledWith(business.id, expect.any(Function));
 
+      expect(mockedSendTelegramMessage).toHaveBeenCalledWith(OWNER_TELEGRAM_ID, expect.any(String));
+    });
+
+    it('BOT-06: registers owner + client commands and menu buttons after registerBotWebhook and before activateBusiness', async () => {
+      const business = makeBusiness({ name: 'Pilates Athens' });
+      mockedListServicesForBusiness.mockResolvedValue([makeService()]);
+      mockedListBusinessHours.mockResolvedValue(SEVEN_HOUR_ROWS);
+
+      await executeOnboardingTool('finish_onboarding', {}, business, TODAY, OWNER_TELEGRAM_ID);
+
+      expect(mockedSetMyCommands).toHaveBeenCalledWith(
+        business.botToken,
+        [{ command: 'menu', description: 'Εμφάνιση μενού διαχείρισης' }],
+        { type: 'chat', chat_id: OWNER_TELEGRAM_ID }
+      );
+      expect(mockedSetMyCommands).toHaveBeenCalledWith(
+        business.botToken,
+        [{ command: 'start', description: 'Έναρξη κράτησης ραντεβού' }],
+        { type: 'all_private_chats' }
+      );
+      expect(mockedSetChatMenuButton).toHaveBeenCalledWith(business.botToken, OWNER_TELEGRAM_ID);
+      expect(mockedSetChatMenuButton).toHaveBeenCalledWith(business.botToken);
+      expect(mockedSetMyCommands).toHaveBeenCalledTimes(2);
+      expect(mockedSetChatMenuButton).toHaveBeenCalledTimes(2);
+
+      const registerOrder = mockedRegisterBotWebhook.mock.invocationCallOrder[0];
+      const activateOrder = mockedActivateBusiness.mock.invocationCallOrder[0];
+      const setMyCommandsOrders = mockedSetMyCommands.mock.invocationCallOrder;
+      const setChatMenuButtonOrders = mockedSetChatMenuButton.mock.invocationCallOrder;
+      for (const order of [...setMyCommandsOrders, ...setChatMenuButtonOrders]) {
+        expect(order).toBeGreaterThan(registerOrder);
+        expect(order).toBeLessThan(activateOrder);
+      }
+    });
+
+    it('BOT-06: a rejecting setMyCommands still lets activateBusiness run and finish_onboarding still returns empty string', async () => {
+      const business = makeBusiness({ name: 'Pilates Athens' });
+      mockedListServicesForBusiness.mockResolvedValue([makeService()]);
+      mockedListBusinessHours.mockResolvedValue(SEVEN_HOUR_ROWS);
+      mockedSetMyCommands.mockRejectedValueOnce(new Error('Telegram API down'));
+
+      const result = await executeOnboardingTool('finish_onboarding', {}, business, TODAY, OWNER_TELEGRAM_ID);
+
+      expect(result).toBe('');
+      expect(mockedActivateBusiness).toHaveBeenCalledWith(business.id, expect.any(String), expect.any(String));
       expect(mockedSendTelegramMessage).toHaveBeenCalledWith(OWNER_TELEGRAM_ID, expect.any(String));
     });
   });

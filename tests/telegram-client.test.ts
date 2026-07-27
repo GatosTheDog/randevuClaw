@@ -4,7 +4,10 @@ import {
   answerCallbackQuery,
   editTelegramMessageReplyMarkup,
   botTokenStore,
+  setChatMenuButton,
+  setMyCommands,
 } from '../src/telegram/client';
+import { logger } from '../src/utils/logger';
 
 describe('Telegram Bot API client', () => {
   const originalFetch = global.fetch;
@@ -114,5 +117,87 @@ describe('Telegram Bot API client', () => {
     await botTokenStore.run('test-bot-token', async () => {
       await expect(sendTelegramMessage('12345', 'γεια')).rejects.toThrow('Bad Request');
     });
+  });
+
+  it('Test 6: setChatMenuButton(token, chatId) POSTs chat_id + menu_button of type commands', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ ok: true, result: true }),
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    await setChatMenuButton('test-bot-token', '123');
+
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(url).toMatch(/\/setChatMenuButton$/);
+    const body = JSON.parse(options.body as string);
+    expect(body).toEqual({ chat_id: '123', menu_button: { type: 'commands' } });
+  });
+
+  it('Test 7: setChatMenuButton(token) with no chatId omits chat_id entirely', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ ok: true, result: true }),
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    await setChatMenuButton('test-bot-token');
+
+    const [, options] = fetchMock.mock.calls[0];
+    const body = JSON.parse(options.body as string);
+    expect(body).toEqual({ menu_button: { type: 'commands' } });
+    expect(body).not.toHaveProperty('chat_id');
+  });
+
+  it('Test 8: setMyCommands(token, commands, chat scope) POSTs commands + scope', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ ok: true, result: true }),
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const commands = [{ command: 'menu', description: 'Εμφάνιση μενού διαχείρισης' }];
+    await setMyCommands('test-bot-token', commands, { type: 'chat', chat_id: '123' });
+
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(url).toMatch(/\/setMyCommands$/);
+    const body = JSON.parse(options.body as string);
+    expect(body).toEqual({ commands, scope: { type: 'chat', chat_id: '123' } });
+  });
+
+  it('Test 9: setMyCommands(token, commands) with no scope omits scope entirely', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ ok: true, result: true }),
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const commands = [{ command: 'start', description: 'Έναρξη κράτησης ραντεβού' }];
+    await setMyCommands('test-bot-token', commands);
+
+    const [, options] = fetchMock.mock.calls[0];
+    const body = JSON.parse(options.body as string);
+    expect(body).toEqual({ commands });
+    expect(body).not.toHaveProperty('scope');
+  });
+
+  it('Test 10: never logs the raw bot token via logger.debug/logger.error for either new function', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ ok: true, result: true }),
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const debugSpy = jest.spyOn(logger, 'debug');
+    const errorSpy = jest.spyOn(logger, 'error');
+
+    const FAKE_TOKEN = 'super-secret-fake-token-abc123';
+    await setChatMenuButton(FAKE_TOKEN, '123');
+    await setMyCommands(FAKE_TOKEN, [{ command: 'menu', description: 'x' }]);
+
+    const allCalls = [...debugSpy.mock.calls, ...errorSpy.mock.calls];
+    for (const call of allCalls) {
+      expect(JSON.stringify(call)).not.toContain(FAKE_TOKEN);
+    }
   });
 });

@@ -20,7 +20,13 @@ import {
   handleSetLastSessionThreshold,
 } from '../billing/tools';
 import { createSessionCatalogWithExpansion, buildRRuleString, listSessions } from '../session/manager';
-import { sendTelegramMessage, registerBotWebhook, unregisterBotWebhook } from '../telegram/client';
+import {
+  sendTelegramMessage,
+  registerBotWebhook,
+  unregisterBotWebhook,
+  setMyCommands,
+  setChatMenuButton,
+} from '../telegram/client';
 import { activateBusiness } from './queries';
 import { GEMINI_MODEL } from './ai-owner-agent';
 
@@ -590,6 +596,24 @@ export async function executeOnboardingTool(
           `${config.webhookBaseUrl}/webhooks/telegram/${webhookId}`,
           webhookSecret
         );
+
+        // BOT-06: best-effort menu/command registration. Wrapped in its own
+        // try/catch so a Telegram API hiccup here never blocks activateBusiness
+        // or the onboardingCompleted DB write below (T-24-04).
+        try {
+          await setMyCommands(
+            business.botToken!,
+            [{ command: 'menu', description: 'Εμφάνιση μενού διαχείρισης' }],
+            { type: 'chat', chat_id: ownerTelegramId }
+          );
+          await setMyCommands(business.botToken!, [
+            { command: 'start', description: 'Έναρξη κράτησης ραντεβού' },
+          ], { type: 'all_private_chats' });
+          await setChatMenuButton(business.botToken!, ownerTelegramId);
+          await setChatMenuButton(business.botToken!);
+        } catch (err) {
+          logger.error({ err, businessId: business.id }, 'finish_onboarding: menu/command registration failed');
+        }
 
         await activateBusiness(business.id, webhookId, webhookSecret);
 
