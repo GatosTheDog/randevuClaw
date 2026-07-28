@@ -103,7 +103,14 @@ export const clientBusinessRelationships = pgTable(
     // display name. Used in the payment flow UI to show client display names
     // in inline keyboard buttons).
     clientName: text('client_name'),
-    consentGiven: boolean('consent_given').notNull().default(true), // Implied consent (D-10)
+    // Phase 27 (COMP-01/COMP-02, D-01/D-04): repurposed from implied-consent
+    // (default true) to explicit-opt-in-required (default false). A fresh
+    // row now starts unconsented until the client accepts the hard Ναι/Όχι
+    // gate wired in Plan 27-02, which flips this to true via
+    // updateClientConsentGiven. Pre-existing (pre-v1.7) rows are grandfathered
+    // to true by migration 0013 — no real client already using the bot is
+    // silently blocked.
+    consentGiven: boolean('consent_given').notNull().default(false),
     consentTimestamp: timestamp('consent_timestamp').notNull().defaultNow(),
     createdAt: timestamp('created_at').notNull().defaultNow(),
   },
