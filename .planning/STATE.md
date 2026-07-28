@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: UX & Trust Polish
 current_phase: 27
-current_phase_name: Client Consent & Registration
+current_phase_name: client-consent-registration
 status: executing
 stopped_at: Phase 27 context gathered
-last_updated: "2026-07-28T10:48:05.851Z"
+last_updated: "2026-07-28T11:06:47.635Z"
 last_activity: 2026-07-28
-last_activity_desc: Phase 26 complete, transitioned to Phase 27
+last_activity_desc: Phase 27 execution started
 progress:
   total_phases: 5
   completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
+  total_plans: 4
+  completed_plans: 3
   percent: 20
 ---
 
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-28 after v1.6 milestone close)
 
 **Core value:** A client can book or cancel an appointment with a Greek business entirely through a chat conversation, in Greek, with zero friction — and the owner's calendar updates automatically.
-**Current focus:** Phase 26 — confirmation-approval-policy
+**Current focus:** Phase 27 — client-consent-registration
 
 ## Current Position
 
-Phase: 27 — Client Consent & Registration
-Plan: Not started
+Phase: 27 (client-consent-registration) — EXECUTING
+Plan: 2 of 2
 Status: Ready to execute
-Last activity: 2026-07-28 — Phase 26 complete, transitioned to Phase 27
+Last activity: 2026-07-28 — Phase 27 execution started
 
 ## Performance Metrics
 
@@ -109,6 +109,7 @@ Last activity: 2026-07-28 — Phase 26 complete, transitioned to Phase 27
 | Phase quick P260725-hlh | 8min | 2 tasks | 3 files |
 | Phase 26 P01 | 25min | 3 tasks | 6 files |
 | Phase 26 P02 | 23min | 3 tasks | 7 files |
+| Phase 27 P01 | 8min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -229,6 +230,8 @@ Recent decisions affecting current work:
 - [Phase 26]: sbk:approve cascade-cancels the superseded old booking with no credit restore (its credit was never touched); sbk:reject needs zero new logic since the old booking was never cancelled
 - [Phase 26]: [Phase 26-02]: pendingServicePriceChanges Map created in Task 1's commit (not Task 2's) so Task 1's own case compiles/behaves correctly at its own commit boundary
 - [Phase 26]: [Phase 26-02]: pending-price-change cleanup timer uses .unref() (unlike the pendingRenewalBatches precedent it mirrors) because it is exercised by direct unit tests, not gated behind a JEST_WORKER_ID poller
+- [Phase 27]: Repurposed the existing consentGiven column (default flip true->false) rather than adding a new column, per research ARCHITECTURE.md sec(b) and 27-CONTEXT.md D-01
+- [Phase 27]: insertClientBusinessRelationship's onConflictDoUpdate SET clause left untouched -- continues to exclude consentGiven so a racing/repeat first-contact upsert can never reset an already-accepted consent back to false (PITFALLS.md Pitfall 3)
 
 ### Pending Todos
 
@@ -327,7 +330,7 @@ Items acknowledged and deferred at v1.6 milestone close on 2026-07-28:
 
 ## Session Continuity
 
-Last session: 2026-07-28T10:14:07.544Z
+Last session: 2026-07-28T11:03:38.004Z
 Stopped at: Phase 27 context gathered
 Resume file: .planning/phases/27-client-consent-registration/27-CONTEXT.md
 
