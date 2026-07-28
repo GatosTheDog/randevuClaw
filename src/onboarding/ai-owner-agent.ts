@@ -54,9 +54,7 @@ const GREEK_WEEKDAYS = ['Κυριακή', 'Δευτέρα', 'Τρίτη', 'Τε�
 // callback_data (T-26-08 — "IDs only, never prices in callback_data",
 // same convention already established for billing callbacks). Keyed by
 // serviceId; self-expires after 10 minutes, mirroring
-// scheduler/membership-expiry.ts's pendingRenewalBatches Map (that file uses
-// a plain setTimeout with no JEST_WORKER_ID guard, so this mirrors that
-// exactly for consistency rather than inventing a new convention).
+// scheduler/membership-expiry.ts's pendingRenewalBatches Map cleanup pattern.
 const PENDING_PRICE_CHANGE_TTL_MS = 10 * 60 * 1000;
 
 export const pendingServicePriceChanges = new Map<
@@ -69,7 +67,19 @@ function setPendingServicePriceChange(
   value: { businessId: number; newPriceCents: number }
 ): void {
   pendingServicePriceChanges.set(serviceId, value);
-  setTimeout(() => pendingServicePriceChanges.delete(serviceId), PENDING_PRICE_CHANGE_TTL_MS);
+  // [Rule 3 - Blocking] Unlike membership-expiry.ts's pendingRenewalBatches
+  // cleanup (which only ever runs behind the !JEST_WORKER_ID-gated poller in
+  // server.ts, so its own bare setTimeout never actually fires under Jest),
+  // this staging Map is populated directly by executeOwnerTool's
+  // update_service_price case — exercised by this plan's own unit tests with
+  // no poller gate in between. An un-unref'd 10-minute setTimeout there kept
+  // the Jest worker process alive well past this plan's required
+  // `npx jest --testPathPattern="ai-owner-confirmation-policy.test.ts"`
+  // verification command completing, causing it to hang. `.unref()` lets the
+  // event loop (and Jest) exit normally without the timer firing early —
+  // production behavior (the map entry still self-expires after 10 minutes)
+  // is unaffected.
+  setTimeout(() => pendingServicePriceChanges.delete(serviceId), PENDING_PRICE_CHANGE_TTL_MS).unref();
 }
 
 // ---------------------------------------------------------------------------
@@ -929,6 +939,185 @@ async function executeOwnerTool(
   } catch (err) {
     logger.error({ err, toolName, businessId: business.id }, 'executeOwnerTool failed');
     return 'Σφάλμα κατά την εκτέλεση. Δοκιμάστε ξανά.';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 26 (CONF-01): owner confirm/abort dispatcher
+// ---------------------------------------------------------------------------
+
+/**
+ * Discriminated params parsed from an `otc:<action>:<id>[:<secondId>]:<yes|no>`
+ * callback_data tap (src/webhooks/telegram.ts's parseCallbackData). Mirrors
+ * the structurally-identical OwnerToolConfirmCallbackResult type exported by
+ * telegram.ts so the parsed value can be passed straight through.
+ */
+export type OwnerToolConfirmParams = {
+  otcAction: 'svc_del' | 'svc_price' | 'hrs_close' | 'assign';
+  id: number;
+  secondId?: number;
+  confirmed: boolean;
+};
+
+/**
+ * Executes or aborts exactly one of the 4 non-cancel_session CONF-01
+ * confirmations (delete_service, update_service_price, close_day,
+ * assign_client_to_session) after a real owner Telegram button tap.
+ * cancel_session is NOT handled here — its confirmation reuses the
+ * admin-menu's existing menu:classes:cancel_yes/no contract, routed through
+ * the existing handleMenuCallback/handleClassCancelExecute path (D-04).
+ *
+ * T-26-06/T-26-07: every confirmed mutation re-derives ownership from
+ * business.id (via findServiceById's businessId WHERE, the stored
+ * pendingServicePriceChanges.businessId check, or listSessions(business.id))
+ * before running inside withBusinessContext(business.id, ...) as RLS
+ * defense-in-depth — never trusts the raw ID in callback_data alone.
+ */
+export async function handleOwnerToolConfirmCallback(
+  params: OwnerToolConfirmParams,
+  business: Business,
+  ownerTelegramId: string
+): Promise<void> {
+  switch (params.otcAction) {
+    case 'svc_del': {
+      if (!params.confirmed) {
+        await sendTelegramMessage(ownerTelegramId, 'Η διαγραφή ματαιώθηκε.');
+        return;
+      }
+      const service = await findServiceById(business.id, params.id);
+      if (!service) {
+        await sendTelegramMessage(ownerTelegramId, 'Η υπηρεσία έχει ήδη διαγραφεί ή δεν βρέθηκε.');
+        return;
+      }
+      await withBusinessContext(business.id, async () => {
+        await getConn().delete(services).where(eq(services.id, params.id));
+      });
+      await sendTelegramMessage(ownerTelegramId, `OK: υπηρεσία "${service.name}" διαγράφηκε`);
+      return;
+    }
+
+    case 'svc_price': {
+      if (!params.confirmed) {
+        // T-26-09: delete the staged entry (if any) so a stale confirm tap
+        // that somehow arrives later cannot resurrect an aborted change.
+        pendingServicePriceChanges.delete(params.id);
+        await sendTelegramMessage(ownerTelegramId, 'Η αλλαγή τιμής ματαιώθηκε.');
+        return;
+      }
+      const pending = pendingServicePriceChanges.get(params.id);
+      // Missing (expired/already handled) and cross-tenant mismatch are
+      // treated identically — both reply "expired/not found", no mutation
+      // (T-26-06 cross-tenant guard).
+      if (!pending || pending.businessId !== business.id) {
+        await sendTelegramMessage(
+          ownerTelegramId,
+          'Το αίτημα αλλαγής τιμής έληξε ή έχει ήδη εκτελεστεί.'
+        );
+        return;
+      }
+      await withBusinessContext(business.id, async () => {
+        await getConn()
+          .update(services)
+          .set({ price: pending.newPriceCents })
+          .where(eq(services.id, params.id));
+      });
+      // T-26-09: delete after first successful use — a replayed confirm tap
+      // finds nothing staged and replies "expired" instead of double-applying.
+      pendingServicePriceChanges.delete(params.id);
+      const service = await findServiceById(business.id, params.id);
+      const serviceName = service?.name ?? '';
+      await sendTelegramMessage(
+        ownerTelegramId,
+        `OK: τιμή "${serviceName}" → ${(pending.newPriceCents / 100).toFixed(2)}€`
+      );
+      return;
+    }
+
+    case 'hrs_close': {
+      if (!params.confirmed) {
+        await sendTelegramMessage(ownerTelegramId, 'Η ενέργεια ματαιώθηκε.');
+        return;
+      }
+      if (params.id < 0 || params.id > 6) {
+        await sendTelegramMessage(ownerTelegramId, 'Μη έγκυρη ημέρα.');
+        return;
+      }
+      await withBusinessContext(business.id, async () => {
+        await getConn()
+          .insert(businessHours)
+          .values({
+            businessId: business.id,
+            dayOfWeek: params.id,
+            openTime: '00:00',
+            closeTime: '00:00',
+            isClosed: true,
+          })
+          .onConflictDoUpdate({
+            target: [businessHours.businessId, businessHours.dayOfWeek],
+            set: { isClosed: true },
+          });
+      });
+      await sendTelegramMessage(ownerTelegramId, `OK: ${GREEK_WEEKDAYS[params.id]} ορίστηκε ως κλειστή`);
+      return;
+    }
+
+    case 'assign': {
+      if (!params.confirmed) {
+        await sendTelegramMessage(ownerTelegramId, 'Η ανάθεση ματαιώθηκε.');
+        return;
+      }
+      if (params.secondId === undefined) {
+        await sendTelegramMessage(ownerTelegramId, 'Σφάλμα: ελλιπή δεδομένα ανάθεσης.');
+        return;
+      }
+      // client_phone is always a numeric Telegram user-id string in this
+      // codebase's Telegram-only convention — safe to round-trip through a
+      // numeric callback_data segment.
+      const clientPhone = String(params.secondId);
+      // T-26-07: re-resolve the target instance via listSessions(business.id)
+      // (already businessId-scoped) rather than trusting params.id alone.
+      const allSessions = await listSessions(business.id);
+      const target = allSessions.find((s) => s.instanceId === params.id);
+      if (!target) {
+        await sendTelegramMessage(ownerTelegramId, 'Το μάθημα δεν βρέθηκε.');
+        return;
+      }
+      // T-26-09: deterministic idempotencyKey (business/session-instance/client
+      // triple, no timestamp/random component) — safe against duplicate-tap
+      // replay via bookSessionInstance's own onConflictDoNothing insert.
+      const idempotencyKey = `owner-assign:${business.id}:${params.id}:${params.secondId}`;
+      // Phase 22: this remains a direct owner decision, not a new approval
+      // cycle — 'confirmed' unchanged from the original immediate-assign case.
+      const bookResult = await bookSessionInstance(
+        business.id,
+        target.instanceId,
+        clientPhone,
+        target.serviceId,
+        idempotencyKey,
+        undefined,
+        'confirmed'
+      );
+      if (bookResult.status === 'full') {
+        await sendTelegramMessage(ownerTelegramId, 'Το μάθημα είναι γεμάτο. Δεν είναι δυνατή η ανάθεση.');
+        return;
+      }
+      if (bookResult.status === 'conflict') {
+        await sendTelegramMessage(
+          ownerTelegramId,
+          'Σφάλμα: το μάθημα δεν είναι διαθέσιμο (ακυρωμένο ή δεν βρέθηκε).'
+        );
+        return;
+      }
+      await sendTelegramMessage(
+        clientPhone,
+        `Ο ιδιοκτήτης σε όρισε στο μάθημα ${target.sessionDate} στις ${target.sessionTime}. Σε περιμένουμε!`
+      );
+      await sendTelegramMessage(
+        ownerTelegramId,
+        `Ο πελάτης ${clientPhone} ορίστηκε στο μάθημα ${target.sessionDate} ${target.sessionTime} και ειδοποιήθηκε.`
+      );
+      return;
+    }
   }
 }
 
