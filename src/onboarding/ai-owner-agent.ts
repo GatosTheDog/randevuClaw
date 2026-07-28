@@ -1005,7 +1005,16 @@ export async function handleOwnerToolConfirmCallback(
       await withBusinessContext(business.id, async () => {
         await getConn().delete(services).where(eq(services.id, params.id));
       });
-      await sendTelegramMessage(ownerTelegramId, `OK: υπηρεσία "${service.name}" διαγράφηκε`);
+      // WR-04: the DB mutation above has already committed — a notification
+      // send failure must never propagate out and be reported to the owner
+      // as a generic error, or they'll believe the deletion failed when it
+      // actually succeeded (best-effort, matches the CR-03a/b/c convention
+      // used throughout function-executor.ts and webhooks/telegram.ts).
+      try {
+        await sendTelegramMessage(ownerTelegramId, `OK: υπηρεσία "${service.name}" διαγράφηκε`);
+      } catch (err) {
+        logger.error({ err, serviceId: params.id }, 'svc_del: owner confirmation notification failed (best-effort)');
+      }
       return;
     }
 
@@ -1039,10 +1048,15 @@ export async function handleOwnerToolConfirmCallback(
       pendingServicePriceChanges.delete(params.id);
       const service = await findServiceById(business.id, params.id);
       const serviceName = service?.name ?? '';
-      await sendTelegramMessage(
-        ownerTelegramId,
-        `OK: τιμή "${serviceName}" → ${(pending.newPriceCents / 100).toFixed(2)}€`
-      );
+      // WR-04: best-effort — mutation already committed above.
+      try {
+        await sendTelegramMessage(
+          ownerTelegramId,
+          `OK: τιμή "${serviceName}" → ${(pending.newPriceCents / 100).toFixed(2)}€`
+        );
+      } catch (err) {
+        logger.error({ err, serviceId: params.id }, 'svc_price: owner confirmation notification failed (best-effort)');
+      }
       return;
     }
 
@@ -1070,7 +1084,12 @@ export async function handleOwnerToolConfirmCallback(
             set: { isClosed: true },
           });
       });
-      await sendTelegramMessage(ownerTelegramId, `OK: ${GREEK_WEEKDAYS[params.id]} ορίστηκε ως κλειστή`);
+      // WR-04: best-effort — mutation already committed above.
+      try {
+        await sendTelegramMessage(ownerTelegramId, `OK: ${GREEK_WEEKDAYS[params.id]} ορίστηκε ως κλειστή`);
+      } catch (err) {
+        logger.error({ err, dayOfWeek: params.id }, 'hrs_close: owner confirmation notification failed (best-effort)');
+      }
       return;
     }
 
@@ -1121,14 +1140,25 @@ export async function handleOwnerToolConfirmCallback(
         );
         return;
       }
-      await sendTelegramMessage(
-        clientPhone,
-        `Ο ιδιοκτήτης σε όρισε στο μάθημα ${target.sessionDate} στις ${target.sessionTime}. Σε περιμένουμε!`
-      );
-      await sendTelegramMessage(
-        ownerTelegramId,
-        `Ο πελάτης ${clientPhone} ορίστηκε στο μάθημα ${target.sessionDate} ${target.sessionTime} και ειδοποιήθηκε.`
-      );
+      // WR-04: the assignment above has already committed — each send is
+      // independently best-effort so a failure on the client's notification
+      // (e.g. unreachable chat) never skips the owner's own confirmation.
+      try {
+        await sendTelegramMessage(
+          clientPhone,
+          `Ο ιδιοκτήτης σε όρισε στο μάθημα ${target.sessionDate} στις ${target.sessionTime}. Σε περιμένουμε!`
+        );
+      } catch (err) {
+        logger.error({ err, clientPhone, instanceId: target.instanceId }, 'assign: client notification failed (best-effort)');
+      }
+      try {
+        await sendTelegramMessage(
+          ownerTelegramId,
+          `Ο πελάτης ${clientPhone} ορίστηκε στο μάθημα ${target.sessionDate} ${target.sessionTime} και ειδοποιήθηκε.`
+        );
+      } catch (err) {
+        logger.error({ err, clientPhone, instanceId: target.instanceId }, 'assign: owner confirmation notification failed (best-effort)');
+      }
       return;
     }
   }
