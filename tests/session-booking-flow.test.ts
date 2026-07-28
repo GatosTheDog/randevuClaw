@@ -55,6 +55,33 @@ function addDays(days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/**
+ * Compute Athens wall-clock date and time N minutes from now (negative = past).
+ * Mirrors the athensTimeNHoursFromNow helper convention in
+ * tests/cancellation-cutoff.test.ts, scaled to minutes so it can express a
+ * same-day session whose start time is a few minutes in the past (Phase 29,
+ * D-01/UX-01 boundary). Uses the real clock — not jest fake timers.
+ */
+function athensTimeMinutesFromNow(minutesFromNow: number): { sessionDate: string; sessionTime: string } {
+  const targetMs = Date.now() + minutesFromNow * 60_000;
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Europe/Athens',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+  const parts = fmt.formatToParts(new Date(targetMs));
+  const get = (t: string) => parts.find((p: { type: string; value: string }) => p.type === t)!.value;
+  const sessionDate = `${get('year')}-${get('month')}-${get('day')}`;
+  // hour12: false may produce "24" for midnight; normalise to "00"
+  const rawHour = get('hour');
+  const sessionTime = `${rawHour === '24' ? '00' : rawHour.padStart(2, '0')}:${get('minute')}`;
+  return { sessionDate, sessionTime };
+}
+
 function buildToolContext(
   business: {
     id: number;
@@ -711,5 +738,132 @@ describe('SBOK-04: multi-session booking', () => {
     expect(result.booked_count).toBe(1);
     // success is true because at least 1 was booked
     expect(result.success).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// UX-01 (Phase 29, D-01): all 4 client-facing listSessions() call sites in
+// function-executor.ts must exclude a same-day session whose start time has
+// already passed. Each test creates its own fresh business + session catalog
+// (not shared across the describe block) to avoid the unique_session_instance
+// constraint (catalogId, sessionDate, sessionTime) colliding when two tests
+// anchor "a few minutes ago" within the same wall-clock minute — same
+// isolation rationale documented in 29-01-SUMMARY.md.
+// ---------------------------------------------------------------------------
+
+describe('UX-01: same-day past-time session exclusion across free-chat tool paths (D-01)', () => {
+  it('list_sessions_for_client excludes a same-day session whose start time has passed', async () => {
+    const business = await insertTestBusiness();
+    const serviceId = await getTestServiceId(business.id);
+    const catalog = await insertTestSessionCatalog(business.id, serviceId, { capacity: 10 });
+
+    const { sessionDate, sessionTime } = athensTimeMinutesFromNow(-5);
+    const pastInstance = await insertTestSessionInstance(catalog.id, {
+      sessionDate,
+      sessionTime,
+      idempotencyKey: `ux01-list-past:${catalog.id}:${Date.now()}`,
+    });
+
+    const context = buildToolContext({ id: business.id, name: business.name }, uniquePhone());
+    const result = await executeTool('list_sessions_for_client', { business_id: business.id }, context);
+
+    const sessions = (result.sessions as Array<{ instance_id: number }>) ?? [];
+    expect(sessions.some((s) => s.instance_id === pastInstance.id)).toBe(false);
+  });
+
+  it('book_session (single-booking path) returns session_not_found for a same-day past-time instance', async () => {
+    const business = await insertTestBusiness();
+    const serviceId = await getTestServiceId(business.id);
+    const catalog = await insertTestSessionCatalog(business.id, serviceId, { capacity: 10 });
+
+    const { sessionDate, sessionTime } = athensTimeMinutesFromNow(-5);
+    const pastInstance = await insertTestSessionInstance(catalog.id, {
+      sessionDate,
+      sessionTime,
+      idempotencyKey: `ux01-book-single-past:${catalog.id}:${Date.now()}`,
+    });
+
+    const context = buildToolContext({ id: business.id, name: business.name }, uniquePhone());
+    const result = await executeTool(
+      'book_session',
+      { business_id: business.id, session_instance_id: pastInstance.id },
+      context
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('session_not_found');
+  });
+
+  it('book_session (multi-booking path) treats a same-day past-time instance as a conflict, not a booking', async () => {
+    const business = await insertTestBusiness();
+    const serviceId = await getTestServiceId(business.id);
+    const catalog = await insertTestSessionCatalog(business.id, serviceId, { capacity: 10 });
+
+    const { sessionDate, sessionTime } = athensTimeMinutesFromNow(-5);
+    const pastInstance = await insertTestSessionInstance(catalog.id, {
+      sessionDate,
+      sessionTime,
+      idempotencyKey: `ux01-book-multi-past:${catalog.id}:${Date.now()}`,
+    });
+    const futureInstance = await insertTestSessionInstance(catalog.id, {
+      sessionDate: addDays(40),
+      idempotencyKey: `ux01-book-multi-future:${catalog.id}:${Date.now()}`,
+    });
+
+    const context = buildToolContext(
+      { id: business.id, name: business.name, allowMultiBooking: true },
+      uniquePhone()
+    );
+    const result = await executeTool(
+      'book_session',
+      { business_id: business.id, session_instance_ids: [pastInstance.id, futureInstance.id] },
+      context
+    );
+
+    expect((result.conflict_instance_ids as number[]).includes(pastInstance.id)).toBe(true);
+    expect((result.booked_instance_ids as number[]).includes(futureInstance.id)).toBe(true);
+    expect(result.success).toBe(true);
+  });
+
+  it('reschedule_session returns session_not_found when the target instance is a same-day past-time session', async () => {
+    const business = await insertTestBusiness();
+    const serviceId = await getTestServiceId(business.id);
+    const catalog = await insertTestSessionCatalog(business.id, serviceId, { capacity: 10 });
+    const clientPhone = uniquePhone();
+
+    // Book a real future session first so we have a valid original booking
+    // with sessionInstanceId set (required by rescheduleSessionTool's
+    // not_a_session_booking guard).
+    const futureInstance = await insertTestSessionInstance(catalog.id, {
+      sessionDate: addDays(41),
+      idempotencyKey: `ux01-reschedule-orig:${catalog.id}:${Date.now()}`,
+    });
+    const bookResult = await bookSessionInstance(
+      business.id,
+      futureInstance.id,
+      clientPhone,
+      serviceId,
+      `ux01-reschedule-book:${futureInstance.id}:${clientPhone}`,
+      null
+    );
+    expect(bookResult.status).toBe('success');
+    const bookingId = bookResult.bookingId!;
+
+    const { sessionDate, sessionTime } = athensTimeMinutesFromNow(-5);
+    const pastInstance = await insertTestSessionInstance(catalog.id, {
+      sessionDate,
+      sessionTime,
+      idempotencyKey: `ux01-reschedule-past:${catalog.id}:${Date.now()}`,
+    });
+
+    const context = buildToolContext({ id: business.id, name: business.name }, clientPhone);
+    const result = await executeTool(
+      'reschedule_session',
+      { business_id: business.id, booking_id: bookingId, new_session_instance_id: pastInstance.id },
+      context
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('session_not_found');
   });
 });

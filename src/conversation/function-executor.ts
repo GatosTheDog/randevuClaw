@@ -538,7 +538,9 @@ async function listSessionsForClientTool(
 ): Promise<Record<string, unknown>> {
   ListSessionsArgsSchema.parse(args);
 
-  const sessions = await listSessions(context.business.id);
+  // D-01 (Phase 29, UX-01): excludePastToday=true — a client chatting in free
+  // text must never see a same-day session whose start time has already passed.
+  const sessions = await listSessions(context.business.id, 90, true);
 
   if (sessions.length === 0) {
     return { sessions: [], message: 'Δεν υπάρχουν επερχόμενα μαθήματα αυτή τη στιγμή.' };
@@ -588,7 +590,9 @@ async function bookSessionTool(
       };
     }
 
-    const sessions = await listSessions(context.business.id);
+    // D-01 (Phase 29, UX-01): excludePastToday=true — a same-day past-time
+    // instance must be treated as a conflict, same as any other unavailable one.
+    const sessions = await listSessions(context.business.id, 90, true);
     const booked: number[] = [];
     const full: number[] = [];
     const conflict: number[] = [];
@@ -666,7 +670,9 @@ async function bookSessionTool(
     };
   }
 
-  const sessions = await listSessions(context.business.id);
+  // D-01 (Phase 29, UX-01): excludePastToday=true — a same-day past-time
+  // instance must return session_not_found, not be treated as bookable.
+  const sessions = await listSessions(context.business.id, 90, true);
   const session = sessions.find((s) => s.instanceId === parsed.session_instance_id);
   if (!session) {
     return { success: false, error: 'session_not_found', message: 'Το μάθημα δεν βρέθηκε ή δεν είναι πλέον διαθέσιμο.' };
@@ -742,7 +748,9 @@ async function rescheduleSessionTool(
     };
   }
 
-  const sessions = await listSessions(context.business.id);
+  // D-01 (Phase 29, UX-01): excludePastToday=true — a same-day past-time
+  // instance must return session_not_found, not be treated as reschedulable.
+  const sessions = await listSessions(context.business.id, 90, true);
   const newSession = sessions.find((s) => s.instanceId === parsed.new_session_instance_id);
   if (!newSession) return { success: false, error: 'session_not_found' };
 
