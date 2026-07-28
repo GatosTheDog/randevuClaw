@@ -184,7 +184,23 @@ Plans:
   4. The client's "Κράτηση μαθήματος" booking button is hidden or relabeled (not silently no-op) for businesses using open-slot (non-fixed-class) booking mode.
   5. Tapping a stale or unknown callback button on either the admin or client menu shows a back-to-menu recovery option instead of a dead-end error.
 
-**Plans**: TBD
+**Plans**: 6 plans
+
+Plans:
+**Wave 1**
+
+- [ ] 29-01-PLAN.md — Foundation: listSessions excludePastToday filter + shared hoursUntilSession helper (D-01, D-02), findSessionInstanceById lookup helper (D-06), shared back-menu label constants (D-07)
+
+**Wave 2** *(depends on Wave 1)*
+
+- [ ] 29-02-PLAN.md — Wire the 4 client-facing listSessions calls in function-executor.ts to excludePastToday=true; consolidate its hoursUntilSessionInAthens duplicate (UX-01)
+- [ ] 29-03-PLAN.md — telegram.ts: back-menu recovery for malformed callback_data + unknown legacy bookings; escl:approve uses findSessionInstanceById (UX-06)
+- [ ] 29-04-PLAN.md — admin-menu.ts: cancel-class confirm shows date/service name, classes lists show service names, default-case recovery, back-menu label consolidation (UX-02, UX-04, UX-06)
+- [ ] 29-05-PLAN.md — client-menu.ts (part 1): booking-button relabel, past-time filtering + back-button + service names in the book-a-class flow, handleBookSessionExecute refactor (UX-01, UX-04, UX-05)
+
+**Wave 3** *(depends on Wave 1 + 29-05, same file)*
+
+- [ ] 29-06-PLAN.md — client-menu.ts (part 2): booking/cancel lists show service names, cancel-confirm shows date/service name with a new ownership guard, cancel-flow recovery keyboards (UX-02, UX-04, UX-06)
 
 #### Phase 30: Client Identification & Menu Reliability
 
@@ -231,7 +247,7 @@ Plans:
 | 26. Confirmation & Approval Policy | v1.7 | 2/2 | Complete    | 2026-07-28 |
 | 27. Client Consent & Registration | v1.7 | 2/2 | Complete    | 2026-07-28 |
 | 28. Admin Menu Discoverability | v1.7 | 2/2 | Complete    | 2026-07-28 |
-| 29. Booking & List Clarity | v1.7 | 0/TBD | Not started | - |
+| 29. Booking & List Clarity | v1.7 | 0/6 | Planned | - |
 | 30. Client Identification & Menu Reliability | v1.7 | 0/TBD | Not started | - |
 
 ## Backlog
