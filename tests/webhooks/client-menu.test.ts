@@ -867,4 +867,49 @@ describe('Suite F: sbk: session booking approval routing', () => {
     expect(mockedReleaseSessionCapacity).not.toHaveBeenCalled();
     expect(mockedRestoreCredit).not.toHaveBeenCalled();
   });
+
+  // Phase 26 (CONF-02/D-03): sbk:approve cascade-cancels the superseded
+  // (rescheduledFromBookingId) booking.
+  it('owner taps Έγκριση on a rescheduled booking → cascade-cancels the old booking and best-effort deletes its calendar event', async () => {
+    const OLD_BOOKING_ID = 4;
+    const oldBooking = { ...SESSION_BOOKING, id: OLD_BOOKING_ID, bookingStatus: 'confirmed' };
+    const newBookingBeforeApprove = { ...SESSION_BOOKING, id: 5, rescheduledFromBookingId: OLD_BOOKING_ID };
+    const newBookingAfterApprove = {
+      ...newBookingBeforeApprove,
+      bookingStatus: 'confirmed',
+    };
+
+    // findBookingByIdUnscoped is called twice in this flow: once for the
+    // T-22-02 ownership guard on the NEW booking (sbk.bookingId=5), and once
+    // for the cascade's own lookup of the OLD booking (rescheduledFromBookingId=4).
+    mockedFindBookingByIdUnscoped.mockImplementation(async (bookingId: number) => {
+      if (bookingId === OLD_BOOKING_ID) return oldBooking as any;
+      return newBookingBeforeApprove as any;
+    });
+    mockedUpdateBookingStatusIfPending.mockResolvedValue(newBookingAfterApprove as any);
+    mockedDeleteBookingFromCalendar.mockResolvedValue(true as any);
+
+    const res = await postToWebhook(
+      makeCallbackQueryUpdate(15, OWNER_TELEGRAM_ID, 'sbk:approve:5')
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockedUpdateBookingStatus).toHaveBeenCalledWith(OLD_BOOKING_ID, 'cancelled');
+    expect(mockedDeleteBookingFromCalendar).toHaveBeenCalledWith(oldBooking, expect.objectContaining({ id: BASE_BUSINESS.id }));
+  });
+
+  it('owner taps Έγκριση on a non-rescheduled booking (rescheduledFromBookingId=null) → updateBookingStatus is never called for a cascade', async () => {
+    mockedUpdateBookingStatusIfPending.mockResolvedValue({
+      ...SESSION_BOOKING,
+      bookingStatus: 'confirmed',
+      rescheduledFromBookingId: null,
+    } as any);
+
+    const res = await postToWebhook(
+      makeCallbackQueryUpdate(16, OWNER_TELEGRAM_ID, 'sbk:approve:5')
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockedUpdateBookingStatus).not.toHaveBeenCalled();
+  });
 });

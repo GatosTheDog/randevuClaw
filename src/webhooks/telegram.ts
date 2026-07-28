@@ -593,6 +593,26 @@ async function handleCallbackQuery(
         await sendTelegramMessage(senderTelegramId, 'Η κράτηση δεν βρέθηκε ή έχει ήδη επεξεργαστεί.');
         return;
       }
+
+      // Phase 26 (CONF-02/D-03): if this booking is a reschedule's new slot,
+      // cascade-cancel the OLD (superseded) booking now that the owner has
+      // approved the new one. Mirrors the existing reschedule-cascade pattern
+      // elsewhere in this file. No credit restore here — the old booking's
+      // credit was never touched by rescheduleSessionTool (D-03), so
+      // restoring it now would over-refund the client.
+      if (updated.rescheduledFromBookingId) {
+        await updateBookingStatus(updated.rescheduledFromBookingId, 'cancelled');
+        try {
+          const oldBooking = await findBookingByIdUnscoped(updated.rescheduledFromBookingId);
+          if (oldBooking) await deleteBookingFromCalendar(oldBooking, business);
+        } catch (err) {
+          logger.error(
+            { err, bookingId: updated.rescheduledFromBookingId },
+            "sbk approve: failed to delete superseded booking's calendar event"
+          );
+        }
+      }
+
       try {
         await sendTelegramMessage(
           updated.clientPhone,
