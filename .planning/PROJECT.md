@@ -2,7 +2,7 @@
 
 ## Current State
 
-**Shipped through v1.6 (Telegram Bot UX/Ops Improvements, 2026-07-28).** Session-class bookings now require real owner approval (Έγκριση/Απόρριψη keyboard) instead of auto-confirming, with atomic capacity-hold + credit-restore on reject/expiry. Admin can delete a scheduled lesson from the menu or chat; any active bookings on it cascade-cancel with credit restore and a Greek notification to each affected client. Both admin and client get a persistent Telegram menu button (one-tap `/menu`/`/start` access), and when the bot hits its generic Greek error fallback, the owner's own chat now gets a best-effort technical diagnostic (requestId, error type) alongside it. Owners can generate a shareable invite for their business's bot — one message with a QR code (business name + Greek CTA baked into the image) plus the raw `t.me/<bot_username>` deep link as copyable text — from either the admin menu or free chat. The dormant WhatsApp Cloud API integration (webhook, client, config) was fully removed mid-milestone; the bot is Telegram-only with WhatsApp still shelved pending Meta Business Verification.
+**Shipped through v1.6 (Telegram Bot UX/Ops Improvements, 2026-07-28); v1.7 Phase 26 (Confirmation & Approval Policy) now also complete.** Session-class bookings now require real owner approval (Έγκριση/Απόρριψη keyboard) instead of auto-confirming, with atomic capacity-hold + credit-restore on reject/expiry. Admin can delete a scheduled lesson from the menu or chat; any active bookings on it cascade-cancel with credit restore and a Greek notification to each affected client. Both admin and client get a persistent Telegram menu button (one-tap `/menu`/`/start` access), and when the bot hits its generic Greek error fallback, the owner's own chat now gets a best-effort technical diagnostic (requestId, error type) alongside it. Owners can generate a shareable invite for their business's bot — one message with a QR code (business name + Greek CTA baked into the image) plus the raw `t.me/<bot_username>` deep link as copyable text — from either the admin menu or free chat. The dormant WhatsApp Cloud API integration (webhook, client, config) was fully removed mid-milestone; the bot is Telegram-only with WhatsApp still shelved pending Meta Business Verification. As of Phase 26: client session reschedules now require the same owner approval as new bookings (credit conserved 1-for-1 across a reschedule, fixed post-review), and all 5 destructive owner actions require a real button-tap confirmation whether triggered from the admin menu or free chat.
 
 ## What This Is
 
@@ -80,6 +80,8 @@ A client can book or cancel an appointment with a Greek business entirely throug
 - ✓ Persistent Telegram menu button for admin and client (one-tap `/menu`/`/start`) — v1.6 Phase 24 (BOT-06)
 - ✓ Owner gets a best-effort technical diagnostic in their own chat when the bot hits its generic Greek error fallback — v1.6 Phase 24 (DIAG-01)
 - ✓ Owner can generate a shareable QR + deep-link invite for their business's bot, from admin menu or free chat — v1.6 Phase 25 (INVITE-01)
+- ✓ Client session reschedules go through the same owner approve/reject cascade as new bookings; a rejected reschedule never leaves the client with zero active bookings — v1.7 Phase 26 (CONF-02)
+- ✓ All 5 destructive owner actions (delete_service, update_service_price, close_day, cancel_session, assign_client_to_session) require a real Telegram button confirmation before mutating, whether triggered via admin menu or free-chat Gemini tool call — v1.7 Phase 26 (CONF-01)
 
 ### Active
 
@@ -186,4 +188,4 @@ A client can book or cancel an appointment with a Greek business entirely throug
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-28 after v1.6 milestone*
+*Last updated: 2026-07-28 after v1.7 Phase 26*
