@@ -163,7 +163,13 @@ Plans:
   3. Tapping "reply to client" either delivers the owner's next message to the escalating client, or the button no longer appears in the admin UI.
   4. The decorative "Νέο μάθημα (chat)" button (and any other no-op button found in the same sweep) is removed or wired to a real action.
 
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+**Wave 1**
+
+- [ ] 28-01-PLAN.md — Payment button wiring + Settings example-phrase guidance buttons + Νέο μάθημα (chat) upgrade (ADMIN-02, ADMIN-03, ADMIN-04)
+- [ ] 28-02-PLAN.md — Escalation "reply" button wired into a real pending-reply relay (ADMIN-01)
 
 #### Phase 29: Booking & List Clarity
 
@@ -224,7 +230,7 @@ Plans:
 | 25. Client Invite Generator | v1.6 | 1/1 | Complete | 2026-07-27 |
 | 26. Confirmation & Approval Policy | v1.7 | 2/2 | Complete    | 2026-07-28 |
 | 27. Client Consent & Registration | v1.7 | 2/2 | Complete    | 2026-07-28 |
-| 28. Admin Menu Discoverability | v1.7 | 0/TBD | Not started | - |
+| 28. Admin Menu Discoverability | v1.7 | 0/2 | Not started | - |
 | 29. Booking & List Clarity | v1.7 | 0/TBD | Not started | - |
 | 30. Client Identification & Menu Reliability | v1.7 | 0/TBD | Not started | - |
 
