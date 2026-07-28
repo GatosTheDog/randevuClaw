@@ -668,6 +668,15 @@ async function handleCallbackQuery(
       logger.warn({ senderTelegramId }, 'menu callback from non-owner, ignoring');
       return;
     }
+    // WR-01 fix: mirror the '/menu' text-command's D-03 behavior — navigating
+    // via an inline "back to menu" (or any other still-active menu) button
+    // tap must cancel a stale pending reply too, not just the typed /menu
+    // command. Telegram does not auto-clear old inline keyboards, so a
+    // previously-sent menu message stays tappable; without this, tapping it
+    // while a reply is staged leaves the pending reply intact and the
+    // owner's next free-text message still relays to the earlier escalating
+    // client.
+    clearPendingReply(business.id, senderTelegramId);
     // Clear old keyboard before sending sub-menu (RESEARCH.md Pitfall 6)
     if (callbackQuery.message?.message_id) {
       await editTelegramMessageReplyMarkup(senderTelegramId, callbackQuery.message.message_id, []);

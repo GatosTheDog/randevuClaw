@@ -818,6 +818,32 @@ describe('POST /webhooks/telegram/:webhookId — reply-relay flow (ADMIN-01)', (
     expect(mockedSendTelegramMessage).not.toHaveBeenCalledWith(CLIENT_TELEGRAM_ID, 'κάτι άσχετο');
   });
 
+  it('Test 28-02c (WR-01 regression): tapping an inline "back to menu" (menu:root) callback between the escl:reply tap and the free-text message clears the pending reply too, not just the typed /menu command', async () => {
+    await postWebhook(
+      'test-webhook-id-1',
+      makeCallbackQueryUpdate(416, OWNER_FROM_ID, `escl:reply:${CLIENT_TELEGRAM_ID}`)
+    );
+
+    const menuTapRes = await postWebhook(
+      'test-webhook-id-1',
+      makeCallbackQueryUpdate(417, OWNER_FROM_ID, 'menu:root')
+    );
+    expect(menuTapRes.status).toBe(200);
+
+    const res = await postWebhook(
+      'test-webhook-id-1',
+      makeMessageUpdate(418, 'κάτι άσχετο', OWNER_FROM_ID)
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockedAiOwnerAgent).toHaveBeenCalledTimes(1);
+    expect(mockedSendTelegramMessage).not.toHaveBeenCalledWith(CLIENT_TELEGRAM_ID, 'κάτι άσχετο');
+    expect(mockedSendTelegramMessage).not.toHaveBeenCalledWith(
+      KNOWN_BUSINESS.ownerTelegramId,
+      'Η απάντηση στάλθηκε.'
+    );
+  });
+
   it('Test 28-03: a relay send failure to the client degrades to a Greek error message to the owner, request still returns 200', async () => {
     await postWebhook(
       'test-webhook-id-1',
