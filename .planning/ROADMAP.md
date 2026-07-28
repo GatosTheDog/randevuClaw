@@ -117,12 +117,12 @@ See: `.planning/milestones/v1.6-ROADMAP.md`
   3. If the owner rejects a reschedule, the client's original booking remains intact and the client receives a Greek notification explaining the rejection.
   4. Reschedules already confirmed under the previous auto-confirm behavior continue to behave correctly after the new approval gate ships (no orphaned capacity holds or double-booked slots).
 
-**Plans**: 2 plans
+**Plans**: 1/2 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 26-01-PLAN.md — Reverse the Phase 22 auto-confirm decision for session reschedules: bookSessionInstance links to the booking it replaces, and sbk:approve cascade-cancels it (CONF-02)
+- [x] 26-01-PLAN.md — Reverse the Phase 22 auto-confirm decision for session reschedules: bookSessionInstance links to the booking it replaces, and sbk:approve cascade-cancels it (CONF-02)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -213,7 +213,7 @@ Plans:
 | 23. Lesson Deletion & Cascade Cancellation | v1.6 | 1/1 | Complete | 2026-07-27 |
 | 24. Bot Access & Diagnostics Polish | v1.6 | 1/1 | Complete | 2026-07-27 |
 | 25. Client Invite Generator | v1.6 | 1/1 | Complete | 2026-07-27 |
-| 26. Confirmation & Approval Policy | v1.7 | 0/TBD | Not started | - |
+| 26. Confirmation & Approval Policy | v1.7 | 1/2 | In Progress|  |
 | 27. Client Consent & Registration | v1.7 | 0/TBD | Not started | - |
 | 28. Admin Menu Discoverability | v1.7 | 0/TBD | Not started | - |
 | 29. Booking & List Clarity | v1.7 | 0/TBD | Not started | - |

@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: UX & Trust Polish
 current_phase: 26
-current_phase_name: v1.7 Phase 1/5
+current_phase_name: confirmation-approval-policy
 status: executing
-stopped_at: Phase 26 context gathered
-last_updated: "2026-07-27T23:58:51.415Z"
+stopped_at: Completed 26-01-PLAN.md
+last_updated: "2026-07-28T08:02:52.102Z"
 last_activity: 2026-07-28
-last_activity_desc: v1.7 ROADMAP.md created (Phases 26-30), REQUIREMENTS.md traceability updated, 15/15 requirements mapped
+last_activity_desc: Phase 26 execution started
 progress:
   total_phases: 5
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 2
+  completed_plans: 1
   percent: 0
 ---
 
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-28 after v1.6 milestone close)
 
 **Core value:** A client can book or cancel an appointment with a Greek business entirely through a chat conversation, in Greek, with zero friction — and the owner's calendar updates automatically.
-**Current focus:** v1.7 UX & Trust Polish — Phase 26 (Confirmation & Approval Policy) ready to plan
+**Current focus:** Phase 26 — confirmation-approval-policy
 
 ## Current Position
 
-Phase: Phase 26 of 30 (v1.7 Phase 1/5) — Confirmation & Approval Policy
-Plan: — (not yet planned)
+Phase: 26 (confirmation-approval-policy) — EXECUTING
+Plan: 2 of 2
 Status: Ready to execute
-Last activity: 2026-07-28 — v1.7 ROADMAP.md created (Phases 26-30), REQUIREMENTS.md traceability updated, 15/15 requirements mapped
+Last activity: 2026-07-28 — Phase 26 execution started
 
 ## Performance Metrics
 
@@ -106,6 +106,7 @@ Last activity: 2026-07-28 — v1.7 ROADMAP.md created (Phases 26-30), REQUIREMEN
 | Phase 21 P01 | 55 | 2 tasks | 3 files |
 | Phase 21 P03 | 20min | 2 tasks | 10 files |
 | Phase quick P260725-hlh | 8min | 2 tasks | 3 files |
+| Phase 26 P01 | 25min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -221,6 +222,9 @@ Recent decisions affecting current work:
 - [Roadmap v1.6]: BOT-06 and DIAG-01 grouped into one phase (24) rather than two single-requirement phases — both are small, independent bot-ops config/behavior changes with no natural neighbor closer than each other
 - [Roadmap v1.7]: 5 phases derived from 15 requirements — Phase 26 (CONF-01+CONF-02 confirmation/approval policy foundation), Phase 27 (COMP-01+COMP-02 client consent & registration), Phase 28 (ADMIN-01..04 admin menu discoverability, depends on Phase 26's confirmation pattern), Phase 29 (UX-01/02/04/05/06 booking & list clarity, depends on Phase 26's confirmation pattern), Phase 30 (UX-03+ADMIN-05 client identification & menu-button reliability, sequenced last as the most research-heavy pair)
 - [Roadmap v1.7]: Research's suggested 5-6 phase split (confirmation, reschedule-reversal, menu-standardization, booking-clarity, advanced-consent/fuzzy, dead-feature-cleanup) was consolidated to 5 phases — CONF-01/CONF-02 share one phase instead of two (both are "approval/confirmation policy" work), and the two dead-button items (ADMIN-01/02) were folded into the admin-menu-discoverability phase instead of a standalone cleanup phase, avoiding thin single-requirement phases
+- [Phase 26]: rescheduledFromBookingId appended as bookSessionInstance's 8th (last) parameter, not inserted before initialStatus, so existing call sites passing 'confirmed' as the 7th arg stay unaffected
+- [Phase 26]: rescheduleSessionTool defers old-booking cancellation to owner-approval time (D-03): new booking created pending_owner_approval and linked via rescheduledFromBookingId, old booking stays confirmed/untouched until approve/reject
+- [Phase 26]: sbk:approve cascade-cancels the superseded old booking with no credit restore (its credit was never touched); sbk:reject needs zero new logic since the old booking was never cancelled
 
 ### Pending Todos
 
@@ -256,6 +260,7 @@ Recent decisions affecting current work:
 - [Phase 23]: CLSS-07's credit restore must reuse the existing restoreCredit path from Phase 8 (billing/queries.ts) rather than duplicating unlimited-membership/null-guard logic.
 - [Phase 26]: CONF-02 reschedule-approval reversal has in-flight data risk — reschedules already auto-confirmed under the old Phase 22 behavior must not become invisible/orphaned once the new approval filter goes live (research PITFALLS.md #2).
 - [Phase 27]: COMP-01/COMP-02 consent-timing fix has a concurrency risk — two threads on the same client's first contact could race past the consent upsert; use an atomic INSERT...ON CONFLICT, not read-then-write (research PITFALLS.md #3).
+- [Phase 26]: tests/session-booking-flow.test.ts SBOK-04 'multi-booking partial success' fails on a pre-existing test bug (duplicate active session catalog for same business+service) unrelated to Phase 26 changes — logged in .planning/phases/26-confirmation-approval-policy/deferred-items.md, needs a future test-suite-health pass.
 
 ## Deferred Items
 
@@ -318,8 +323,8 @@ Items acknowledged and deferred at v1.6 milestone close on 2026-07-28:
 
 ## Session Continuity
 
-Last session: 2026-07-27T23:08:41.863Z
-Stopped at: Phase 26 context gathered
+Last session: 2026-07-28T08:02:43.573Z
+Stopped at: Completed 26-01-PLAN.md
 Resume file: .planning/phases/26-confirmation-approval-policy/26-CONTEXT.md
 
 **Phase 12 Plan 01 completed:** a940588, 6c5830e, 7d64f85

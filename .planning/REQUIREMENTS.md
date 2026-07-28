@@ -8,7 +8,7 @@
 ### Confirmation & Approval Policy (CONF)
 
 - [ ] **CONF-01**: Destructive owner actions (delete service, update price, close day, cancel class, assign client) have a uniform Ναι/Όχι confirmation across both the admin menu and free-chat tool paths — no action mutates immediately without confirmation, and the same action confirms consistently regardless of entry path
-- [ ] **CONF-02**: Client-initiated reschedules require owner approval before confirming, reusing the same approve/reject capacity-hold cascade already used for new session bookings (reverses the v1.6 Phase 22 auto-confirm decision); the client's original booking is not lost if the new slot is rejected
+- [x] **CONF-02**: Client-initiated reschedules require owner approval before confirming, reusing the same approve/reject capacity-hold cascade already used for new session bookings (reverses the v1.6 Phase 22 auto-confirm decision); the client's original booking is not lost if the new slot is rejected
 
 ### Admin Discoverability (ADMIN)
 
@@ -61,7 +61,7 @@ Deferred to future release. Tracked but not in current roadmap.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | CONF-01 | Phase 26 | Pending |
-| CONF-02 | Phase 26 | Pending |
+| CONF-02 | Phase 26 | Complete |
 | COMP-01 | Phase 27 | Pending |
 | COMP-02 | Phase 27 | Pending |
 | ADMIN-01 | Phase 28 | Pending |
@@ -77,6 +77,7 @@ Deferred to future release. Tracked but not in current roadmap.
 | ADMIN-05 | Phase 30 | Pending |
 
 **Coverage:**
+
 - v1 requirements: 15 total
 - Mapped to phases: 15/15 ✓
 - Unmapped: 0
