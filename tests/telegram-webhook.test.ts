@@ -7,6 +7,7 @@ import * as calendarSync from '../src/calendar/sync';
 import * as registryModule from '../src/telegram/registry';
 import * as billingQueries from '../src/billing/queries';
 import * as aiOwnerAgentModule from '../src/onboarding/ai-owner-agent';
+import * as sessionManager from '../src/session/manager';
 import { parseCallbackData } from '../src/webhooks/telegram';
 import { pendingReplies } from '../src/telegram/handlers/pending-reply';
 import { BACK_MENU_LABELS } from '../src/utils/greek-messages';
@@ -23,6 +24,11 @@ jest.mock('../src/billing/queries');
 // DIAG-01: only used by the owner-branch diagnostic test below — every other
 // test in this file already routes through the client or onboarding branches.
 jest.mock('../src/onboarding/ai-owner-agent');
+// WR-02 (29-REVIEW.md): mock session/manager so escl:approve tests exercise
+// findSessionInstanceById/bookSessionInstance as controllable seams rather
+// than reaching a real DB. Previously unmocked in this file, which is why
+// the T-29-06 escl:approve refactor shipped with zero behavioral coverage.
+jest.mock('../src/session/manager');
 
 // Phase 4: per-bot secret — hardcoded test constant (ONB-04: TEST_BOT_* removed from jest.setup.ts)
 const SECRET = 'test-bot-1-webhook-secret';
@@ -147,6 +153,13 @@ const mockedHandleOwnerToolConfirmCallback =
   aiOwnerAgentModule.handleOwnerToolConfirmCallback as jest.MockedFunction<
     typeof aiOwnerAgentModule.handleOwnerToolConfirmCallback
   >;
+// WR-02 (29-REVIEW.md): escl:approve execution-path mocks.
+const mockedFindSessionInstanceById = sessionManager.findSessionInstanceById as jest.MockedFunction<
+  typeof sessionManager.findSessionInstanceById
+>;
+const mockedBookSessionInstance = sessionManager.bookSessionInstance as jest.MockedFunction<
+  typeof sessionManager.bookSessionInstance
+>;
 
 function makeMessageUpdate(updateId: number, text: string, fromId = 111222333) {
   return {
@@ -943,5 +956,117 @@ describe('POST /webhooks/telegram/:webhookId — reply-relay flow (ADMIN-01)', (
     expect(textRes.status).toBe(200);
     expect(mockedSendTelegramMessage).toHaveBeenCalledWith(CLIENT_TELEGRAM_ID, 'Θα είμαστε εκεί στις 5');
     expect(mockedAiOwnerAgent).not.toHaveBeenCalled();
+  });
+});
+
+// WR-02 (29-REVIEW.md): the T-29-06 fix swapped the old ad-hoc,
+// businessId-unscoped Drizzle join for findSessionInstanceById in the
+// escl:approve branch (src/webhooks/telegram.ts:605-654) to close a
+// cross-business information-read gap. This describe block exercises that
+// execution path directly through handleCallbackQuery (via the webhook
+// endpoint), not just parseCallbackData's pure parsing — the gap this
+// finding identified in the pre-existing test suite.
+describe('POST /webhooks/telegram/:webhookId — escl:approve flow (T-29-06/WR-02)', () => {
+  const CLIENT_TELEGRAM_ID = '987654321';
+  const OWNER_FROM_ID = Number(KNOWN_BUSINESS.ownerTelegramId);
+  const INSTANCE_ID = 501;
+  const SERVICE_ID = 12;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockedInsertOrIgnoreTelegramUpdate.mockResolvedValue('inserted');
+    mockedMarkTelegramUpdateProcessed.mockResolvedValue(undefined);
+    mockedAnswerCallbackQuery.mockResolvedValue(undefined);
+    mockedEditTelegramMessageReplyMarkup.mockResolvedValue(undefined);
+    mockedSendTelegramMessage.mockResolvedValue({ messageId: 999 });
+    mockedFindBusinessByWebhookId.mockResolvedValue(KNOWN_BUSINESS);
+    mockedGetOrCreateBotInstance.mockReturnValue(mockBot as any);
+    (telegramClient.botTokenStore.run as jest.Mock).mockImplementation(
+      (_value: string, callback: () => Promise<unknown>) => callback()
+    );
+    mockedWithBusinessContext.mockImplementation((_businessId, callback) => callback());
+  });
+
+  it('escl:approve — cross-business/nonexistent instanceId (findSessionInstanceById resolves null) → "Το μάθημα δεν βρέθηκε." sent, bookSessionInstance NOT called', async () => {
+    mockedFindSessionInstanceById.mockResolvedValue(null);
+
+    const res = await postWebhook(
+      'test-webhook-id-1',
+      makeCallbackQueryUpdate(500, OWNER_FROM_ID, `escl:approve:${INSTANCE_ID}:${CLIENT_TELEGRAM_ID}`)
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockedFindSessionInstanceById).toHaveBeenCalledWith(KNOWN_BUSINESS.id, INSTANCE_ID);
+    expect(mockedBookSessionInstance).not.toHaveBeenCalled();
+    expect(mockedSendTelegramMessage).toHaveBeenCalledWith(
+      KNOWN_BUSINESS.ownerTelegramId,
+      'Το μάθημα δεν βρέθηκε.'
+    );
+  });
+
+  it('escl:approve — happy path: findSessionInstanceById resolves a session, bookSessionInstance succeeds → owner and client both notified, booking created with the resolved serviceId', async () => {
+    mockedFindSessionInstanceById.mockResolvedValue({
+      instanceId: INSTANCE_ID,
+      catalogId: 9,
+      sessionDate: '2026-08-01',
+      sessionTime: '10:00',
+      bookedCount: 1,
+      capacity: 5,
+      serviceId: SERVICE_ID,
+    } as any);
+    mockedBookSessionInstance.mockResolvedValue({ status: 'success', bookingId: 777 });
+
+    const res = await postWebhook(
+      'test-webhook-id-1',
+      makeCallbackQueryUpdate(501, OWNER_FROM_ID, `escl:approve:${INSTANCE_ID}:${CLIENT_TELEGRAM_ID}`)
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockedFindSessionInstanceById).toHaveBeenCalledWith(KNOWN_BUSINESS.id, INSTANCE_ID);
+    expect(mockedBookSessionInstance).toHaveBeenCalledWith(
+      KNOWN_BUSINESS.id,
+      INSTANCE_ID,
+      CLIENT_TELEGRAM_ID,
+      SERVICE_ID,
+      `escl:approve:${CLIENT_TELEGRAM_ID}:${INSTANCE_ID}`,
+      null,
+      'confirmed'
+    );
+    expect(mockedSendTelegramMessage).toHaveBeenCalledWith(
+      CLIENT_TELEGRAM_ID,
+      'Η κράτησή σας εγκρίθηκε από τον διαχειριστή! Θα σας δούμε σύντομα.'
+    );
+    expect(mockedSendTelegramMessage).toHaveBeenCalledWith(
+      KNOWN_BUSINESS.ownerTelegramId,
+      'Εξαίρεση εγκρίθηκε. Η κράτηση δημιουργήθηκε.'
+    );
+  });
+
+  it('escl:approve — bookSessionInstance returns full → apology sent, client NOT notified', async () => {
+    mockedFindSessionInstanceById.mockResolvedValue({
+      instanceId: INSTANCE_ID,
+      catalogId: 9,
+      sessionDate: '2026-08-01',
+      sessionTime: '10:00',
+      bookedCount: 5,
+      capacity: 5,
+      serviceId: SERVICE_ID,
+    } as any);
+    mockedBookSessionInstance.mockResolvedValue({ status: 'full' });
+
+    const res = await postWebhook(
+      'test-webhook-id-1',
+      makeCallbackQueryUpdate(502, OWNER_FROM_ID, `escl:approve:${INSTANCE_ID}:${CLIENT_TELEGRAM_ID}`)
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockedSendTelegramMessage).toHaveBeenCalledWith(
+      KNOWN_BUSINESS.ownerTelegramId,
+      'Δεν ήταν δυνατή η εξαίρεση: το μάθημα παραμένει πλήρες.'
+    );
+    expect(mockedSendTelegramMessage).not.toHaveBeenCalledWith(
+      CLIENT_TELEGRAM_ID,
+      'Η κράτησή σας εγκρίθηκε από τον διαχειριστή! Θα σας δούμε σύντομα.'
+    );
   });
 });
