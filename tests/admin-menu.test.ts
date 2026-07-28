@@ -13,7 +13,7 @@
  */
 
 import { parseCallbackData } from '../src/webhooks/telegram';
-import { showAdminRootMenu, handleMenuCallback, handleClassCancelExecute } from '../src/telegram/handlers/admin-menu';
+import { showAdminRootMenu, showSettingsMenu, handleMenuCallback, handleClassCancelExecute } from '../src/telegram/handlers/admin-menu';
 import { Business } from '../src/database/queries';
 
 // ---------------------------------------------------------------------------
@@ -154,6 +154,90 @@ describe('handleMenuCallback — payment action', () => {
 
     expect(paymentFlow.showClientSelection).toHaveBeenCalledTimes(1);
     expect(paymentFlow.showClientSelection).toHaveBeenCalledWith(mockBusiness.id, '123');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 28 Plan 01: showSettingsMenu keyboard shape (ADMIN-04, D-07/D-09)
+// ---------------------------------------------------------------------------
+
+describe('showSettingsMenu — keyboard shape', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    const telegramClient = require('../src/telegram/client');
+    telegramClient.sendTelegramMessageWithKeyboard.mockResolvedValue({ messageId: 1 });
+    telegramClient.sendTelegramMessage.mockResolvedValue({ messageId: 2 });
+  });
+
+  test('sends an 8-row keyboard with the 3 new example-phrase buttons before the back button', async () => {
+    const telegramClient = require('../src/telegram/client');
+    await showSettingsMenu('123', mockBusiness);
+
+    const sendCalls = (telegramClient.sendTelegramMessageWithKeyboard as jest.Mock).mock.calls;
+    expect(sendCalls.length).toBe(1);
+
+    const keyboard = sendCalls[0][2];
+    expect(keyboard.length).toBe(8);
+    expect(keyboard[4]).toEqual([
+      { text: '📝 Ώρες Λειτουργίας — Παραδείγματα', callback_data: 'menu:settings:hours_examples' },
+    ]);
+    expect(keyboard[5]).toEqual([
+      { text: '📝 Υπηρεσίες & Τιμές — Παραδείγματα', callback_data: 'menu:settings:services_examples' },
+    ]);
+    expect(keyboard[6]).toEqual([
+      { text: '📝 Νέα Μαθήματα — Παραδείγματα', callback_data: 'menu:settings:classes_examples' },
+    ]);
+    expect(keyboard[7]).toEqual([{ text: '« Πίσω στο Μενού', callback_data: 'menu:root' }]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 28 Plan 01: handleMenuCallback settings example-phrase actions (ADMIN-04, D-07)
+// ---------------------------------------------------------------------------
+
+describe('handleMenuCallback — settings example-phrase actions', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+
+    const telegramClient = require('../src/telegram/client');
+    telegramClient.sendTelegramMessage.mockResolvedValue({ messageId: 1 });
+    telegramClient.sendTelegramMessageWithKeyboard.mockResolvedValue({ messageId: 2 });
+  });
+
+  test('settings:hours_examples sends exactly one message with 3 bullet phrases', async () => {
+    const telegramClient = require('../src/telegram/client');
+    await handleMenuCallback({ menuAction: 'settings:hours_examples', id: undefined }, mockBusiness, '123');
+
+    const msgCalls = (telegramClient.sendTelegramMessage as jest.Mock).mock.calls;
+    expect(msgCalls.length).toBe(1);
+    expect((msgCalls[0][1].match(/•/g) || []).length).toBe(3);
+  });
+
+  test('settings:services_examples sends exactly one message with 3 bullet phrases', async () => {
+    const telegramClient = require('../src/telegram/client');
+    await handleMenuCallback({ menuAction: 'settings:services_examples', id: undefined }, mockBusiness, '123');
+
+    const msgCalls = (telegramClient.sendTelegramMessage as jest.Mock).mock.calls;
+    expect(msgCalls.length).toBe(1);
+    expect((msgCalls[0][1].match(/•/g) || []).length).toBe(3);
+  });
+
+  test('settings:classes_examples sends exactly one message with 3 bullet phrases', async () => {
+    const telegramClient = require('../src/telegram/client');
+    await handleMenuCallback({ menuAction: 'settings:classes_examples', id: undefined }, mockBusiness, '123');
+
+    const msgCalls = (telegramClient.sendTelegramMessage as jest.Mock).mock.calls;
+    expect(msgCalls.length).toBe(1);
+    expect((msgCalls[0][1].match(/•/g) || []).length).toBe(3);
+  });
+
+  test('classes:create sends exactly one message with 3 bullet phrases (upgraded from single rigid example)', async () => {
+    const telegramClient = require('../src/telegram/client');
+    await handleMenuCallback({ menuAction: 'classes:create', id: undefined }, mockBusiness, '123');
+
+    const msgCalls = (telegramClient.sendTelegramMessage as jest.Mock).mock.calls;
+    expect(msgCalls.length).toBe(1);
+    expect((msgCalls[0][1].match(/•/g) || []).length).toBe(3);
   });
 });
 

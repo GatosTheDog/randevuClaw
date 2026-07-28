@@ -138,18 +138,27 @@ export async function showSettingsMenu(chatId: string, business: Business): Prom
     : 'Ενεργοποίηση ειδοποίησης';
 
   const backCallbackData = 'menu:root';
+  const hoursExamplesData = 'menu:settings:hours_examples';
+  const servicesExamplesData = 'menu:settings:services_examples';
+  const classesExamplesData = 'menu:settings:classes_examples';
 
   assertCallbackDataSize(slotlessCallbackData);
   assertCallbackDataSize(cutoffCallbackData);
   assertCallbackDataSize(multiCallbackData);
   assertCallbackDataSize(thresholdCallbackData);
   assertCallbackDataSize(backCallbackData);
+  assertCallbackDataSize(hoursExamplesData);
+  assertCallbackDataSize(servicesExamplesData);
+  assertCallbackDataSize(classesExamplesData);
 
   const keyboard: InlineKeyboard = [
     [{ text: slotlessText, callback_data: slotlessCallbackData }],
     [{ text: cutoffText, callback_data: cutoffCallbackData }],
     [{ text: multiText, callback_data: multiCallbackData }],
     [{ text: thresholdText, callback_data: thresholdCallbackData }],
+    [{ text: '📝 Ώρες Λειτουργίας — Παραδείγματα', callback_data: hoursExamplesData }],
+    [{ text: '📝 Υπηρεσίες & Τιμές — Παραδείγματα', callback_data: servicesExamplesData }],
+    [{ text: '📝 Νέα Μαθήματα — Παραδείγματα', callback_data: classesExamplesData }],
     [{ text: '« Πίσω στο Μενού', callback_data: backCallbackData }],
   ];
 
@@ -533,6 +542,39 @@ export async function handleMenuCallback(
       await showSettingsMenu(chatId, business);
       break;
 
+    case menuAction === 'settings:hours_examples':
+      await sendTelegramMessage(
+        chatId,
+        `Ώρες Λειτουργίας — παραδείγματα:
+
+• Δευτέρα έως Παρασκευή 09:00-18:00
+• Πρωί 09:00-12:00, Απόγευμα 15:00-19:00
+• Μόνο Σάββατο και Κυριακή 10:00-18:00`
+      );
+      break;
+
+    case menuAction === 'settings:services_examples':
+      await sendTelegramMessage(
+        chatId,
+        `Υπηρεσίες & Τιμές — παραδείγματα:
+
+• Pilates €60 ανά συνεδρία
+• Yoga Διάνυσμα €45 / 8 μαθήματα
+• Προσωπικό πρόγραμμα €80 / ώρα`
+      );
+      break;
+
+    case menuAction === 'settings:classes_examples':
+      await sendTelegramMessage(
+        chatId,
+        `Νέα Μαθήματα — παραδείγματα:
+
+• Pilates Δευτέρα Τετάρτη 10:00-11:00 15 θέσεις
+• Yoga κάθε Σάββατο 18:00-19:30 20 θέσεις
+• Zumba Τρίτη Πέμπτη 19:00 25 θέσεις`
+      );
+      break;
+
     case menuAction.startsWith('settings:'): {
       const toggleAction = menuAction.slice('settings:'.length);
       await handleSettingsToggle(toggleAction, business, chatId);
@@ -562,8 +604,11 @@ export async function handleMenuCallback(
     case menuAction === 'classes:create':
       await sendTelegramMessage(
         chatId,
-        'Για να δημιουργήσεις νέο επαναλαμβανόμενο μάθημα, γράψε μου στο chat ' +
-          '(π.χ. "Δημιούργησε Pilates Δευτέρα Τετάρτη 10:00 15 θέσεις").'
+        `Δημιουργία Μαθήματος — γράψε κάτι σαν:
+
+• Δημιούργησε Pilates Δευτέρα Τετάρτη 10:00 15 θέσεις
+• Νέο Yoga μαθήματα κάθε Σάββατο 18:00
+• Προσθέσε Zumba Τρίτη Πέμπτη 19:00-20:00 25 θέσεις`
       );
       break;
 
