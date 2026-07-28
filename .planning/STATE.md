@@ -4,17 +4,17 @@ milestone: v1.7
 milestone_name: UX & Trust Polish
 current_phase: 27
 current_phase_name: client-consent-registration
-status: executing
-stopped_at: Phase 27 context gathered
-last_updated: "2026-07-28T11:06:47.635Z"
+status: verifying
+stopped_at: Completed 27-02-PLAN.md
+last_updated: "2026-07-28T11:31:16.460Z"
 last_activity: 2026-07-28
 last_activity_desc: Phase 27 execution started
 progress:
   total_phases: 5
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 4
-  completed_plans: 3
-  percent: 20
+  completed_plans: 4
+  percent: 40
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-07-28 after v1.6 milestone close)
 
 Phase: 27 (client-consent-registration) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-28 — Phase 27 execution started
 
 ## Performance Metrics
@@ -110,6 +110,7 @@ Last activity: 2026-07-28 — Phase 27 execution started
 | Phase 26 P01 | 25min | 3 tasks | 6 files |
 | Phase 26 P02 | 23min | 3 tasks | 7 files |
 | Phase 27 P01 | 8min | 3 tasks | 3 files |
+| Phase 27 P02 | 15min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -232,6 +233,9 @@ Recent decisions affecting current work:
 - [Phase 26]: [Phase 26-02]: pending-price-change cleanup timer uses .unref() (unlike the pendingRenewalBatches precedent it mirrors) because it is exercised by direct unit tests, not gated behind a JEST_WORKER_ID poller
 - [Phase 27]: Repurposed the existing consentGiven column (default flip true->false) rather than adding a new column, per research ARCHITECTURE.md sec(b) and 27-CONTEXT.md D-01
 - [Phase 27]: insertClientBusinessRelationship's onConflictDoUpdate SET clause left untouched -- continues to exclude consentGiven so a racing/repeat first-contact upsert can never reset an already-accepted consent back to false (PITFALLS.md Pitfall 3)
+- [Phase 27]: CONSENT_LABELS kept separate from CONFIRM_LABELS (Phase 26) -- different audience (client-facing vs owner-facing) and callback_data convention (consent:yes/no vs otc:.../menu:...)
+- [Phase 27]: getOrCreateClientRelationship's hardcoded-true bug fixed to return the real inserted row's consentGiven -- load-bearing, without it the whole gate would be silently defeated
+- [Phase 27]: routeConversationMessage's hard gate checks consentGiven (not isFirstContact) and returns before findLatestConversationTurn/aiBookingAgent/insertConversationTurn -- real behavior change replacing the old soft/prepended notice (D-03)
 
 ### Pending Todos
 
@@ -330,9 +334,9 @@ Items acknowledged and deferred at v1.6 milestone close on 2026-07-28:
 
 ## Session Continuity
 
-Last session: 2026-07-28T11:03:38.004Z
-Stopped at: Phase 27 context gathered
-Resume file: .planning/phases/27-client-consent-registration/27-CONTEXT.md
+Last session: 2026-07-28T11:31:16.449Z
+Stopped at: Completed 27-02-PLAN.md
+Resume file: None
 
 **Phase 12 Plan 01 completed:** a940588, 6c5830e, 7d64f85
 

@@ -29,7 +29,7 @@
 
 ### Compliance & Client Registration (COMP)
 
-- [ ] **COMP-01**: Clients who first contact the bot via `/start` (not free-form chat) see the GDPR data-consent notice before any client-business relationship row is created — closing the gap where `/start`-first clients never see it
+- [x] **COMP-01**: Clients who first contact the bot via `/start` (not free-form chat) see the GDPR data-consent notice before any client-business relationship row is created — closing the gap where `/start`-first clients never see it
 - [x] **COMP-02**: A genuine client opt-in/registration flag exists on the client-business relationship, distinguishing consenting registered clients from incidental first-contact rows
 
 ## v2 Requirements
@@ -62,7 +62,7 @@ Deferred to future release. Tracked but not in current roadmap.
 |-------------|-------|--------|
 | CONF-01 | Phase 26 | Complete |
 | CONF-02 | Phase 26 | Complete |
-| COMP-01 | Phase 27 | Pending |
+| COMP-01 | Phase 27 | Complete |
 | COMP-02 | Phase 27 | Complete |
 | ADMIN-01 | Phase 28 | Pending |
 | ADMIN-02 | Phase 28 | Pending |
