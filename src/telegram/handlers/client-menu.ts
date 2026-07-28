@@ -392,8 +392,33 @@ export async function showCancelBookingList(
 
 /**
  * Shows a Ναι/Όχι confirmation prompt before cancelling a booking.
+ *
+ * Security (T-29-05): callback_data is attacker-controllable input — any
+ * Telegram user can send a hand-crafted callback_query.data string, not only
+ * literal button taps. The ownership guard below MUST run before any
+ * booking-derived text (date, time, service name) is composed, and both
+ * failure paths ("not found" and "not yours") return the identical generic
+ * message so an attacker cannot enumerate valid bookingIds by comparing
+ * response shapes.
  */
-export async function showCancelConfirm(chatId: string, bookingId: number): Promise<void> {
+export async function showCancelConfirm(
+  chatId: string,
+  business: Business,
+  senderTelegramId: string,
+  bookingId: number
+): Promise<void> {
+  const booking = await findBookingByIdUnscoped(bookingId);
+  if (!booking || booking.clientPhone !== senderTelegramId) {
+    const keyboard: InlineKeyboard = [
+      [{ text: BACK_MENU_LABELS.CLIENT, callback_data: 'cmenu:root' }],
+    ];
+    await sendTelegramMessageWithKeyboard(chatId, 'Κράτηση δεν βρέθηκε.', keyboard);
+    return;
+  }
+
+  const service = await findServiceById(business.id, booking.serviceId);
+  const serviceName = service?.name ?? '(άγνωστη υπηρεσία)';
+
   const yesData = `cmenu:cancel:yes:${bookingId}`;
   const noData = 'cmenu:root';
   assertCallbackDataSize(yesData);
@@ -406,7 +431,11 @@ export async function showCancelConfirm(chatId: string, bookingId: number): Prom
     ],
   ];
 
-  await sendTelegramMessageWithKeyboard(chatId, 'Να ακυρωθεί αυτή η κράτηση;', keyboard);
+  await sendTelegramMessageWithKeyboard(
+    chatId,
+    `Να ακυρωθεί η κράτηση:\n${serviceName}\n${booking.calendarDate} ${booking.calendarTime};`,
+    keyboard
+  );
 }
 
 /**
@@ -589,7 +618,8 @@ export async function handleClientMenuCallback(
       if (result.id === undefined) {
         await sendTelegramMessage(chatId, 'Σφάλμα: δεν βρέθηκε η κράτηση.');
       } else {
-        await showCancelConfirm(chatId, result.id);
+        // chatId === senderTelegramId for private Telegram chats
+        await showCancelConfirm(chatId, business, chatId, result.id);
       }
       break;
 

@@ -918,6 +918,134 @@ describe('showClientBookings / showCancelBookingList — service name enrichment
 });
 
 // ---------------------------------------------------------------------------
+// showCancelConfirm — ownership guard + real date/service context (D-09, T-29-05)
+// ---------------------------------------------------------------------------
+
+describe('showCancelConfirm — ownership guard + real date/service context (D-09, T-29-05)', () => {
+  const senderTelegramId = CLIENT_TELEGRAM_ID;
+  const bookingId = 99;
+
+  const BASE_CONFIRM_BOOKING = {
+    id: bookingId,
+    businessId: BASE_BUSINESS.id,
+    clientPhone: CLIENT_TELEGRAM_ID,
+    serviceId: 3,
+    sessionInstanceId: null,
+    calendarDate: '2099-12-31',
+    calendarTime: '10:00',
+    bookingStatus: 'confirmed',
+    requestId: 'req-confirm-1',
+    ownerTelegramMessageId: null,
+    rescheduledFromBookingId: null,
+    calendarSyncStatus: 'pending',
+    googleCalendarEventId: null,
+    calendarSyncRetryCount: 0,
+    reminder24hSentAt: null,
+    reminder1hSentAt: null,
+    createdAt: new Date(),
+    expiresAt: null,
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockedSendTelegramMessage.mockResolvedValue({ messageId: 999 });
+    mockedSendTelegramMessageWithKeyboard.mockResolvedValue({ messageId: 998 });
+  });
+
+  it('owner (senderTelegramId matches clientPhone) → prompt includes real date, time, and resolved service name', async () => {
+    mockedFindBookingByIdUnscoped.mockResolvedValue(BASE_CONFIRM_BOOKING as any);
+    mockedFindServiceById.mockResolvedValue({
+      id: 3,
+      businessId: BASE_BUSINESS.id,
+      name: 'Yoga',
+      durationMin: 60,
+      price: null,
+      createdAt: new Date(),
+    } as any);
+
+    const result: ClientMenuCallbackResult = { clientMenuAction: 'cancel:confirm', id: bookingId };
+    await handleClientMenuCallback(result, BASE_BUSINESS as any, senderTelegramId);
+
+    expect(mockedFindServiceById).toHaveBeenCalledWith(BASE_BUSINESS.id, 3);
+    expect(mockedSendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
+      senderTelegramId,
+      expect.stringContaining('Yoga'),
+      expect.anything()
+    );
+    expect(mockedSendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
+      senderTelegramId,
+      expect.stringContaining('2099-12-31'),
+      expect.anything()
+    );
+    expect(mockedSendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
+      senderTelegramId,
+      expect.stringContaining('10:00'),
+      expect.anything()
+    );
+  });
+
+  it('T-29-05: booking belongs to a different clientPhone → generic "Κράτηση δεν βρέθηκε." + back-menu keyboard sent, findServiceById NEVER called', async () => {
+    mockedFindBookingByIdUnscoped.mockResolvedValue({
+      ...BASE_CONFIRM_BOOKING,
+      clientPhone: 'someone-else',
+    } as any);
+
+    const result: ClientMenuCallbackResult = { clientMenuAction: 'cancel:confirm', id: bookingId };
+    await handleClientMenuCallback(result, BASE_BUSINESS as any, senderTelegramId);
+
+    expect(mockedFindServiceById).not.toHaveBeenCalled();
+    expect(mockedSendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
+      senderTelegramId,
+      'Κράτηση δεν βρέθηκε.',
+      [[{ text: '« Πίσω', callback_data: 'cmenu:root' }]]
+    );
+  });
+
+  it('T-29-05: booking does not exist (findBookingByIdUnscoped returns null) → identical generic message/keyboard as the wrong-owner case (anti-enumeration)', async () => {
+    mockedFindBookingByIdUnscoped.mockResolvedValue(null);
+
+    const result: ClientMenuCallbackResult = { clientMenuAction: 'cancel:confirm', id: bookingId };
+    await handleClientMenuCallback(result, BASE_BUSINESS as any, senderTelegramId);
+
+    expect(mockedFindServiceById).not.toHaveBeenCalled();
+    expect(mockedSendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
+      senderTelegramId,
+      'Κράτηση δεν βρέθηκε.',
+      [[{ text: '« Πίσω', callback_data: 'cmenu:root' }]]
+    );
+  });
+
+  it("dispatcher's 'cancel:confirm' case wires (chatId, business, chatId, bookingId) into showCancelConfirm", async () => {
+    // Verified indirectly: findBookingByIdUnscoped is called with the dispatched
+    // bookingId, and the ownership check passes when senderTelegramId (=== chatId
+    // for private Telegram chats) matches the booking's clientPhone, and
+    // findServiceById is called with the dispatched business.id — proving all
+    // 4 args (chatId, business, chatId-as-senderTelegramId, bookingId) reached
+    // showCancelConfirm exactly as the dispatcher call site passes them.
+    mockedFindBookingByIdUnscoped.mockResolvedValue(BASE_CONFIRM_BOOKING as any);
+    mockedFindServiceById.mockResolvedValue({
+      id: 3,
+      businessId: BASE_BUSINESS.id,
+      name: 'Yoga',
+      durationMin: 60,
+      price: null,
+      createdAt: new Date(),
+    } as any);
+
+    const result: ClientMenuCallbackResult = { clientMenuAction: 'cancel:confirm', id: bookingId };
+    await handleClientMenuCallback(result, BASE_BUSINESS as any, senderTelegramId);
+
+    expect(mockedFindBookingByIdUnscoped).toHaveBeenCalledWith(bookingId);
+    expect(mockedFindServiceById).toHaveBeenCalledWith(BASE_BUSINESS.id, 3);
+    expect(mockedSendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
+      senderTelegramId,
+      expect.stringContaining('Yoga'),
+      expect.anything()
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
 // SUITE D: Cancel flow via handleClientMenuCallback (direct unit tests)
 // ---------------------------------------------------------------------------
 
