@@ -213,7 +213,7 @@ Plans:
 | 23. Lesson Deletion & Cascade Cancellation | v1.6 | 1/1 | Complete | 2026-07-27 |
 | 24. Bot Access & Diagnostics Polish | v1.6 | 1/1 | Complete | 2026-07-27 |
 | 25. Client Invite Generator | v1.6 | 1/1 | Complete | 2026-07-27 |
-| 26. Confirmation & Approval Policy | v1.7 | 2/2 | Complete   | 2026-07-28 |
+| 26. Confirmation & Approval Policy | v1.7 | 2/2 | Complete    | 2026-07-28 |
 | 27. Client Consent & Registration | v1.7 | 0/TBD | Not started | - |
 | 28. Admin Menu Discoverability | v1.7 | 0/TBD | Not started | - |
 | 29. Booking & List Clarity | v1.7 | 0/TBD | Not started | - |
