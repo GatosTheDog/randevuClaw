@@ -163,6 +163,11 @@ const mockedBookSessionInstance = sessionManager.bookSessionInstance as jest.Moc
 const mockedListSessions = sessionManager.listSessions as jest.MockedFunction<
   typeof sessionManager.listSessions
 >;
+// Phase 29 (D-06): handleBookSessionExecute's shared session-instance lookup.
+const mockedFindSessionInstanceById =
+  sessionManager.findSessionInstanceById as jest.MockedFunction<
+    typeof sessionManager.findSessionInstanceById
+  >;
 const mockedFindBookingByIdUnscoped =
   queries.findBookingByIdUnscoped as jest.MockedFunction<
     typeof queries.findBookingByIdUnscoped
@@ -463,17 +468,17 @@ describe('Suite C: booking flow via handleClientMenuCallback', () => {
   });
 
   it('book:yes — enforcement allows, bookSessionInstance succeeds → Greek pending-request message sent', async () => {
-    // Mock the db query inside handleBookSessionExecute (serviceId lookup)
-    const dbMock = jest.requireMock('../../src/database/db');
-    dbMock.db.select = jest.fn().mockReturnValue({
-      from: jest.fn().mockReturnValue({
-        innerJoin: jest.fn().mockReturnValue({
-          where: jest.fn().mockReturnValue({
-            limit: jest.fn().mockResolvedValue([{ serviceId: 3 }]),
-          }),
-        }),
-      }),
-    });
+    // Phase 29 (D-06): handleBookSessionExecute resolves session data via
+    // the shared, businessId-scoped findSessionInstanceById helper.
+    mockedFindSessionInstanceById.mockResolvedValue({
+      instanceId,
+      catalogId: 1,
+      sessionDate: '2026-07-27',
+      sessionTime: '09:00',
+      bookedCount: 0,
+      capacity: 5,
+      serviceId: 3,
+    } as any);
 
     const result: ClientMenuCallbackResult = { clientMenuAction: 'book:yes', id: instanceId };
     await handleClientMenuCallback(result, BASE_BUSINESS as any, senderTelegramId);
@@ -491,18 +496,15 @@ describe('Suite C: booking flow via handleClientMenuCallback', () => {
   });
 
   it('book:yes — success → owner IS notified with an Έγκριση/Απόρριψη keyboard (Phase 22)', async () => {
-    const dbMock = jest.requireMock('../../src/database/db');
-    dbMock.db.select = jest.fn().mockReturnValue({
-      from: jest.fn().mockReturnValue({
-        innerJoin: jest.fn().mockReturnValue({
-          where: jest.fn().mockReturnValue({
-            limit: jest
-              .fn()
-              .mockResolvedValue([{ serviceId: 3, sessionDate: '2026-07-27', sessionTime: '09:00' }]),
-          }),
-        }),
-      }),
-    });
+    mockedFindSessionInstanceById.mockResolvedValue({
+      instanceId,
+      catalogId: 1,
+      sessionDate: '2026-07-27',
+      sessionTime: '09:00',
+      bookedCount: 0,
+      capacity: 5,
+      serviceId: 3,
+    } as any);
 
     const result: ClientMenuCallbackResult = { clientMenuAction: 'book:yes', id: instanceId };
     await handleClientMenuCallback(result, BASE_BUSINESS as any, senderTelegramId);
@@ -520,18 +522,15 @@ describe('Suite C: booking flow via handleClientMenuCallback', () => {
   });
 
   it('book:yes — success, client has a name on file → owner alert shows the resolved name, not the raw id', async () => {
-    const dbMock = jest.requireMock('../../src/database/db');
-    dbMock.db.select = jest.fn().mockReturnValue({
-      from: jest.fn().mockReturnValue({
-        innerJoin: jest.fn().mockReturnValue({
-          where: jest.fn().mockReturnValue({
-            limit: jest
-              .fn()
-              .mockResolvedValue([{ serviceId: 3, sessionDate: '2026-07-27', sessionTime: '09:00' }]),
-          }),
-        }),
-      }),
-    });
+    mockedFindSessionInstanceById.mockResolvedValue({
+      instanceId,
+      catalogId: 1,
+      sessionDate: '2026-07-27',
+      sessionTime: '09:00',
+      bookedCount: 0,
+      capacity: 5,
+      serviceId: 3,
+    } as any);
     mockedGetClientName.mockResolvedValue('Μαρία Παπαδοπούλου');
 
     const result: ClientMenuCallbackResult = { clientMenuAction: 'book:yes', id: instanceId };
@@ -551,18 +550,15 @@ describe('Suite C: booking flow via handleClientMenuCallback', () => {
   });
 
   it('book:yes — success, client has NO name on file → owner alert falls back to the raw sender id', async () => {
-    const dbMock = jest.requireMock('../../src/database/db');
-    dbMock.db.select = jest.fn().mockReturnValue({
-      from: jest.fn().mockReturnValue({
-        innerJoin: jest.fn().mockReturnValue({
-          where: jest.fn().mockReturnValue({
-            limit: jest
-              .fn()
-              .mockResolvedValue([{ serviceId: 3, sessionDate: '2026-07-27', sessionTime: '09:00' }]),
-          }),
-        }),
-      }),
-    });
+    mockedFindSessionInstanceById.mockResolvedValue({
+      instanceId,
+      catalogId: 1,
+      sessionDate: '2026-07-27',
+      sessionTime: '09:00',
+      bookedCount: 0,
+      capacity: 5,
+      serviceId: 3,
+    } as any);
     mockedGetClientName.mockResolvedValue(null);
 
     const result: ClientMenuCallbackResult = { clientMenuAction: 'book:yes', id: instanceId };
@@ -576,16 +572,15 @@ describe('Suite C: booking flow via handleClientMenuCallback', () => {
   });
 
   it('book:yes — success, business.ownerTelegramId is null → owner send is skipped (no crash)', async () => {
-    const dbMock = jest.requireMock('../../src/database/db');
-    dbMock.db.select = jest.fn().mockReturnValue({
-      from: jest.fn().mockReturnValue({
-        innerJoin: jest.fn().mockReturnValue({
-          where: jest.fn().mockReturnValue({
-            limit: jest.fn().mockResolvedValue([{ serviceId: 3, sessionDate: '2026-07-27', sessionTime: '09:00' }]),
-          }),
-        }),
-      }),
-    });
+    mockedFindSessionInstanceById.mockResolvedValue({
+      instanceId,
+      catalogId: 1,
+      sessionDate: '2026-07-27',
+      sessionTime: '09:00',
+      bookedCount: 0,
+      capacity: 5,
+      serviceId: 3,
+    } as any);
 
     const businessWithoutOwner = { ...BASE_BUSINESS, ownerTelegramId: null };
     const result: ClientMenuCallbackResult = { clientMenuAction: 'book:yes', id: instanceId };
@@ -629,6 +624,20 @@ describe('Suite C: booking flow via handleClientMenuCallback', () => {
       'κράτηση μαθήματος',
       'membership_expired'
     );
+  });
+
+  it('book:yes — findSessionInstanceById returns null → "Το μάθημα δεν βρέθηκε." sent, bookSessionInstance NOT called (D-06)', async () => {
+    mockedFindSessionInstanceById.mockResolvedValue(null);
+
+    const result: ClientMenuCallbackResult = { clientMenuAction: 'book:yes', id: instanceId };
+    await handleClientMenuCallback(result, BASE_BUSINESS as any, senderTelegramId);
+
+    expect(mockedFindSessionInstanceById).toHaveBeenCalledWith(BASE_BUSINESS.id, instanceId);
+    expect(mockedSendTelegramMessage).toHaveBeenCalledWith(
+      senderTelegramId,
+      'Το μάθημα δεν βρέθηκε.'
+    );
+    expect(mockedBookSessionInstance).not.toHaveBeenCalled();
   });
 
   it('book — business.bookingMode === open_slots → back-button keyboard sent, listSessions NOT called (D-04)', async () => {

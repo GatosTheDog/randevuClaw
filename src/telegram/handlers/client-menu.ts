@@ -26,7 +26,7 @@ import {
   botTokenStore,
 } from '../client';
 import { logger } from '../../utils/logger';
-import { listSessions, bookSessionInstance } from '../../session/manager';
+import { listSessions, bookSessionInstance, findSessionInstanceById } from '../../session/manager';
 import { BACK_MENU_LABELS } from '../../utils/greek-messages';
 import { checkEnforcementAndGetMembership } from '../../billing/enforcement';
 import {
@@ -36,9 +36,6 @@ import {
   getClientName,
 } from '../../billing/queries';
 import { deleteBookingFromCalendar } from '../../calendar/sync';
-import { db } from '../../database/db';
-import { sessionInstances, sessionCatalog } from '../../database/schema';
-import { eq } from 'drizzle-orm';
 
 // Exported so telegram.ts can use it in the parseCallbackData return union.
 // Discriminant field: clientMenuAction — unique across all existing result types
@@ -219,25 +216,16 @@ export async function handleBookSessionExecute(
     return;
   }
 
-  // Resolve serviceId via Drizzle join (findSessionInstanceById does not exist).
-  // Also pulls sessionDate/sessionTime here (rather than a second round-trip
-  // later) so the owner-alert text below can reference them.
-  const instanceRow = await db
-    .select({
-      serviceId: sessionCatalog.serviceId,
-      sessionDate: sessionInstances.sessionDate,
-      sessionTime: sessionInstances.sessionTime,
-    })
-    .from(sessionInstances)
-    .innerJoin(sessionCatalog, eq(sessionInstances.catalogId, sessionCatalog.id))
-    .where(eq(sessionInstances.id, instanceId))
-    .limit(1);
-  const serviceId = instanceRow[0]?.serviceId;
-
-  if (serviceId === undefined) {
+  // Resolve serviceId, sessionDate, and sessionTime via the shared,
+  // businessId-scoped lookup (D-06) — also pulls sessionDate/sessionTime
+  // here (rather than a second round-trip later) so the owner-alert text
+  // below can reference them.
+  const session = await findSessionInstanceById(business.id, instanceId);
+  if (!session) {
     await sendTelegramMessage(chatId, 'Το μάθημα δεν βρέθηκε.');
     return;
   }
+  const serviceId = session.serviceId;
 
   const idempotencyKey = `cmenu:book:${senderTelegramId}:${instanceId}`;
   const bookResult = await bookSessionInstance(
@@ -272,9 +260,9 @@ export async function handleBookSessionExecute(
       const clientDisplayName = (await getClientName(business.id, senderTelegramId)) ?? senderTelegramId;
       const ownerText =
         'Νέα κράτηση αναμονής:\nΗμερομηνία: ' +
-        (instanceRow[0]?.sessionDate ?? '?') +
+        session.sessionDate +
         '\nΏρα: ' +
-        (instanceRow[0]?.sessionTime ?? '?') +
+        session.sessionTime +
         '\nΠελάτης: ' +
         clientDisplayName;
       const approveData = `sbk:approve:${bookResult.bookingId}`;
@@ -300,7 +288,7 @@ export async function handleBookSessionExecute(
   await sendTelegramMessage(chatId, 'Το αίτημά σας στάλθηκε στον διαχειριστή! Αναμονή επιβεβαίωσης...');
 
   const backKeyboard: InlineKeyboard = [
-    [{ text: '« Αρχικό μενού', callback_data: 'cmenu:root' }],
+    [{ text: BACK_MENU_LABELS.CLIENT, callback_data: 'cmenu:root' }],
   ];
   await sendTelegramMessageWithKeyboard(chatId, 'Τι άλλο θέλεις να κάνεις;', backKeyboard);
 
