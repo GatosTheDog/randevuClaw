@@ -602,11 +602,11 @@ Total: ~8 new integration tests, all hitting the real test DB.
 
 ## Open Questions
 
-1. **D-03 boundary semantics:** Should a class at exactly the current minute be bookable (hoursUntilSession > 0) or not (hoursUntilSession >= 0)? The planner must document this choice in PLAN.md so tests can be written to the intended behavior.
+1. **(RESOLVED) D-03 boundary semantics:** Should a class at exactly the current minute be bookable (hoursUntilSession > 0) or not (hoursUntilSession >= 0)? Resolved in `29-01-PLAN.md` Task 1 — documented and test-covered there.
 
-2. **D-05 toast popups vs. messages:** D-05 notes that Telegram's `answerCallbackQuery` text param could be used alongside the back-menu keyboard. Should we add a toast like "Δοκιμάστε ξανά" or keep message+keyboard only? Not required, but marks a style choice.
+2. **(RESOLVED) D-05 toast popups vs. messages:** D-05 notes that Telegram's `answerCallbackQuery` text param could be used alongside the back-menu keyboard. Resolved as Claude's discretion in `29-CONTEXT.md` — message+keyboard only, no toast added.
 
-3. **findSessionInstanceById() scope:** Should it include a `WHERE isCancelled = false` guard (preventing access to deleted sessions) or be permissive (allowing reads on cancelled sessions for audit/recovery)? Recommend including the guard for consistency with `listSessions()`.
+3. **(RESOLVED) findSessionInstanceById() scope:** Should it include a `WHERE isCancelled = false` guard? Resolved — `29-01-PLAN.md`'s implementation includes the guard, consistent with `listSessions()`.
 
 ## Confidence Assessment
 
