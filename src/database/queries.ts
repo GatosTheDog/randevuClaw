@@ -204,10 +204,12 @@ export async function findClientBusinessRelationship(
  * contact time. onConflictDoUpdate eliminates the prior check-then-insert
  * race (CR-01) — a single atomic upsert always returns a row.
  *
- * Phase 27 (COMP-01/COMP-02, D-01): the explicit `consentGiven: true` on
- * INSERT was removed — a brand-new row now relies purely on the column's DB
- * default (migration 0013 flips it to false), so a fresh row genuinely
- * starts unconsented until the client accepts the hard gate. The
+ * Phase 27 (COMP-01/COMP-02, D-01): a brand-new row starts unconsented.
+ * `consentGiven: false` is set explicitly on INSERT (not left to the
+ * column's DB default from migration 0013) — code review CR-01: relying
+ * purely on the DB default would silently reopen the gate if app code ever
+ * deploys ahead of the migration (rolling deploy, delayed/failed migration
+ * step, unmigrated preview env), with no error or log signal. The
  * onConflictDoUpdate SET clause still excludes consentGiven (unchanged), so
  * a racing/repeat first-contact upsert can never reset an already-accepted
  * consent back to false (PITFALLS.md Pitfall 3).
@@ -223,6 +225,7 @@ export async function insertClientBusinessRelationship(
       businessId,
       senderPhone,
       clientName,
+      consentGiven: false,
       consentTimestamp: new Date(),
     })
     .onConflictDoUpdate({
