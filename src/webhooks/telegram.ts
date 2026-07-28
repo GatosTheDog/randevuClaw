@@ -105,20 +105,30 @@ async function handleFoundBusiness(
 
       // AMENU-01: /menu command — structured keyboard, no Gemini round-trip.
       // Pre-empt aiOwnerAgent to avoid wasting Gemini API quota on a known command.
-      if (messageText.trim() === '/menu') {
+      // CR-02 fix: also pre-empt on '/start' for owners. The dedicated
+      // '/start' branch further below (CMENU-01) is structurally unreachable
+      // for owners — every path through this owner branch returns before
+      // control could ever reach it — so D-03 ("cancelled by any /menu or
+      // /start tap") was previously only implemented for /menu; an owner
+      // typing /start with a reply staged had the literal "/start" text
+      // relayed to the escalating client instead of the pending reply being
+      // cancelled. Treating owner '/start' identically to '/menu' (clear +
+      // show the admin root menu) satisfies D-03 for both commands.
+      if (messageText.trim() === '/menu' || messageText.trim() === '/start') {
         await withBusinessContext(business.id, async () => {
-          // Phase 28 (D-03): navigating away via /menu clears any pending
-          // escalation reply — a stale pending reply must never accidentally
-          // relay a later, unrelated message to the wrong client. CR-01:
-          // scoped by business.id (not just senderTelegramId), since one
-          // Telegram account can own multiple businesses.
+          // Phase 28 (D-03): navigating away via /menu or /start clears any
+          // pending escalation reply — a stale pending reply must never
+          // accidentally relay a later, unrelated message to the wrong
+          // client. CR-01: scoped by business.id (not just
+          // senderTelegramId), since one Telegram account can own multiple
+          // businesses.
           clearPendingReply(business.id, senderTelegramId);
           await showAdminRootMenu(senderTelegramId, business);
           await markTelegramUpdateProcessed(updateId, business.id);
         });
         logger.info(
           { updateId, businessId: business.id, elapsedMs: Date.now() - startedAt },
-          'handleFoundBusiness: exit (/menu branch)'
+          'handleFoundBusiness: exit (/menu or /start branch)'
         );
         return;
       }

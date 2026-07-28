@@ -789,6 +789,35 @@ describe('POST /webhooks/telegram/:webhookId — reply-relay flow (ADMIN-01)', (
     );
   });
 
+  it('Test 28-02b (CR-02 regression): owner /start between the escl:reply tap and the free-text message clears the pending reply — the free-text message routes to aiOwnerAgent instead of relaying, and the literal "/start" text is never relayed to the client', async () => {
+    await postWebhook(
+      'test-webhook-id-1',
+      makeCallbackQueryUpdate(413, OWNER_FROM_ID, `escl:reply:${CLIENT_TELEGRAM_ID}`)
+    );
+
+    const startRes = await postWebhook(
+      'test-webhook-id-1',
+      makeMessageUpdate(414, '/start', OWNER_FROM_ID)
+    );
+    expect(startRes.status).toBe(200);
+    // CR-02: before the fix, '/start' fell through to the reply-relay
+    // intercept and was relayed verbatim to the escalating client.
+    expect(mockedSendTelegramMessage).not.toHaveBeenCalledWith(CLIENT_TELEGRAM_ID, '/start');
+    expect(mockedSendTelegramMessage).not.toHaveBeenCalledWith(
+      KNOWN_BUSINESS.ownerTelegramId,
+      'Η απάντηση στάλθηκε.'
+    );
+
+    const res = await postWebhook(
+      'test-webhook-id-1',
+      makeMessageUpdate(415, 'κάτι άσχετο', OWNER_FROM_ID)
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockedAiOwnerAgent).toHaveBeenCalledTimes(1);
+    expect(mockedSendTelegramMessage).not.toHaveBeenCalledWith(CLIENT_TELEGRAM_ID, 'κάτι άσχετο');
+  });
+
   it('Test 28-03: a relay send failure to the client degrades to a Greek error message to the owner, request still returns 200', async () => {
     await postWebhook(
       'test-webhook-id-1',
