@@ -109,8 +109,10 @@ async function handleFoundBusiness(
         await withBusinessContext(business.id, async () => {
           // Phase 28 (D-03): navigating away via /menu clears any pending
           // escalation reply — a stale pending reply must never accidentally
-          // relay a later, unrelated message to the wrong client.
-          clearPendingReply(senderTelegramId);
+          // relay a later, unrelated message to the wrong client. CR-01:
+          // scoped by business.id (not just senderTelegramId), since one
+          // Telegram account can own multiple businesses.
+          clearPendingReply(business.id, senderTelegramId);
           await showAdminRootMenu(senderTelegramId, business);
           await markTelegramUpdateProcessed(updateId, business.id);
         });
@@ -126,7 +128,11 @@ async function handleFoundBusiness(
       // the unconditional aiOwnerAgent call — placing this after aiOwnerAgent
       // would mean a staged reply is always silently swallowed by the AI
       // agent instead of relayed, defeating ADMIN-01 end-to-end.
-      const pendingReply = consumePendingReply(senderTelegramId);
+      // CR-01: scoped by business.id, since one Telegram account can own
+      // multiple businesses — an unscoped key would allow a reply staged
+      // for Business A to be consumed by an unrelated message sent to a
+      // different business's bot.
+      const pendingReply = consumePendingReply(business.id, senderTelegramId);
       if (pendingReply) {
         try {
           await botTokenStore.run(business.botToken!, async () => {
@@ -176,8 +182,9 @@ async function handleFoundBusiness(
         // above), so this only ever executes for non-owner senders today —
         // included to match D-03's literal "any /menu or /start tap" wording
         // and to defend against any future restructuring that lets an owner
-        // reach this branch.
-        clearPendingReply(senderTelegramId);
+        // reach this branch. CR-01: scoped by business.id, since one
+        // Telegram account can own multiple businesses.
+        clearPendingReply(business.id, senderTelegramId);
         // Phase 27 (COMP-01/COMP-02, D-01/D-02): hard consent gate — a client
         // who has not yet accepted the merged Ναι/Όχι consent+registration
         // prompt sees ONLY that prompt, never the client menu.
@@ -617,8 +624,12 @@ async function handleCallbackQuery(
       // Reply action: stage the pending reply (Phase 28, D-01/D-02) then
       // prompt the admin to type a message to the client. The owner's next
       // free-text message is intercepted and relayed in handleFoundBusiness's
-      // owner branch, before the aiOwnerAgent call.
-      stagePendingReply(senderTelegramId, escl.clientTelegramId);
+      // owner branch, before the aiOwnerAgent call. CR-01: scoped by
+      // ownerBusiness.id (the webhook-scoped, HMAC-verified business already
+      // available here) so a reply staged for this business can never be
+      // consumed by an unrelated message sent to a different business's bot
+      // under the same Telegram account.
+      stagePendingReply(ownerBusiness.id, senderTelegramId, escl.clientTelegramId);
       await sendTelegramMessage(
         senderTelegramId,
         `Γράψε το μήνυμα που θέλεις να στείλεις στον πελάτη (${escl.clientTelegramId}) και αποστολή.`
