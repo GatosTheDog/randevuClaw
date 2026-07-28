@@ -1,5 +1,5 @@
 ---
-status: testing
+status: complete
 phase: 27-client-consent-registration
 source: [27-01-SUMMARY.md, 27-02-SUMMARY.md]
 started: 2026-07-28T12:21:39Z
@@ -7,19 +7,15 @@ updated: 2026-07-28T12:21:39Z
 ---
 
 ## Current Test
-<!-- OVERWRITE each test - shows where we are -->
 
-number: 1
-name: Cold Start Smoke Test
-expected: |
-  Kill any running server/service. Clear ephemeral state (temp DBs, caches, lock files). Start the application from scratch. Server boots without errors, any seed/migration completes, and a primary query (health check, or the bot responding to /start) returns live data.
-awaiting: user response
+[testing complete]
 
 ## Tests
 
 ### 1. Cold Start Smoke Test
 expected: Kill any running server/service. Clear ephemeral state (temp DBs, caches, lock files). Start the application from scratch. Server boots without errors, any seed/migration completes, and a primary query (health check, or the bot responding to /start) returns live data.
-result: [pending]
+result: skipped
+reason: "User chose to skip manual cold-start verification and proceed to next phase"
 
 ### 2. Consent data-layer foundation (COMP-02)
 expected: clientBusinessRelationships.consentGiven schema default flipped true->false; migrations/0013_client_consent_gate.sql created with backfill + default-flip statements
@@ -62,8 +58,8 @@ coverage_id: D3
 total: 7
 passed: 6
 issues: 0
-pending: 1
-skipped: 0
+pending: 0
+skipped: 1
 blocked: 0
 
 ## Gaps
