@@ -18,7 +18,7 @@ import { formatAgendaMessage } from '../../scheduler/agenda';
 import { isoDateInAthens } from '../../utils/timezone';
 import { logger } from '../../utils/logger';
 import { findBusinessByOwnerTelegramId } from '../../onboarding/queries';
-import { listSessions, cancelSession, cascadeCancelSessionBookings } from '../../session/manager';
+import { listSessions, cancelSession, cascadeCancelSessionBookings, findSessionInstanceById } from '../../session/manager';
 import { InlineKeyboard, sendTelegramMessage, sendTelegramMessageWithKeyboard, botTokenStore } from '../client';
 import { getAllClientsForBusiness, getClientActiveMembership } from '../../billing/queries';
 import { sendBusinessInvite } from '../../invites/generator';
@@ -336,7 +336,20 @@ export async function showCancelClassList(chatId: string, business: Business): P
   await sendTelegramMessageWithKeyboard(chatId, prompt, keyboard);
 }
 
-export async function showCancelClassConfirm(chatId: string, instanceId: number): Promise<void> {
+export async function showCancelClassConfirm(
+  chatId: string,
+  business: Business,
+  instanceId: number
+): Promise<void> {
+  const session = await findSessionInstanceById(business.id, instanceId);
+  if (!session) {
+    await sendTelegramMessage(chatId, 'Το μάθημα δεν βρέθηκε.');
+    return;
+  }
+
+  const service = await findServiceById(business.id, session.serviceId);
+  const serviceName = service?.name ?? '(άγνωστη υπηρεσία)';
+
   const cancelConfirmData = `menu:classes:cancel_yes:${instanceId}`;
   const cancelAbortData = `menu:classes:cancel_no:${instanceId}`;
   assertCallbackDataSize(cancelConfirmData);
@@ -344,7 +357,7 @@ export async function showCancelClassConfirm(chatId: string, instanceId: number)
 
   await sendTelegramMessageWithKeyboard(
     chatId,
-    `Να ακυρωθεί το μάθημα #${instanceId};`,
+    `Να ακυρωθεί το μάθημα:\n${serviceName}\n${session.sessionDate} ${session.sessionTime};`,
     [[
       { text: 'Ναι', callback_data: cancelConfirmData },
       { text: 'Όχι', callback_data: cancelAbortData },
@@ -617,7 +630,7 @@ export async function handleMenuCallback(
         await sendTelegramMessage(chatId, 'Σφάλμα: λείπει το αναγνωριστικό μαθήματος.');
         return;
       }
-      await showCancelClassConfirm(chatId, result.id);
+      await showCancelClassConfirm(chatId, business, result.id);
       break;
     }
 
