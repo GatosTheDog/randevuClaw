@@ -190,3 +190,100 @@ describe('list upcoming sessions with booking counts', () => {
     expect(sessions).toEqual([]);
   });
 });
+
+// Phase 29 (D-01): listSessions' new 3rd param, excludePastToday. Uses real
+// wall-clock time (no jest fake timers) — sessionDate/sessionTime are set as
+// explicit offsets from the real "now" so the filter's own real-time
+// comparison (via hoursUntilSession) is exercised end-to-end against Postgres.
+describe('listSessions excludePastToday (Phase 29, D-01/D-02)', () => {
+  // Returns the Athens-local {date, time} for "now" offset by `minutes`.
+  function athensNowOffsetMinutes(minutes: number): { date: string; time: string } {
+    const d = new Date(Date.now() + minutes * 60_000);
+    const date = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Europe/Athens',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(d);
+    const time = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Europe/Athens',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(d);
+    return { date, time };
+  }
+
+  // Each test gets its own fresh business (+ auto-created default service):
+  // the "one active catalog per (businessId, serviceId)" unique constraint
+  // means catalogs can't safely be shared across tests in this describe
+  // block, and the (catalogId, sessionDate, sessionTime) unique constraint
+  // means two tests both anchored on "now" (minute resolution) could
+  // otherwise collide if they landed in the same Athens minute.
+  async function setupBusinessWithCatalog(): Promise<{ businessId: number; catalogId: number }> {
+    const business = await insertTestBusiness();
+    const svcRows = await db
+      .select({ id: services.id })
+      .from(services)
+      .where(eq(services.businessId, business.id))
+      .limit(1);
+    const catalog = await insertTestSessionCatalog(business.id, svcRows[0].id);
+    return { businessId: business.id, catalogId: catalog.id };
+  }
+
+  it('excludes a same-day instance whose sessionTime is 5 minutes in the past (Athens) when excludePastToday=true', async () => {
+    const { businessId, catalogId } = await setupBusinessWithCatalog();
+    const { date, time } = athensNowOffsetMinutes(-5);
+    const instance = await insertTestSessionInstance(catalogId, {
+      sessionDate: date,
+      sessionTime: time,
+      idempotencyKey: `test:excl-past:${catalogId}:${Date.now()}`,
+    });
+
+    const sessions = await listSessions(businessId, 90, true);
+    const found = sessions.find((s: { instanceId: number }) => s.instanceId === instance.id);
+    expect(found).toBeUndefined();
+  });
+
+  it('includes a same-day instance whose sessionTime is 5 minutes in the future (Athens) when excludePastToday=true', async () => {
+    const { businessId, catalogId } = await setupBusinessWithCatalog();
+    const { date, time } = athensNowOffsetMinutes(5);
+    const instance = await insertTestSessionInstance(catalogId, {
+      sessionDate: date,
+      sessionTime: time,
+      idempotencyKey: `test:excl-future:${catalogId}:${Date.now()}`,
+    });
+
+    const sessions = await listSessions(businessId, 90, true);
+    const found = sessions.find((s: { instanceId: number }) => s.instanceId === instance.id);
+    expect(found).toBeDefined();
+  });
+
+  it('excludes a same-day instance whose sessionTime equals the current Athens minute exactly (boundary: strict > 0, not >= 0) when excludePastToday=true', async () => {
+    const { businessId, catalogId } = await setupBusinessWithCatalog();
+    const { date, time } = athensNowOffsetMinutes(0);
+    const instance = await insertTestSessionInstance(catalogId, {
+      sessionDate: date,
+      sessionTime: time,
+      idempotencyKey: `test:excl-now:${catalogId}:${Date.now()}`,
+    });
+
+    const sessions = await listSessions(businessId, 90, true);
+    const found = sessions.find((s: { instanceId: number }) => s.instanceId === instance.id);
+    expect(found).toBeUndefined();
+  });
+
+  it('still includes a same-day instance 5 minutes in the past when excludePastToday is omitted (default false — owner-facing regression guard)', async () => {
+    const { businessId, catalogId } = await setupBusinessWithCatalog();
+    const { date, time } = athensNowOffsetMinutes(-5);
+    const instance = await insertTestSessionInstance(catalogId, {
+      sessionDate: date,
+      sessionTime: time,
+      idempotencyKey: `test:default-false:${catalogId}:${Date.now()}`,
+    });
+
+    const sessions = await listSessions(businessId, 90);
+    const found = sessions.find((s: { instanceId: number }) => s.instanceId === instance.id);
+    expect(found).toBeDefined();
+  });
+});

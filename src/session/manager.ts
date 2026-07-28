@@ -13,7 +13,7 @@ import {
   restoreCredit,
 } from '../billing/queries';
 import type { ActiveMembershipForDeduction } from '../billing/queries';
-import { isoDateInAthens, addCalendarDays } from '../utils/timezone';
+import { isoDateInAthens, addCalendarDays, hoursUntilSession } from '../utils/timezone';
 import { logger } from '../utils/logger';
 import { RRule } from 'rrule';
 import { deleteBookingFromCalendar } from '../calendar/sync';
@@ -494,10 +494,25 @@ export async function cascadeCancelSessionBookings(
  *
  * limitDays: number of calendar days forward to include (default 90).
  *            A hard LIMIT 200 caps result set size regardless of limitDays.
+ *
+ * excludePastToday (Phase 29, D-01): defaults to `false`, so all 13 existing
+ * call sites (8 owner-facing: admin-menu.ts, ai-owner-agent.ts,
+ * ai-onboarding-agent.ts; 5 client-booking-facing, updated in Wave 2 of Phase
+ * 29 to pass `true`) are completely unaffected by this change — zero edits
+ * required at any pre-existing call site. Owner-facing tooling must keep
+ * seeing same-day past-time instances so an owner can still cancel/assign a
+ * class that has already started; only client-booking-facing callers should
+ * pass `true` to hide those from being offered as bookable.
+ *
+ * Locked boundary choice (Claude's Discretion, resolved): a session starting
+ * at exactly the current Athens minute (hoursUntilSession returns exactly 0)
+ * is treated as already started and is excluded when excludePastToday=true.
+ * The comparison is strict `> 0`, never `>= 0`.
  */
 export async function listSessions(
   businessId: number,
-  limitDays = 90
+  limitDays = 90,
+  excludePastToday = false
 ): Promise<SessionInstance[]> {
   const today = isoDateInAthens(new Date());
   const endDate = addCalendarDays(today, limitDays);
@@ -524,6 +539,10 @@ export async function listSessions(
     )
     .orderBy(sessionInstances.sessionDate, sessionInstances.sessionTime)
     .limit(200);
+
+  if (excludePastToday) {
+    return rows.filter((row) => hoursUntilSession(row.sessionDate, row.sessionTime) > 0);
+  }
 
   return rows;
 }

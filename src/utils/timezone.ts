@@ -43,3 +43,34 @@ export function formatExpiryDateGreek(date: Date): string {
     year: 'numeric',
   }).format(date);
 }
+
+// Phase 29 (D-02): canonical hoursUntilSession export. This consolidates two
+// byte-for-byte-identical inline copies — src/telegram/handlers/client-menu.ts's
+// local `hoursUntilSession` and src/conversation/function-executor.ts's local
+// `hoursUntilSessionInAthens` — into a single shared implementation. The
+// algorithm itself is unchanged (relocated verbatim, not rewritten): anchor at
+// noon UTC on sessionDate to read the Athens hour at that instant (via Intl),
+// derive the current UTC offset from that, then compute the session's UTC
+// timestamp and diff against "now" in hours. Wave 2 plans of Phase 29 delete
+// the two inline copies and import this instead.
+//
+// Returns a positive number when the session is still in the future, negative
+// when it has already started/passed. Callers needing a strict "has not yet
+// started" check should use `> 0` (see listSessions' excludePastToday below).
+export function hoursUntilSession(sessionDate: string, sessionTime: string): number {
+  const noonUTC = new Date(`${sessionDate}T12:00:00Z`);
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Europe/Athens',
+    hour: '2-digit',
+    hour12: false,
+  }).formatToParts(noonUTC);
+  const athensHour = Number.parseInt(parts.find((p) => p.type === 'hour')!.value, 10);
+  const offsetHours = athensHour - 12;
+  const [hh, mm] = sessionTime.split(':').map(Number);
+  const sessionUTCMs =
+    Date.parse(
+      `${sessionDate}T${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:00Z`
+    ) -
+    offsetHours * 3_600_000;
+  return (sessionUTCMs - Date.now()) / 3_600_000;
+}
