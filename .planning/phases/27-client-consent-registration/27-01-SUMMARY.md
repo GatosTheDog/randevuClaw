@@ -131,3 +131,13 @@ None - no external service configuration required.
 ---
 *Phase: 27-client-consent-registration*
 *Completed: 2026-07-28*
+
+## Self-Check: PASSED
+
+- FOUND: src/database/schema.ts
+- FOUND: migrations/0013_client_consent_gate.sql
+- FOUND: src/database/queries.ts
+- FOUND: .planning/phases/27-client-consent-registration/27-01-SUMMARY.md
+- FOUND: 711898e
+- FOUND: 4adeb50
+- FOUND: e0cb446
