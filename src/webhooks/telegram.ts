@@ -32,6 +32,7 @@ import {
 } from '../telegram/handlers/payment-flow';
 import { handleMenuCallback, MenuCallbackResult, showAdminRootMenu } from '../telegram/handlers/admin-menu';
 import { ClientMenuCallbackResult, showClientRootMenu, handleClientMenuCallback } from '../telegram/handlers/client-menu';
+import { stagePendingReply, consumePendingReply, clearPendingReply } from '../telegram/handlers/pending-reply';
 import { findMembershipByBooking, restoreCredit } from '../billing/queries';
 import { isoDateInAthens } from '../utils/timezone';
 import { approveSlotlessRequest, rejectSlotlessRequest } from '../session/slotless-requests';
@@ -106,12 +107,43 @@ async function handleFoundBusiness(
       // Pre-empt aiOwnerAgent to avoid wasting Gemini API quota on a known command.
       if (messageText.trim() === '/menu') {
         await withBusinessContext(business.id, async () => {
+          // Phase 28 (D-03): navigating away via /menu clears any pending
+          // escalation reply — a stale pending reply must never accidentally
+          // relay a later, unrelated message to the wrong client.
+          clearPendingReply(senderTelegramId);
           await showAdminRootMenu(senderTelegramId, business);
           await markTelegramUpdateProcessed(updateId, business.id);
         });
         logger.info(
           { updateId, businessId: business.id, elapsedMs: Date.now() - startedAt },
           'handleFoundBusiness: exit (/menu branch)'
+        );
+        return;
+      }
+
+      // Phase 28 (ADMIN-01, D-01): a reply staged via the escalation "Απάντηση
+      // πελάτη" button (escl:reply callback below) is consumed here, BEFORE
+      // the unconditional aiOwnerAgent call — placing this after aiOwnerAgent
+      // would mean a staged reply is always silently swallowed by the AI
+      // agent instead of relayed, defeating ADMIN-01 end-to-end.
+      const pendingReply = consumePendingReply(senderTelegramId);
+      if (pendingReply) {
+        try {
+          await botTokenStore.run(business.botToken!, async () => {
+            await sendTelegramMessage(pendingReply.clientTelegramId, messageText);
+          });
+          await sendTelegramMessage(senderTelegramId, 'Η απάντηση στάλθηκε.');
+        } catch (err) {
+          logger.error(
+            { err, clientTelegramId: pendingReply.clientTelegramId },
+            'Reply relay failed'
+          );
+          await sendTelegramMessage(senderTelegramId, 'Σφάλμα: δεν ήταν δυνατή η αποστολή της απάντησης.');
+        }
+        await withBusinessContext(business.id, () => markTelegramUpdateProcessed(updateId, business.id));
+        logger.info(
+          { updateId, businessId: business.id, elapsedMs: Date.now() - startedAt },
+          'handleFoundBusiness: exit (reply-relay branch)'
         );
         return;
       }
@@ -138,6 +170,14 @@ async function handleFoundBusiness(
     // CMENU-01: /start command — structured keyboard, no Gemini round-trip.
     if (messageText.trim() === '/start') {
       await withBusinessContext(business.id, async () => {
+        // Phase 28 (D-03): defensively clear any pending escalation reply
+        // keyed to this sender before proceeding. In this codebase's current
+        // control flow, an owner always returns earlier (the owner branch
+        // above), so this only ever executes for non-owner senders today —
+        // included to match D-03's literal "any /menu or /start tap" wording
+        // and to defend against any future restructuring that lets an owner
+        // reach this branch.
+        clearPendingReply(senderTelegramId);
         // Phase 27 (COMP-01/COMP-02, D-01/D-02): hard consent gate — a client
         // who has not yet accepted the merged Ναι/Όχι consent+registration
         // prompt sees ONLY that prompt, never the client menu.
@@ -574,10 +614,11 @@ async function handleCallbackQuery(
       await sendTelegramMessage(senderTelegramId, 'Εξαίρεση εγκρίθηκε. Η κράτηση δημιουργήθηκε.');
 
     } else {
-      // Reply action: prompt the admin to type a message to the client.
-      // The actual message relay is handled by the existing free-text flow (CMENU-05).
-      // This plan delivers only the reply prompt — future wiring can intercept the
-      // next admin message and forward it.
+      // Reply action: stage the pending reply (Phase 28, D-01/D-02) then
+      // prompt the admin to type a message to the client. The owner's next
+      // free-text message is intercepted and relayed in handleFoundBusiness's
+      // owner branch, before the aiOwnerAgent call.
+      stagePendingReply(senderTelegramId, escl.clientTelegramId);
       await sendTelegramMessage(
         senderTelegramId,
         `Γράψε το μήνυμα που θέλεις να στείλεις στον πελάτη (${escl.clientTelegramId}) και αποστολή.`

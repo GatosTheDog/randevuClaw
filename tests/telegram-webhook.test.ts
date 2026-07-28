@@ -8,6 +8,7 @@ import * as registryModule from '../src/telegram/registry';
 import * as billingQueries from '../src/billing/queries';
 import * as aiOwnerAgentModule from '../src/onboarding/ai-owner-agent';
 import { parseCallbackData } from '../src/webhooks/telegram';
+import { pendingReplies } from '../src/telegram/handlers/pending-reply';
 
 jest.mock('../src/database/queries');
 jest.mock('../src/telegram/client');
@@ -708,5 +709,103 @@ describe('POST /webhooks/telegram/:webhookId — callback_query owner approval (
     const [clientId, clientText] = mockedSendTelegramMessageWithKeyboard.mock.calls[0];
     expect(clientId).toBe('c1');
     expect(clientText.length).toBeGreaterThan(0);
+  });
+});
+
+describe('POST /webhooks/telegram/:webhookId — reply-relay flow (ADMIN-01)', () => {
+  const CLIENT_TELEGRAM_ID = '987654321';
+  const OWNER_FROM_ID = Number(KNOWN_BUSINESS.ownerTelegramId);
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    pendingReplies.clear();
+    mockedInsertOrIgnoreTelegramUpdate.mockResolvedValue('inserted');
+    mockedMarkTelegramUpdateProcessed.mockResolvedValue(undefined);
+    mockedAnswerCallbackQuery.mockResolvedValue(undefined);
+    mockedEditTelegramMessageReplyMarkup.mockResolvedValue(undefined);
+    mockedSendTelegramMessage.mockResolvedValue({ messageId: 999 });
+    mockedFindBusinessByWebhookId.mockResolvedValue(KNOWN_BUSINESS);
+    mockedGetOrCreateBotInstance.mockReturnValue(mockBot as any);
+    // Mirrors escalation.test.ts's precedent for making botTokenStore.run
+    // execute its callback synchronously in tests.
+    (telegramClient.botTokenStore.run as jest.Mock).mockImplementation(
+      (_value: string, callback: () => Promise<unknown>) => callback()
+    );
+    mockedWithBusinessContext.mockImplementation((_businessId, callback) => callback());
+    mockedAiOwnerAgent.mockResolvedValue('some AI reply');
+  });
+
+  afterEach(() => {
+    pendingReplies.clear();
+  });
+
+  it('Test 28-01: escl:reply stages, then the owner\'s next free-text message relays to the client and confirms to the owner, without calling aiOwnerAgent', async () => {
+    const callbackRes = await postWebhook(
+      'test-webhook-id-1',
+      makeCallbackQueryUpdate(400, OWNER_FROM_ID, `escl:reply:${CLIENT_TELEGRAM_ID}`)
+    );
+    expect(callbackRes.status).toBe(200);
+
+    const messageRes = await postWebhook(
+      'test-webhook-id-1',
+      makeMessageUpdate(401, 'Θα είμαστε εκεί στις 5', OWNER_FROM_ID)
+    );
+    expect(messageRes.status).toBe(200);
+
+    expect(mockedSendTelegramMessage).toHaveBeenCalledWith(
+      CLIENT_TELEGRAM_ID,
+      'Θα είμαστε εκεί στις 5'
+    );
+    expect(mockedSendTelegramMessage).toHaveBeenCalledWith(
+      KNOWN_BUSINESS.ownerTelegramId,
+      'Η απάντηση στάλθηκε.'
+    );
+    expect(mockedAiOwnerAgent).not.toHaveBeenCalled();
+  });
+
+  it('Test 28-02: /menu between the escl:reply tap and the free-text message clears the pending reply — the free-text message routes to aiOwnerAgent instead of relaying', async () => {
+    await postWebhook(
+      'test-webhook-id-1',
+      makeCallbackQueryUpdate(410, OWNER_FROM_ID, `escl:reply:${CLIENT_TELEGRAM_ID}`)
+    );
+
+    const menuRes = await postWebhook(
+      'test-webhook-id-1',
+      makeMessageUpdate(411, '/menu', OWNER_FROM_ID)
+    );
+    expect(menuRes.status).toBe(200);
+
+    const res = await postWebhook(
+      'test-webhook-id-1',
+      makeMessageUpdate(412, 'κάτι άσχετο', OWNER_FROM_ID)
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockedAiOwnerAgent).toHaveBeenCalledTimes(1);
+    expect(mockedSendTelegramMessage).not.toHaveBeenCalledWith(CLIENT_TELEGRAM_ID, 'κάτι άσχετο');
+    expect(mockedSendTelegramMessage).not.toHaveBeenCalledWith(
+      KNOWN_BUSINESS.ownerTelegramId,
+      'Η απάντηση στάλθηκε.'
+    );
+  });
+
+  it('Test 28-03: a relay send failure to the client degrades to a Greek error message to the owner, request still returns 200', async () => {
+    await postWebhook(
+      'test-webhook-id-1',
+      makeCallbackQueryUpdate(420, OWNER_FROM_ID, `escl:reply:${CLIENT_TELEGRAM_ID}`)
+    );
+
+    mockedSendTelegramMessage.mockRejectedValueOnce(new Error('Telegram API down'));
+
+    const res = await postWebhook(
+      'test-webhook-id-1',
+      makeMessageUpdate(421, 'μήνυμα προς πελάτη', OWNER_FROM_ID)
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockedSendTelegramMessage).toHaveBeenCalledWith(
+      KNOWN_BUSINESS.ownerTelegramId,
+      'Σφάλμα: δεν ήταν δυνατή η αποστολή της απάντησης.'
+    );
   });
 });
