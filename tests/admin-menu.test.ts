@@ -31,6 +31,7 @@ jest.mock('../src/onboarding/ai-owner-agent');
 jest.mock('../src/session/manager');
 jest.mock('../src/scheduler/agenda');
 jest.mock('../src/invites/generator');
+jest.mock('../src/telegram/handlers/payment-flow');
 
 // ---------------------------------------------------------------------------
 // Test constants
@@ -107,7 +108,7 @@ describe('showAdminRootMenu — keyboard shape', () => {
     telegramClient.sendTelegramMessage.mockResolvedValue({ messageId: 2 });
   });
 
-  test('sends exactly one message with a 3-row keyboard totalling 5 buttons', async () => {
+  test('sends exactly one message with a 4-row keyboard totalling 6 buttons', async () => {
     const telegramClient = require('../src/telegram/client');
     await showAdminRootMenu('123', mockBusiness);
 
@@ -115,17 +116,44 @@ describe('showAdminRootMenu — keyboard shape', () => {
     expect(sendCalls.length).toBe(1);
 
     const keyboard = sendCalls[0][2];
-    // 3 rows: existing 2x2 grid unchanged, plus a 3rd row with the invite button
-    expect(keyboard.length).toBe(3);
+    // 4 rows: existing 2x2 grid unchanged, plus a payment row, plus the invite row
+    expect(keyboard.length).toBe(4);
     // Pre-existing 2x2 grid content is byte-for-byte unchanged
     expect(keyboard[0].length).toBe(2);
     expect(keyboard[1].length).toBe(2);
-    // 3rd row: exactly one button with callback_data menu:invite
+    // 3rd row: exactly one button with callback_data menu:payment
     expect(keyboard[2].length).toBe(1);
-    expect(keyboard[2][0]).toEqual({ text: 'Πρόσκληση Πελάτη', callback_data: 'menu:invite' });
-    // 5 buttons total
+    expect(keyboard[2][0]).toEqual({ text: 'Καταχώρηση Πληρωμής', callback_data: 'menu:payment' });
+    // 4th row: exactly one button with callback_data menu:invite
+    expect(keyboard[3].length).toBe(1);
+    expect(keyboard[3][0]).toEqual({ text: 'Πρόσκληση Πελάτη', callback_data: 'menu:invite' });
+    // 6 buttons total
     const totalButtons = keyboard.flat().length;
-    expect(totalButtons).toBe(5);
+    expect(totalButtons).toBe(6);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 28 Plan 01: handleMenuCallback 'payment' dispatch (ADMIN-03, D-10/D-11/D-12)
+// ---------------------------------------------------------------------------
+
+describe('handleMenuCallback — payment action', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+
+    const telegramClient = require('../src/telegram/client');
+    telegramClient.sendTelegramMessage.mockResolvedValue({ messageId: 1 });
+    telegramClient.sendTelegramMessageWithKeyboard.mockResolvedValue({ messageId: 2 });
+  });
+
+  test('calls showClientSelection exactly once with (business.id, chatId)', async () => {
+    const paymentFlow = require('../src/telegram/handlers/payment-flow');
+    paymentFlow.showClientSelection.mockResolvedValue(undefined);
+
+    await handleMenuCallback({ menuAction: 'payment', id: undefined }, mockBusiness, '123');
+
+    expect(paymentFlow.showClientSelection).toHaveBeenCalledTimes(1);
+    expect(paymentFlow.showClientSelection).toHaveBeenCalledWith(mockBusiness.id, '123');
   });
 });
 

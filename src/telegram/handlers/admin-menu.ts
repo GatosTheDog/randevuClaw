@@ -22,6 +22,7 @@ import { listSessions, cancelSession, cascadeCancelSessionBookings } from '../..
 import { InlineKeyboard, sendTelegramMessage, sendTelegramMessageWithKeyboard, botTokenStore } from '../client';
 import { getAllClientsForBusiness, getClientActiveMembership } from '../../billing/queries';
 import { sendBusinessInvite } from '../../invites/generator';
+import { showClientSelection } from './payment-flow';
 
 // Exported so telegram.ts can use it in the parseCallbackData return union.
 // Discriminant field: menuAction — unique across all existing result types
@@ -49,12 +50,14 @@ export async function showAdminRootMenu(chatId: string, business: Business): Pro
   const callbackDataClasses = 'menu:classes';
   const callbackDataClients = 'menu:clients';
   const callbackDataAgenda = 'menu:agenda';
+  const callbackDataPayment = 'menu:payment';
   const callbackDataInvite = 'menu:invite';
 
   assertCallbackDataSize(callbackDataSettings);
   assertCallbackDataSize(callbackDataClasses);
   assertCallbackDataSize(callbackDataClients);
   assertCallbackDataSize(callbackDataAgenda);
+  assertCallbackDataSize(callbackDataPayment);
   assertCallbackDataSize(callbackDataInvite);
 
   const keyboard: InlineKeyboard = [
@@ -66,6 +69,7 @@ export async function showAdminRootMenu(chatId: string, business: Business): Pro
       { text: 'Πελάτες', callback_data: callbackDataClients },
       { text: 'Ατζέντα Σήμερα', callback_data: callbackDataAgenda },
     ],
+    [{ text: 'Καταχώρηση Πληρωμής', callback_data: callbackDataPayment }],
     [{ text: 'Πρόσκληση Πελάτη', callback_data: callbackDataInvite }],
   ];
 
@@ -541,6 +545,10 @@ export async function handleMenuCallback(
 
     case menuAction === 'invite':
       await handleInviteGeneration(chatId, business);
+      break;
+
+    case menuAction === 'payment':
+      await showClientSelection(business.id, chatId);
       break;
 
     case menuAction === 'classes':
