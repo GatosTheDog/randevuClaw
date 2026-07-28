@@ -640,3 +640,30 @@ describe('showCancelClassList — service names via batched lookup (D-10)', () =
     expect(keyboard[0][0].text).toBe('(άγνωστη υπηρεσία) - 2026-08-01 10:00');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 29 Plan 04: default-case recovery keyboard (UX-06 / D-05.1)
+// ---------------------------------------------------------------------------
+
+describe('handleMenuCallback — default case (unrecognized menuAction, D-05.1)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+
+    const telegramClient = require('../src/telegram/client');
+    telegramClient.sendTelegramMessage.mockResolvedValue({ messageId: 1 });
+    telegramClient.sendTelegramMessageWithKeyboard.mockResolvedValue({ messageId: 2 });
+  });
+
+  test('an unrecognized menuAction sends a back-to-menu keyboard instead of a bare text message', async () => {
+    const telegramClient = require('../src/telegram/client');
+
+    await handleMenuCallback({ menuAction: 'some_stale_action', id: undefined }, mockBusiness, '123');
+
+    expect(telegramClient.sendTelegramMessage).not.toHaveBeenCalled();
+
+    const kbCalls = (telegramClient.sendTelegramMessageWithKeyboard as jest.Mock).mock.calls;
+    expect(kbCalls.length).toBe(1);
+    expect(kbCalls[0][1]).toBe('Άγνωστη ενέργεια μενού.');
+    expect(kbCalls[0][2]).toEqual([[{ text: '« Πίσω στο Μενού', callback_data: 'menu:root' }]]);
+  });
+});

@@ -23,6 +23,7 @@ import { InlineKeyboard, sendTelegramMessage, sendTelegramMessageWithKeyboard, b
 import { getAllClientsForBusiness, getClientActiveMembership } from '../../billing/queries';
 import { sendBusinessInvite } from '../../invites/generator';
 import { showClientSelection } from './payment-flow';
+import { BACK_MENU_LABELS } from '../../utils/greek-messages';
 
 // Exported so telegram.ts can use it in the parseCallbackData return union.
 // Discriminant field: menuAction — unique across all existing result types
@@ -159,7 +160,7 @@ export async function showSettingsMenu(chatId: string, business: Business): Prom
     [{ text: '📝 Ώρες Λειτουργίας — Παραδείγματα', callback_data: hoursExamplesData }],
     [{ text: '📝 Υπηρεσίες & Τιμές — Παραδείγματα', callback_data: servicesExamplesData }],
     [{ text: '📝 Νέα Μαθήματα — Παραδείγματα', callback_data: classesExamplesData }],
-    [{ text: '« Πίσω στο Μενού', callback_data: backCallbackData }],
+    [{ text: BACK_MENU_LABELS.ADMIN, callback_data: backCallbackData }],
   ];
 
   await sendTelegramMessageWithKeyboard(chatId, messageText, keyboard);
@@ -249,7 +250,7 @@ export async function showTodaysAgenda(chatId: string, business: Business): Prom
   const backCallbackData = 'menu:root';
   assertCallbackDataSize(backCallbackData);
   await sendTelegramMessageWithKeyboard(chatId, 'Τι άλλο θέλεις να κάνεις;', [
-    [{ text: '« Πίσω στο Μενού', callback_data: backCallbackData }],
+    [{ text: BACK_MENU_LABELS.ADMIN, callback_data: backCallbackData }],
   ]);
 }
 
@@ -274,7 +275,7 @@ export async function handleInviteGeneration(chatId: string, business: Business)
   const backCallbackData = 'menu:root';
   assertCallbackDataSize(backCallbackData);
   await sendTelegramMessageWithKeyboard(chatId, 'Τι άλλο θέλεις να κάνεις;', [
-    [{ text: '« Πίσω στο Μενού', callback_data: backCallbackData }],
+    [{ text: BACK_MENU_LABELS.ADMIN, callback_data: backCallbackData }],
   ]);
 }
 
@@ -312,7 +313,7 @@ export async function showClassesMenu(chatId: string, business: Business): Promi
   const keyboard: InlineKeyboard = [
     [{ text: 'Ακύρωση μαθήματος', callback_data: cancelListData }],
     [{ text: 'Νέο μάθημα (chat)', callback_data: createData }],
-    [{ text: '« Πίσω στο Μενού', callback_data: backData }],
+    [{ text: BACK_MENU_LABELS.ADMIN, callback_data: backData }],
   ];
 
   await sendTelegramMessageWithKeyboard(chatId, messageText, keyboard);
@@ -320,7 +321,7 @@ export async function showClassesMenu(chatId: string, business: Business): Promi
 
 export async function showCancelClassList(chatId: string, business: Business): Promise<void> {
   const sessions = await listSessions(business.id, 30);
-  const backButton = { text: '« Πίσω στο Μενού', callback_data: 'menu:root' };
+  const backButton = { text: BACK_MENU_LABELS.ADMIN, callback_data: 'menu:root' };
 
   if (sessions.length === 0) {
     await sendTelegramMessageWithKeyboard(chatId, 'Δεν υπάρχουν επερχόμενα μαθήματα.', [[backButton]]);
@@ -397,7 +398,7 @@ export async function handleClassCancelExecute(
     await sendTelegramMessage(chatId, 'Το μάθημα δεν βρέθηκε ή είχε ήδη ακυρωθεί.');
   }
   await sendTelegramMessageWithKeyboard(chatId, 'Τι άλλο θέλεις να κάνεις;', [
-    [{ text: '« Πίσω στο Μενού', callback_data: 'menu:root' }],
+    [{ text: BACK_MENU_LABELS.ADMIN, callback_data: 'menu:root' }],
   ]);
 }
 
@@ -420,7 +421,7 @@ export async function showClientsList(chatId: string, business: Business): Promi
     await sendTelegramMessageWithKeyboard(
       chatId,
       'Δεν υπάρχουν εγγεγραμμένοι πελάτες ακόμη.',
-      [[{ text: '« Πίσω στο Μενού', callback_data: 'menu:root' }]]
+      [[{ text: BACK_MENU_LABELS.ADMIN, callback_data: 'menu:root' }]]
     );
     return;
   }
@@ -440,7 +441,7 @@ export async function showClientsList(chatId: string, business: Business): Promi
     ];
   });
 
-  keyboard.push([{ text: '« Πίσω στο Μενού', callback_data: 'menu:root' }]);
+  keyboard.push([{ text: BACK_MENU_LABELS.ADMIN, callback_data: 'menu:root' }]);
 
   await sendTelegramMessageWithKeyboard(chatId, headerText, keyboard);
 }
@@ -485,7 +486,7 @@ export async function showClientBalance(
       `Λήγει: ${membership.expiresAt.toLocaleDateString('el-GR')}`;
   }
 
-  const backButton = { text: '« Πίσω στο Μενού', callback_data: 'menu:root' };
+  const backButton = { text: BACK_MENU_LABELS.ADMIN, callback_data: 'menu:root' };
   let keyboard: InlineKeyboard;
 
   if (membership) {
@@ -546,7 +547,7 @@ export async function handleRenewalNudge(
   await sendTelegramMessage(chatId, `Υπενθύμιση στάλθηκε στον ${rel.clientName ?? rel.senderPhone}.`);
 
   await sendTelegramMessageWithKeyboard(chatId, 'Τι άλλο θέλεις να κάνεις;', [
-    [{ text: '« Πίσω στο Μενού', callback_data: 'menu:root' }],
+    [{ text: BACK_MENU_LABELS.ADMIN, callback_data: 'menu:root' }],
   ]);
 }
 
@@ -665,7 +666,7 @@ export async function handleMenuCallback(
       }
       await sendTelegramMessage(chatId, 'Η ακύρωση ματαιώθηκε.');
       await sendTelegramMessageWithKeyboard(chatId, 'Τι άλλο θέλεις να κάνεις;', [
-        [{ text: '« Πίσω στο Μενού', callback_data: 'menu:root' }],
+        [{ text: BACK_MENU_LABELS.ADMIN, callback_data: 'menu:root' }],
       ]);
       break;
     }
@@ -692,8 +693,10 @@ export async function handleMenuCallback(
       break;
     }
 
-    default:
-      await sendTelegramMessage(chatId, 'Άγνωστη ενέργεια μενού.');
+    default: {
+      const keyboard: InlineKeyboard = [[{ text: BACK_MENU_LABELS.ADMIN, callback_data: 'menu:root' }]];
+      await sendTelegramMessageWithKeyboard(chatId, 'Άγνωστη ενέργεια μενού.', keyboard);
       break;
+    }
   }
 }
