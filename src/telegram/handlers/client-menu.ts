@@ -307,7 +307,7 @@ export async function handleBookSessionExecute(
 export async function showClientBookings(chatId: string, business: Business): Promise<void> {
   const clientBookings = await listClientBookings(business.id, chatId);
 
-  const backButton = { text: '« Πίσω', callback_data: 'cmenu:root' };
+  const backButton = { text: BACK_MENU_LABELS.CLIENT, callback_data: 'cmenu:root' };
   assertCallbackDataSize(backButton.callback_data);
 
   if (clientBookings.length === 0) {
@@ -319,7 +319,16 @@ export async function showClientBookings(chatId: string, business: Business): Pr
     return;
   }
 
-  const lines = clientBookings.map((b) => `${b.calendarDate} ${b.calendarTime}`);
+  const serviceIds = [...new Set(clientBookings.map((b) => b.serviceId))];
+  const serviceNamesById = new Map<number, string>();
+  for (const serviceId of serviceIds) {
+    const service = await findServiceById(business.id, serviceId);
+    serviceNamesById.set(serviceId, service?.name ?? '(άγνωστη υπηρεσία)');
+  }
+
+  const lines = clientBookings.map(
+    (b) => `${serviceNamesById.get(b.serviceId)} - ${b.calendarDate} ${b.calendarTime}`
+  );
   const text = 'Ενεργές κρατήσεις σας:\n\n' + lines.join('\n');
 
   const cancelData = 'cmenu:cancel';
@@ -345,7 +354,7 @@ export async function showCancelBookingList(
 ): Promise<void> {
   const clientBookings = await listClientBookings(business.id, senderTelegramId);
 
-  const backButton = { text: '« Πίσω', callback_data: 'cmenu:root' };
+  const backButton = { text: BACK_MENU_LABELS.CLIENT, callback_data: 'cmenu:root' };
   assertCallbackDataSize(backButton.callback_data);
 
   if (clientBookings.length === 0) {
@@ -359,10 +368,22 @@ export async function showCancelBookingList(
 
   const capped = clientBookings.slice(0, 10);
 
+  const serviceIds = [...new Set(capped.map((b) => b.serviceId))];
+  const serviceNamesById = new Map<number, string>();
+  for (const serviceId of serviceIds) {
+    const service = await findServiceById(business.id, serviceId);
+    serviceNamesById.set(serviceId, service?.name ?? '(άγνωστη υπηρεσία)');
+  }
+
   const rows: InlineKeyboard = capped.map((b) => {
     const callbackData = `cmenu:cancel:confirm:${b.id}`;
     assertCallbackDataSize(callbackData);
-    return [{ text: `${b.calendarDate} ${b.calendarTime}`, callback_data: callbackData }];
+    return [
+      {
+        text: `${serviceNamesById.get(b.serviceId)} - ${b.calendarDate} ${b.calendarTime}`,
+        callback_data: callbackData,
+      },
+    ];
   });
   rows.push([backButton]);
 

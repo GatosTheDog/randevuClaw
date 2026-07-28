@@ -210,6 +210,10 @@ const mockedUpdateClientConsentGiven = queries.updateClientConsentGiven as jest.
 const mockedFindServiceById = queries.findServiceById as jest.MockedFunction<
   typeof queries.findServiceById
 >;
+// Phase 29 (D-10): showClientBookings / showCancelBookingList service-name enrichment.
+const mockedListClientBookings = queries.listClientBookings as jest.MockedFunction<
+  typeof queries.listClientBookings
+>;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -759,6 +763,154 @@ describe('Suite C: booking flow via handleClientMenuCallback', () => {
     } as any);
 
     const result: ClientMenuCallbackResult = { clientMenuAction: 'book' };
+    await handleClientMenuCallback(result, BASE_BUSINESS as any, senderTelegramId);
+
+    expect(mockedFindServiceById).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// showClientBookings / showCancelBookingList — service name enrichment (D-10)
+// ---------------------------------------------------------------------------
+
+describe('showClientBookings / showCancelBookingList — service name enrichment (D-10)', () => {
+  const senderTelegramId = CLIENT_TELEGRAM_ID;
+
+  const BASE_BOOKING_FOR_LIST = {
+    id: 1,
+    businessId: BASE_BUSINESS.id,
+    clientPhone: CLIENT_TELEGRAM_ID,
+    serviceId: 3,
+    sessionInstanceId: null,
+    calendarDate: '2099-12-31',
+    calendarTime: '10:00',
+    bookingStatus: 'confirmed',
+    requestId: 'req-list-1',
+    ownerTelegramMessageId: null,
+    rescheduledFromBookingId: null,
+    calendarSyncStatus: 'pending',
+    googleCalendarEventId: null,
+    calendarSyncRetryCount: 0,
+    reminder24hSentAt: null,
+    reminder1hSentAt: null,
+    createdAt: new Date(),
+    expiresAt: null,
+  };
+
+  const makeBooking = (overrides: Partial<typeof BASE_BOOKING_FOR_LIST>) => ({
+    ...BASE_BOOKING_FOR_LIST,
+    ...overrides,
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockedSendTelegramMessage.mockResolvedValue({ messageId: 999 });
+    mockedSendTelegramMessageWithKeyboard.mockResolvedValue({ messageId: 998 });
+  });
+
+  it('showClientBookings — text includes the resolved service name alongside date/time (D-10)', async () => {
+    mockedListClientBookings.mockResolvedValue([
+      makeBooking({ id: 1, serviceId: 3, calendarDate: '2099-12-31', calendarTime: '10:00' }),
+    ] as any);
+    mockedFindServiceById.mockResolvedValue({
+      id: 3,
+      businessId: BASE_BUSINESS.id,
+      name: 'Yoga',
+      durationMin: 60,
+      price: null,
+      createdAt: new Date(),
+    } as any);
+
+    const result: ClientMenuCallbackResult = { clientMenuAction: 'bookings' };
+    await handleClientMenuCallback(result, BASE_BUSINESS as any, senderTelegramId);
+
+    expect(mockedFindServiceById).toHaveBeenCalledWith(BASE_BUSINESS.id, 3);
+    expect(mockedSendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
+      senderTelegramId,
+      expect.stringContaining('Yoga - 2099-12-31 10:00'),
+      expect.anything()
+    );
+  });
+
+  it('showClientBookings — unresolved serviceId falls back to "(άγνωστη υπηρεσία)" (D-10)', async () => {
+    mockedListClientBookings.mockResolvedValue([
+      makeBooking({ id: 1, serviceId: 999, calendarDate: '2099-12-31', calendarTime: '10:00' }),
+    ] as any);
+    mockedFindServiceById.mockResolvedValue(null);
+
+    const result: ClientMenuCallbackResult = { clientMenuAction: 'bookings' };
+    await handleClientMenuCallback(result, BASE_BUSINESS as any, senderTelegramId);
+
+    expect(mockedSendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
+      senderTelegramId,
+      expect.stringContaining('(άγνωστη υπηρεσία) - 2099-12-31 10:00'),
+      expect.anything()
+    );
+  });
+
+  it('showCancelBookingList — button labels include the resolved service name alongside date/time (D-10)', async () => {
+    mockedListClientBookings.mockResolvedValue([
+      makeBooking({ id: 5, serviceId: 3, calendarDate: '2099-11-01', calendarTime: '09:00' }),
+    ] as any);
+    mockedFindServiceById.mockResolvedValue({
+      id: 3,
+      businessId: BASE_BUSINESS.id,
+      name: 'Pilates',
+      durationMin: 60,
+      price: null,
+      createdAt: new Date(),
+    } as any);
+
+    const result: ClientMenuCallbackResult = { clientMenuAction: 'cancel' };
+    await handleClientMenuCallback(result, BASE_BUSINESS as any, senderTelegramId);
+
+    expect(mockedSendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
+      senderTelegramId,
+      expect.any(String),
+      expect.arrayContaining([
+        [{ text: 'Pilates - 2099-11-01 09:00', callback_data: 'cmenu:cancel:confirm:5' }],
+      ])
+    );
+  });
+
+  it('showCancelBookingList — unresolved serviceId falls back to "(άγνωστη υπηρεσία)" (D-10)', async () => {
+    mockedListClientBookings.mockResolvedValue([
+      makeBooking({ id: 6, serviceId: 777, calendarDate: '2099-11-02', calendarTime: '11:00' }),
+    ] as any);
+    mockedFindServiceById.mockResolvedValue(null);
+
+    const result: ClientMenuCallbackResult = { clientMenuAction: 'cancel' };
+    await handleClientMenuCallback(result, BASE_BUSINESS as any, senderTelegramId);
+
+    expect(mockedSendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
+      senderTelegramId,
+      expect.any(String),
+      expect.arrayContaining([
+        [
+          {
+            text: '(άγνωστη υπηρεσία) - 2099-11-02 11:00',
+            callback_data: 'cmenu:cancel:confirm:6',
+          },
+        ],
+      ])
+    );
+  });
+
+  it('showCancelBookingList — 2 bookings sharing one serviceId result in exactly 1 findServiceById call (batching, D-10)', async () => {
+    mockedListClientBookings.mockResolvedValue([
+      makeBooking({ id: 7, serviceId: 3, calendarDate: '2099-11-03', calendarTime: '09:00' }),
+      makeBooking({ id: 8, serviceId: 3, calendarDate: '2099-11-04', calendarTime: '10:00' }),
+    ] as any);
+    mockedFindServiceById.mockResolvedValue({
+      id: 3,
+      businessId: BASE_BUSINESS.id,
+      name: 'Pilates',
+      durationMin: 60,
+      price: null,
+      createdAt: new Date(),
+    } as any);
+
+    const result: ClientMenuCallbackResult = { clientMenuAction: 'cancel' };
     await handleClientMenuCallback(result, BASE_BUSINESS as any, senderTelegramId);
 
     expect(mockedFindServiceById).toHaveBeenCalledTimes(1);
