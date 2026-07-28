@@ -101,7 +101,7 @@ See: `.planning/milestones/v1.6-ROADMAP.md`
 
 - [x] **Phase 26: Confirmation & Approval Policy** - Uniform Ναι/Όχι confirmation on every destructive owner action, and client reschedules now require owner approval like new bookings (completed 2026-07-28)
 - [x] **Phase 27: Client Consent & Registration** - GDPR consent notice shown before any client relationship row is created, with a real opt-in flag distinguishing registered clients (completed 2026-07-28)
-- [ ] **Phase 28: Admin Menu Discoverability** - Payment recording, setup editing, and escalation reply are all reachable from `/menu`; dead decorative buttons removed
+- [x] **Phase 28: Admin Menu Discoverability** - Payment recording, setup editing, and escalation reply are all reachable from `/menu`; dead decorative buttons removed (completed 2026-07-28)
 - [ ] **Phase 29: Booking & List Clarity** - Slots, cancel prompts, and booking lists show accurate, contextual information instead of raw IDs or stale bookable slots
 - [ ] **Phase 30: Client Identification & Menu Reliability** - Owner tools accept client names instead of raw Telegram IDs; persistent menu button reliability investigated and fixed/documented
 
@@ -168,8 +168,8 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 28-01-PLAN.md — Payment button wiring + Settings example-phrase guidance buttons + Νέο μάθημα (chat) upgrade (ADMIN-02, ADMIN-03, ADMIN-04)
-- [ ] 28-02-PLAN.md — Escalation "reply" button wired into a real pending-reply relay (ADMIN-01)
+- [x] 28-01-PLAN.md — Payment button wiring + Settings example-phrase guidance buttons + Νέο μάθημα (chat) upgrade (ADMIN-02, ADMIN-03, ADMIN-04)
+- [x] 28-02-PLAN.md — Escalation "reply" button wired into a real pending-reply relay (ADMIN-01)
 
 #### Phase 29: Booking & List Clarity
 
@@ -230,7 +230,7 @@ Plans:
 | 25. Client Invite Generator | v1.6 | 1/1 | Complete | 2026-07-27 |
 | 26. Confirmation & Approval Policy | v1.7 | 2/2 | Complete    | 2026-07-28 |
 | 27. Client Consent & Registration | v1.7 | 2/2 | Complete    | 2026-07-28 |
-| 28. Admin Menu Discoverability | v1.7 | 0/2 | Not started | - |
+| 28. Admin Menu Discoverability | v1.7 | 2/2 | Complete    | 2026-07-28 |
 | 29. Booking & List Clarity | v1.7 | 0/TBD | Not started | - |
 | 30. Client Identification & Menu Reliability | v1.7 | 0/TBD | Not started | - |
 

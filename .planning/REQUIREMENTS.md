@@ -12,10 +12,10 @@
 
 ### Admin Discoverability (ADMIN)
 
-- [ ] **ADMIN-01**: The admin's "reply to client" escalation button either relays the owner's next message to the escalating client, or is removed if not being wired this milestone
-- [ ] **ADMIN-02**: Decorative inline-keyboard buttons that perform no action (e.g. "Νέο μάθημα (chat)") are removed or wired to a real action
-- [ ] **ADMIN-03**: Admin can record a client payment from the `/menu` (currently chat-only, despite being the highest-frequency owner action)
-- [ ] **ADMIN-04**: Admin has menu entry points for hours/services/prices/class setup (currently chat-only, despite being high-stakes setup data)
+- [x] **ADMIN-01**: The admin's "reply to client" escalation button either relays the owner's next message to the escalating client, or is removed if not being wired this milestone
+- [x] **ADMIN-02**: Decorative inline-keyboard buttons that perform no action (e.g. "Νέο μάθημα (chat)") are removed or wired to a real action
+- [x] **ADMIN-03**: Admin can record a client payment from the `/menu` (currently chat-only, despite being the highest-frequency owner action)
+- [x] **ADMIN-04**: Admin has menu entry points for hours/services/prices/class setup (currently chat-only, despite being high-stakes setup data)
 - [ ] **ADMIN-05**: Telegram persistent menu button reliability is investigated (client-side caching, scope semantics, re-registration needs) and any code-addressable gap is fixed or documented as a client-side limitation
 
 ### Booking & List Clarity (UX)
@@ -64,10 +64,10 @@ Deferred to future release. Tracked but not in current roadmap.
 | CONF-02 | Phase 26 | Complete |
 | COMP-01 | Phase 27 | Complete |
 | COMP-02 | Phase 27 | Complete |
-| ADMIN-01 | Phase 28 | Pending |
-| ADMIN-02 | Phase 28 | Pending |
-| ADMIN-03 | Phase 28 | Pending |
-| ADMIN-04 | Phase 28 | Pending |
+| ADMIN-01 | Phase 28 | Complete |
+| ADMIN-02 | Phase 28 | Complete |
+| ADMIN-03 | Phase 28 | Complete |
+| ADMIN-04 | Phase 28 | Complete |
 | UX-01 | Phase 29 | Pending |
 | UX-02 | Phase 29 | Pending |
 | UX-04 | Phase 29 | Pending |

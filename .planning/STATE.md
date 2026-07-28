@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: UX & Trust Polish
-current_phase: 28
-current_phase_name: Admin Menu Discoverability
+current_phase: 29
+current_phase_name: Booking & List Clarity
 status: executing
 stopped_at: Phase 28 context gathered
-last_updated: "2026-07-28T13:16:53.099Z"
+last_updated: "2026-07-28T15:16:16.066Z"
 last_activity: 2026-07-28
-last_activity_desc: Phase 27 complete, transitioned to Phase 28
+last_activity_desc: Phase 28 complete, transitioned to Phase 29
 progress:
   total_phases: 5
-  completed_phases: 2
-  total_plans: 4
-  completed_plans: 4
-  percent: 40
+  completed_phases: 3
+  total_plans: 6
+  completed_plans: 6
+  percent: 60
 ---
 
 # Project State
@@ -24,20 +24,20 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-28 after v1.6 milestone close)
 
 **Core value:** A client can book or cancel an appointment with a Greek business entirely through a chat conversation, in Greek, with zero friction — and the owner's calendar updates automatically.
-**Current focus:** Phase 27 — client-consent-registration
+**Current focus:** Phase 28 — admin-menu-discoverability
 
 ## Current Position
 
-Phase: 28 — Admin Menu Discoverability
+Phase: 29 — Booking & List Clarity
 Plan: Not started
-Status: Ready to execute
-Last activity: 2026-07-28 — Phase 27 complete, transitioned to Phase 28
+Status: Executing Phase 28
+Last activity: 2026-07-28 — Phase 28 complete, transitioned to Phase 29
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 45
+- Total plans completed: 47
 - Average duration: - min
 - Total execution time: 0 hours
 
@@ -56,6 +56,7 @@ Last activity: 2026-07-28 — Phase 27 complete, transitioned to Phase 28
 | 21 | 3 | - | - |
 | 26 | 2 | - | - |
 | 27 | 2 | - | - |
+| 28 | 2 | - | - |
 
 **Recent Trend:**
 
