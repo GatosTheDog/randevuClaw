@@ -203,6 +203,14 @@ export async function findClientBusinessRelationship(
  * The consentTimestamp is refreshed on every upsert to record the most recent
  * contact time. onConflictDoUpdate eliminates the prior check-then-insert
  * race (CR-01) — a single atomic upsert always returns a row.
+ *
+ * Phase 27 (COMP-01/COMP-02, D-01): the explicit `consentGiven: true` on
+ * INSERT was removed — a brand-new row now relies purely on the column's DB
+ * default (migration 0013 flips it to false), so a fresh row genuinely
+ * starts unconsented until the client accepts the hard gate. The
+ * onConflictDoUpdate SET clause still excludes consentGiven (unchanged), so
+ * a racing/repeat first-contact upsert can never reset an already-accepted
+ * consent back to false (PITFALLS.md Pitfall 3).
  */
 export async function insertClientBusinessRelationship(
   businessId: number,
@@ -215,7 +223,6 @@ export async function insertClientBusinessRelationship(
       businessId,
       senderPhone,
       clientName,
-      consentGiven: true,
       consentTimestamp: new Date(),
     })
     .onConflictDoUpdate({
@@ -226,6 +233,29 @@ export async function insertClientBusinessRelationship(
     .returning();
 
   return rows[0];
+}
+
+/**
+ * Phase 27 (COMP-01/COMP-02, D-01): records the client's decision on the
+ * hard consent gate. Called by Plan 27-02's `consent:yes`/`consent:no`
+ * callback handler. Scoped UPDATE on the matching (businessId, senderPhone)
+ * row; refreshes consentTimestamp to the actual acceptance/decline moment
+ * (distinct from the first-contact insert timestamp).
+ */
+export async function updateClientConsentGiven(
+  businessId: number,
+  senderPhone: string,
+  consentGiven: boolean
+): Promise<void> {
+  await getConn()
+    .update(clientBusinessRelationships)
+    .set({ consentGiven, consentTimestamp: new Date() })
+    .where(
+      and(
+        eq(clientBusinessRelationships.businessId, businessId),
+        eq(clientBusinessRelationships.senderPhone, senderPhone)
+      )
+    );
 }
 
 // --- Phase 2: AI Booking Conversations & Owner Alerts ---
