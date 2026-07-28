@@ -28,6 +28,7 @@ import {
 import { logger } from '../../utils/logger';
 import { listSessions, bookSessionInstance, findSessionInstanceById } from '../../session/manager';
 import { BACK_MENU_LABELS } from '../../utils/greek-messages';
+import { hoursUntilSession } from '../../utils/timezone';
 import { checkEnforcementAndGetMembership } from '../../billing/enforcement';
 import {
   getClientActiveMembership,
@@ -91,30 +92,6 @@ export async function showClientRootMenu(chatId: string, business: Business): Pr
     `Καλώς ήρθες! Τι θέλεις να κάνεις;`,
     keyboard
   );
-}
-
-// ---------------------------------------------------------------------------
-// Local helper: compute hours until a session starts in the Europe/Athens timezone.
-// Copied verbatim from src/conversation/function-executor.ts (hoursUntilSessionInAthens).
-// Not imported from there because that module is a conversation-layer concern —
-// importing it here would create unnecessary coupling.
-// ---------------------------------------------------------------------------
-function hoursUntilSession(sessionDate: string, sessionTime: string): number {
-  const noonUTC = new Date(`${sessionDate}T12:00:00Z`);
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Europe/Athens',
-    hour: '2-digit',
-    hour12: false,
-  }).formatToParts(noonUTC);
-  const athensHour = Number.parseInt(parts.find((p) => p.type === 'hour')!.value, 10);
-  const offsetHours = athensHour - 12;
-  const [hh, mm] = sessionTime.split(':').map(Number);
-  const sessionUTCMs =
-    Date.parse(
-      `${sessionDate}T${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:00Z`
-    ) -
-    offsetHours * 3_600_000;
-  return (sessionUTCMs - Date.now()) / 3_600_000;
 }
 
 // ---------------------------------------------------------------------------
@@ -451,7 +428,10 @@ export async function handleCancelExecute(
 ): Promise<void> {
   const booking = await findBookingByIdUnscoped(bookingId);
   if (!booking) {
-    await sendTelegramMessage(chatId, 'Κράτηση δεν βρέθηκε.');
+    const keyboard: InlineKeyboard = [
+      [{ text: BACK_MENU_LABELS.CLIENT, callback_data: 'cmenu:root' }],
+    ];
+    await sendTelegramMessageWithKeyboard(chatId, 'Κράτηση δεν βρέθηκε.', keyboard);
     return;
   }
 
@@ -461,7 +441,14 @@ export async function handleCancelExecute(
       { bookingId, senderTelegramId, clientPhone: booking.clientPhone },
       'client cancel ownership mismatch'
     );
-    await sendTelegramMessage(chatId, 'Δεν έχετε δικαίωμα ακύρωσης αυτής της κράτησης.');
+    const keyboard: InlineKeyboard = [
+      [{ text: BACK_MENU_LABELS.CLIENT, callback_data: 'cmenu:root' }],
+    ];
+    await sendTelegramMessageWithKeyboard(
+      chatId,
+      'Δεν έχετε δικαίωμα ακύρωσης αυτής της κράτησης.',
+      keyboard
+    );
     return;
   }
 
@@ -470,7 +457,14 @@ export async function handleCancelExecute(
     booking.bookingStatus !== 'pending_owner_approval' &&
     booking.bookingStatus !== 'confirmed'
   ) {
-    await sendTelegramMessage(chatId, 'Αυτή η κράτηση δεν μπορεί να ακυρωθεί.');
+    const keyboard: InlineKeyboard = [
+      [{ text: BACK_MENU_LABELS.CLIENT, callback_data: 'cmenu:root' }],
+    ];
+    await sendTelegramMessageWithKeyboard(
+      chatId,
+      'Αυτή η κράτηση δεν μπορεί να ακυρωθεί.',
+      keyboard
+    );
     return;
   }
 
@@ -529,7 +523,7 @@ export async function handleCancelExecute(
   await sendTelegramMessage(chatId, 'Η κράτησή σας ακυρώθηκε.');
 
   const backKeyboard: InlineKeyboard = [
-    [{ text: '« Αρχικό μενού', callback_data: 'cmenu:root' }],
+    [{ text: BACK_MENU_LABELS.CLIENT, callback_data: 'cmenu:root' }],
   ];
   await sendTelegramMessageWithKeyboard(chatId, 'Τι άλλο θέλεις να κάνεις;', backKeyboard);
 
@@ -635,8 +629,12 @@ export async function handleClientMenuCallback(
       await showClientBalance(chatId, business);
       break;
 
-    default:
-      await sendTelegramMessage(chatId, 'Άγνωστη ενέργεια.');
+    default: {
+      const keyboard: InlineKeyboard = [
+        [{ text: BACK_MENU_LABELS.CLIENT, callback_data: 'cmenu:root' }],
+      ];
+      await sendTelegramMessageWithKeyboard(chatId, 'Άγνωστη ενέργεια.', keyboard);
       break;
+    }
   }
 }

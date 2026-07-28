@@ -1152,7 +1152,21 @@ describe('Suite D: cancel flow via handleClientMenuCallback', () => {
     expect(mockedRestoreCredit).not.toHaveBeenCalled();
   });
 
-  it('cancel:yes — ownership guard: wrong clientPhone → updateBookingStatus NOT called, error message sent', async () => {
+  it('cancel:yes — booking-not-found early-return (D-05.2): updateBookingStatus NOT called, back-menu keyboard sent', async () => {
+    mockedFindBookingByIdUnscoped.mockResolvedValue(null);
+
+    const result: ClientMenuCallbackResult = { clientMenuAction: 'cancel:yes', id: bookingId };
+    await handleClientMenuCallback(result, BASE_BUSINESS as any, senderTelegramId);
+
+    expect(mockedUpdateBookingStatus).not.toHaveBeenCalled();
+    expect(mockedSendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
+      senderTelegramId,
+      'Κράτηση δεν βρέθηκε.',
+      [[{ text: '« Πίσω', callback_data: 'cmenu:root' }]]
+    );
+  });
+
+  it('cancel:yes — ownership guard early-return (D-05.2): wrong clientPhone → updateBookingStatus NOT called, back-menu keyboard sent', async () => {
     mockedFindBookingByIdUnscoped.mockResolvedValue({
       ...BASE_BOOKING,
       clientPhone: 'someone-else',
@@ -1162,9 +1176,27 @@ describe('Suite D: cancel flow via handleClientMenuCallback', () => {
     await handleClientMenuCallback(result, BASE_BUSINESS as any, senderTelegramId);
 
     expect(mockedUpdateBookingStatus).not.toHaveBeenCalled();
-    expect(mockedSendTelegramMessage).toHaveBeenCalledWith(
+    expect(mockedSendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
       senderTelegramId,
-      expect.stringContaining('δικαίωμα')
+      expect.stringContaining('δικαίωμα'),
+      [[{ text: '« Πίσω', callback_data: 'cmenu:root' }]]
+    );
+  });
+
+  it('cancel:yes — wrong-status early-return (D-05.2): booking already cancelled → updateBookingStatus NOT called, back-menu keyboard sent', async () => {
+    mockedFindBookingByIdUnscoped.mockResolvedValue({
+      ...BASE_BOOKING,
+      bookingStatus: 'cancelled',
+    } as any);
+
+    const result: ClientMenuCallbackResult = { clientMenuAction: 'cancel:yes', id: bookingId };
+    await handleClientMenuCallback(result, BASE_BUSINESS as any, senderTelegramId);
+
+    expect(mockedUpdateBookingStatus).not.toHaveBeenCalled();
+    expect(mockedSendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
+      senderTelegramId,
+      'Αυτή η κράτηση δεν μπορεί να ακυρωθεί.',
+      [[{ text: '« Πίσω', callback_data: 'cmenu:root' }]]
     );
   });
 
@@ -1196,6 +1228,32 @@ describe('Suite D: cancel flow via handleClientMenuCallback', () => {
       expect.stringContaining('2')
     );
     void oneHourFromNow; // suppress unused warning
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleClientMenuCallback default case — back-menu keyboard (D-05.1, T-29-08)
+// ---------------------------------------------------------------------------
+
+describe('handleClientMenuCallback default case — back-menu keyboard (D-05.1, T-29-08)', () => {
+  const senderTelegramId = CLIENT_TELEGRAM_ID;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockedSendTelegramMessage.mockResolvedValue({ messageId: 999 });
+    mockedSendTelegramMessageWithKeyboard.mockResolvedValue({ messageId: 998 });
+  });
+
+  it('unrecognized clientMenuAction → "Άγνωστη ενέργεια." sent with a back-menu keyboard (not a text-only dead end)', async () => {
+    const result: ClientMenuCallbackResult = { clientMenuAction: 'nonexistent-action' };
+    await handleClientMenuCallback(result, BASE_BUSINESS as any, senderTelegramId);
+
+    expect(mockedSendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
+      senderTelegramId,
+      'Άγνωστη ενέργεια.',
+      [[{ text: '« Πίσω', callback_data: 'cmenu:root' }]]
+    );
+    expect(mockedSendTelegramMessage).not.toHaveBeenCalled();
   });
 });
 
