@@ -22,6 +22,23 @@ export function getConn(): typeof db {
   return currentTx.getStore() ?? db;
 }
 
+/**
+ * WR-02: true when called from inside an already-open withBusinessContext
+ * transaction. Lets a helper that may be invoked either standalone (e.g. the
+ * AI-agent tool-call path, deliberately outside any transaction — WR-04) or
+ * nested inside an already-open dispatch transaction (e.g. telegram.ts's
+ * outer withBusinessContext wrapping handleCallbackQuery) decide whether
+ * opening its own withBusinessContext would check out a second, unnecessary
+ * DB connection (runInTransaction always calls pool.connect() regardless of
+ * any already-open transaction) while the outer one sits idle-in-transaction
+ * — the same "holding a connection open while other work happens" pattern
+ * documented elsewhere in this file as the root cause of prior incidents
+ * (webhook-hang-no-reply, query-read-timeout-storm).
+ */
+export function isInBusinessContext(): boolean {
+  return currentTx.getStore() !== undefined;
+}
+
 export interface Business {
   id: number;
   name: string;

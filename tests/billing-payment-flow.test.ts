@@ -34,6 +34,12 @@ jest.mock('../src/database/queries', () => ({
     .fn()
     .mockImplementation((_id: number, cb: () => Promise<unknown>) => cb()),
   findClientBusinessRelationshipById: jest.fn(),
+  // WR-02: showClientSelection checks isInBusinessContext() to decide whether
+  // to open its own withBusinessContext or reuse an ambient one. Defaulting
+  // to false here preserves this file's existing behavior/expectations
+  // (showClientSelection always goes through the withBusinessContext mock
+  // above, same as before the WR-02 fix).
+  isInBusinessContext: jest.fn().mockReturnValue(false),
 }));
 
 jest.mock('../src/onboarding/queries', () => ({
@@ -173,6 +179,35 @@ describe('payment recording flow', () => {
       const keyboard = mockSendKeyboard.mock.calls[0][2];
       expect(keyboard[0][0].callback_data).toBe('billing:client:300');
       expect(keyboard[0][0].text).toBe('Χρήστος');
+    });
+
+    it('WR-02 fix: when already inside an active business context, reuses it instead of opening a second nested withBusinessContext', async () => {
+      const mockIsInBusinessContext = dbQueries.isInBusinessContext as jest.Mock;
+      // mockReturnValueOnce (not mockReturnValue) so this test's override
+      // never leaks into later tests in this file — showClientSelection
+      // calls isInBusinessContext() exactly once per invocation on the
+      // non-empty-recent-clients path exercised here.
+      mockIsInBusinessContext.mockReturnValueOnce(true);
+
+      const mockClients: RecentClient[] = [
+        {
+          clientBusinessRelationshipId: 101,
+          clientName: 'Μαρία',
+          serviceNameFallback: 'Pilates',
+          lastBookingDateFormatted: '2026-07-15',
+        },
+      ];
+      mockGetRecentClients.mockResolvedValue(mockClients);
+
+      await showClientSelection(BUSINESS_ID, OWNER_TELEGRAM_ID);
+
+      // The query still ran (via the ambient context, not a fresh transaction).
+      expect(mockGetRecentClients).toHaveBeenCalledWith(BUSINESS_ID, 30);
+      expect(mockSendKeyboard).toHaveBeenCalledTimes(1);
+      // No second withBusinessContext transaction was opened while one is
+      // already active — this is the nesting WR-02 flags as unsafe.
+      const mockWithBusinessContext = dbQueries.withBusinessContext as jest.Mock;
+      expect(mockWithBusinessContext).not.toHaveBeenCalled();
     });
   });
 

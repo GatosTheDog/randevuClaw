@@ -13,6 +13,7 @@
 import {
   withBusinessContext,
   findClientBusinessRelationshipById,
+  isInBusinessContext,
 } from '../../database/queries';
 import { findBusinessByOwnerTelegramId } from '../../onboarding/queries';
 import {
@@ -47,16 +48,25 @@ export async function showClientSelection(
   businessId: number,
   ownerTelegramId: string
 ): Promise<void> {
-  const clients = await withBusinessContext(businessId, () =>
-    getRecentClientsForBusiness(businessId, 30)
-  );
+  // WR-02 fix: this is now reachable both from the AI-agent tool-call path
+  // (ai-owner-agent.ts, deliberately outside any transaction — WR-04) and
+  // from telegram.ts's menu:payment callback branch, which runs nested
+  // inside handleCallbackQuery's own outer withBusinessContext transaction.
+  // Opening a fresh withBusinessContext here unconditionally would check out
+  // a second DB connection while the outer transaction sits idle. When
+  // already inside an active business context, reuse it via getConn()
+  // (threaded transparently through the AsyncLocalStorage-backed queries
+  // below) instead of nesting a second one.
+  const clients = isInBusinessContext()
+    ? await getRecentClientsForBusiness(businessId, 30)
+    : await withBusinessContext(businessId, () => getRecentClientsForBusiness(businessId, 30));
 
   if (clients.length === 0) {
     // G-07-6 fallback: try all-time clients from clientBusinessRelationships
     // when no bookings exist in the last 30 days.
-    const allClients = await withBusinessContext(businessId, () =>
-      getAllClientsForBusiness(businessId)
-    );
+    const allClients = isInBusinessContext()
+      ? await getAllClientsForBusiness(businessId)
+      : await withBusinessContext(businessId, () => getAllClientsForBusiness(businessId));
     if (allClients.length === 0) {
       await sendTelegramMessage(ownerTelegramId, 'Δεν υπάρχουν εγγεγραμμένοι πελάτες.');
       return;
