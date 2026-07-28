@@ -546,3 +546,49 @@ export async function listSessions(
 
   return rows;
 }
+
+// ---------------------------------------------------------------------------
+// findSessionInstanceById
+// ---------------------------------------------------------------------------
+
+/**
+ * Phase 29 (D-06): businessId-scoped lookup of a single non-cancelled session
+ * instance by id. Uses the exact same select/join shape as listSessions so its
+ * return type is a drop-in replacement for the ad-hoc Drizzle joins currently
+ * duplicated in client-menu.ts, admin-menu.ts, and telegram.ts (Wave 2 of
+ * Phase 29 replaces those inline copies with this helper).
+ *
+ * T-29-01 (Information Disclosure, mitigate): businessId is a required,
+ * non-optional first parameter enforced via the sessionCatalog join's WHERE
+ * clause — not merely advisory. A forged/cross-business instanceId (e.g. one
+ * originating from attacker-controlled Telegram callback_data) always
+ * resolves to null here, never another business's row. Also excludes
+ * cancelled instances (isCancelled=false), matching listSessions' guard.
+ */
+export async function findSessionInstanceById(
+  businessId: number,
+  instanceId: number
+): Promise<SessionInstance | null> {
+  const rows = await getConn()
+    .select({
+      instanceId: sessionInstances.id,
+      catalogId: sessionInstances.catalogId,
+      sessionDate: sessionInstances.sessionDate,
+      sessionTime: sessionInstances.sessionTime,
+      bookedCount: sessionInstances.bookedCount,
+      capacity: sessionCatalog.capacity,
+      serviceId: sessionCatalog.serviceId,
+    })
+    .from(sessionInstances)
+    .innerJoin(sessionCatalog, eq(sessionInstances.catalogId, sessionCatalog.id))
+    .where(
+      and(
+        eq(sessionCatalog.businessId, businessId),
+        eq(sessionInstances.id, instanceId),
+        eq(sessionInstances.isCancelled, false)
+      )
+    )
+    .limit(1);
+
+  return rows[0] ?? null;
+}

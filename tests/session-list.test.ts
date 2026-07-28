@@ -21,7 +21,7 @@ jest.resetModules();
 const { db } = require('../src/database/db');
 const { eq } = require('drizzle-orm');
 const { bookings, services } = require('../src/database/schema');
-const { listSessions } = require('../src/session/manager');
+const { listSessions, findSessionInstanceById } = require('../src/session/manager');
 const { isoDateInAthens, addCalendarDays } = require('../src/utils/timezone');
 const { insertTestBusiness } = require('./helpers/test-business');
 const {
@@ -285,5 +285,90 @@ describe('listSessions excludePastToday (Phase 29, D-01/D-02)', () => {
     const sessions = await listSessions(businessId, 90);
     const found = sessions.find((s: { instanceId: number }) => s.instanceId === instance.id);
     expect(found).toBeDefined();
+  });
+});
+
+// Phase 29 (D-06): findSessionInstanceById — businessId-scoped single-instance
+// lookup replacing the 3 near-duplicate inline Drizzle joins across the
+// codebase (client-menu.ts, admin-menu.ts, telegram.ts) that Wave 2 plans of
+// this phase will consume.
+describe('findSessionInstanceById (Phase 29, D-06)', () => {
+  let businessAId: number;
+  let businessBId: number;
+  let serviceAId: number;
+  let catalogAId: number;
+
+  beforeAll(async () => {
+    const businessA = await insertTestBusiness();
+    businessAId = businessA.id;
+    const businessB = await insertTestBusiness();
+    businessBId = businessB.id;
+
+    const svcRows = await db
+      .select({ id: services.id })
+      .from(services)
+      .where(eq(services.businessId, businessAId))
+      .limit(1);
+    serviceAId = svcRows[0].id;
+
+    const catalog = await insertTestSessionCatalog(businessAId, serviceAId);
+    catalogAId = catalog.id;
+  });
+
+  it('returns the full SessionInstance row when the instance belongs to businessId and is not cancelled', async () => {
+    const today = isoDateInAthens(new Date());
+    const futureDate = addCalendarDays(today, 3);
+    const instance = await insertTestSessionInstance(catalogAId, {
+      sessionDate: futureDate,
+      sessionTime: '09:00',
+      bookedCount: 2,
+      idempotencyKey: `test:findbyid-ok:${catalogAId}:${Date.now()}`,
+    });
+
+    const found = await findSessionInstanceById(businessAId, instance.id);
+
+    expect(found).not.toBeNull();
+    expect(found.instanceId).toBe(instance.id);
+    expect(found.catalogId).toBe(catalogAId);
+    expect(found.sessionDate).toBe(futureDate);
+    expect(found.sessionTime).toBe('09:00');
+    expect(found.bookedCount).toBe(2);
+    expect(found.serviceId).toBe(serviceAId);
+    expect(typeof found.capacity).toBe('number');
+  });
+
+  it('returns null when instanceId belongs to a DIFFERENT business (cross-business scoping — T-29-01)', async () => {
+    const today = isoDateInAthens(new Date());
+    const futureDate = addCalendarDays(today, 4);
+    const instance = await insertTestSessionInstance(catalogAId, {
+      sessionDate: futureDate,
+      sessionTime: '11:00',
+      idempotencyKey: `test:findbyid-crossbiz:${catalogAId}:${Date.now()}`,
+    });
+
+    const found = await findSessionInstanceById(businessBId, instance.id);
+
+    expect(found).toBeNull();
+  });
+
+  it('returns null when the instance is cancelled (isCancelled=true)', async () => {
+    const today = isoDateInAthens(new Date());
+    const futureDate = addCalendarDays(today, 5);
+    const instance = await insertTestSessionInstance(catalogAId, {
+      sessionDate: futureDate,
+      sessionTime: '12:00',
+      isCancelled: true,
+      idempotencyKey: `test:findbyid-cancelled:${catalogAId}:${Date.now()}`,
+    });
+
+    const found = await findSessionInstanceById(businessAId, instance.id);
+
+    expect(found).toBeNull();
+  });
+
+  it('returns null when instanceId does not exist', async () => {
+    const found = await findSessionInstanceById(businessAId, 999_999_999);
+
+    expect(found).toBeNull();
   });
 });
