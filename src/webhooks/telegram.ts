@@ -37,10 +37,7 @@ import { findMembershipByBooking, restoreCredit } from '../billing/queries';
 import { isoDateInAthens } from '../utils/timezone';
 import { approveSlotlessRequest, rejectSlotlessRequest } from '../session/slotless-requests';
 import { pendingRenewalBatches } from '../scheduler/membership-expiry';
-import { bookSessionInstance, releaseSessionCapacity } from '../session/manager';
-import { db } from '../database/db';
-import { sessionInstances, sessionCatalog } from '../database/schema';
-import { eq } from 'drizzle-orm';
+import { bookSessionInstance, releaseSessionCapacity, findSessionInstanceById } from '../session/manager';
 import { BACK_MENU_LABELS } from '../utils/greek-messages';
 
 interface TelegramFrom {
@@ -621,19 +618,17 @@ async function handleCallbackQuery(
         return;
       }
 
-      // Resolve serviceId from instanceId (same pattern as handleBookSessionExecute)
-      const instanceRow = await db
-        .select({ serviceId: sessionCatalog.serviceId })
-        .from(sessionInstances)
-        .innerJoin(sessionCatalog, eq(sessionInstances.catalogId, sessionCatalog.id))
-        .where(eq(sessionInstances.id, escl.instanceId))
-        .limit(1);
-      const serviceId = instanceRow[0]?.serviceId;
-
-      if (serviceId === undefined) {
+      // Resolve serviceId from instanceId via the businessId-scoped D-06
+      // helper (replaces the old ad-hoc, businessId-unscoped Drizzle join —
+      // T-29-06: incidentally closes a cross-business information-read gap,
+      // since a crafted instanceId belonging to another business now
+      // resolves to null instead of leaking that business's serviceId).
+      const session = await findSessionInstanceById(ownerBusiness.id, escl.instanceId);
+      if (!session) {
         await sendTelegramMessage(senderTelegramId, 'Το μάθημα δεν βρέθηκε.');
         return;
       }
+      const serviceId = session.serviceId;
 
       const idempotencyKey = `escl:approve:${escl.clientTelegramId}:${escl.instanceId}`;
       const result = await bookSessionInstance(
