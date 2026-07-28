@@ -140,7 +140,16 @@ Plans:
   3. The client-business relationship record carries an explicit opt-in flag that is only true once the client has seen and accepted the consent notice.
   4. Pre-existing (pre-v1.7) client relationships are backfilled to a safe default so no real client already using the bot gets silently blocked.
 
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+**Wave 1**
+
+- [ ] 27-01-PLAN.md — Repurpose consentGiven default (true→false), migration 0013, updateClientConsentGiven query (COMP-02)
+
+**Wave 2** *(depends on Wave 1)*
+
+- [ ] 27-02-PLAN.md — Wire the hard Ναι/Όχι consent gate into /start and free-chat, plus the consent:yes/no callback handling (COMP-01, COMP-02)
 
 #### Phase 28: Admin Menu Discoverability
 
@@ -214,7 +223,7 @@ Plans:
 | 24. Bot Access & Diagnostics Polish | v1.6 | 1/1 | Complete | 2026-07-27 |
 | 25. Client Invite Generator | v1.6 | 1/1 | Complete | 2026-07-27 |
 | 26. Confirmation & Approval Policy | v1.7 | 2/2 | Complete    | 2026-07-28 |
-| 27. Client Consent & Registration | v1.7 | 0/TBD | Not started | - |
+| 27. Client Consent & Registration | v1.7 | 0/2 | Planned | - |
 | 28. Admin Menu Discoverability | v1.7 | 0/TBD | Not started | - |
 | 29. Booking & List Clarity | v1.7 | 0/TBD | Not started | - |
 | 30. Client Identification & Menu Reliability | v1.7 | 0/TBD | Not started | - |
