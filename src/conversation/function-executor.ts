@@ -15,7 +15,7 @@ import { checkAvailability } from '../business/availability';
 import { sendTelegramMessage, sendTelegramMessageWithKeyboard, InlineKeyboard } from '../telegram/client';
 import { deleteBookingFromCalendar } from '../calendar/sync';
 import { logger } from '../utils/logger';
-import { getClientActiveMembership, getActiveMembershipForDeduction, deductSession, getClientName, findMembershipByBooking, restoreCredit, linkRescheduledBooking } from '../billing/queries';
+import { getClientActiveMembership, deductSession, getClientName, findMembershipByBooking, restoreCredit, linkRescheduledBooking } from '../billing/queries';
 import { checkEnforcementAndGetMembership } from '../billing/enforcement';
 import { formatExpiryDateGreek, isoDateInAthens } from '../utils/timezone';
 import { listSessions, bookSessionInstance } from '../session/manager';
@@ -767,9 +767,17 @@ async function rescheduleSessionTool(
   // Phase 26 (CONF-02/D-03): the OLD booking is NOT cancelled here anymore.
   // It stays confirmed and completely untouched until the owner approves or
   // rejects the new booking below — a reject must never leave the client
-  // with zero active bookings. Fetch the client's current membership as-is
-  // (no restore-then-refetch dance needed since nothing was restored).
-  const activeMembership = await getActiveMembershipForDeduction(context.business.id, context.clientPhone);
+  // with zero active bookings.
+  //
+  // CR-01 fix: `original` already deducted 1 credit when it was first
+  // created. Passing the client's real (active) membership into
+  // bookSessionInstance here would deduct a SECOND credit for the same
+  // reschedule — this is the double-deduction bug CR-01 identified. Mirror
+  // rescheduleAppointmentTool's CR-02 "link, don't deduct" handling instead:
+  // pass null so bookSessionInstance's internal deduction guard is skipped,
+  // then explicitly link the new booking to the original's membership ledger
+  // row below so a future cancel of the approved booking can still find the
+  // membership and restore correctly.
   const newKey = context.idempotencyKey + ':reschedule:' + parsed.new_session_instance_id;
 
   const result = await bookSessionInstance(
@@ -778,7 +786,7 @@ async function rescheduleSessionTool(
     context.clientPhone,
     newSession.serviceId,
     newKey,
-    activeMembership,
+    null, // CR-01: was `activeMembership` — skip deduction, reschedules must be credit-neutral
     // No 'confirmed' override (Phase 26/D-03 reverses the Phase 22 decision):
     // initialStatus defaults to 'pending_owner_approval' so a reschedule goes
     // through the same owner approve/reject cascade as a brand-new booking.
@@ -798,6 +806,16 @@ async function rescheduleSessionTool(
       error: 'reschedule_failed_' + result.status,
       message: result.status === 'full' ? 'Το νέο μάθημα είναι πλήρες.' : 'Το νέο μάθημα δεν είναι διαθέσιμο.',
     };
+  }
+
+  // CR-01 fix: link the new booking to the original's membership ledger row
+  // (counter unchanged — only the link is needed for findMembershipByBooking),
+  // mirroring rescheduleAppointmentTool's CR-02 handling above.
+  if (result.bookingId) {
+    const originalMembershipId = await findMembershipByBooking(original.id);
+    if (originalMembershipId !== null) {
+      await linkRescheduledBooking(originalMembershipId, result.bookingId);
+    }
   }
 
   // Phase 26 (D-03): mirrors bookSessionTool's approval-keyboard block above —

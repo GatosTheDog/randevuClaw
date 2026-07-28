@@ -619,9 +619,12 @@ async function handleCallbackQuery(
       // Phase 26 (CONF-02/D-03): if this booking is a reschedule's new slot,
       // cascade-cancel the OLD (superseded) booking now that the owner has
       // approved the new one. Mirrors the existing reschedule-cascade pattern
-      // elsewhere in this file. No credit restore here — the old booking's
-      // credit was never touched by rescheduleSessionTool (D-03), so
-      // restoring it now would over-refund the client.
+      // elsewhere in this file. No credit restore here — CR-01 fix:
+      // rescheduleSessionTool now passes null into bookSessionInstance for
+      // the new booking (link-only via linkRescheduledBooking, no fresh
+      // deduction), so the old booking's original credit is still the only
+      // one ever spent for this reschedule; restoring it now would refund a
+      // credit that was genuinely consumed for the attended session.
       if (updated.rescheduledFromBookingId) {
         await updateBookingStatus(updated.rescheduledFromBookingId, 'cancelled');
         try {
@@ -658,9 +661,22 @@ async function handleCallbackQuery(
       // single-transaction atomicity, no new wrapper needed here.
       if (updated.sessionInstanceId !== null) {
         await releaseSessionCapacity(updated.sessionInstanceId);
-        const membershipId = await findMembershipByBooking(updated.id);
-        if (membershipId !== null) {
-          await restoreCredit(membershipId, updated.id, `booking:${updated.id}:credit`);
+        // CR-01 fix: skip credit restore when this rejected booking is a
+        // reschedule's new slot (rescheduledFromBookingId set). A reschedule's
+        // new booking is only LINKED to the original's membership ledger row
+        // (linkRescheduledBooking, sessionsDeducted: 0) — no fresh credit was
+        // ever deducted for it, since the original booking (left untouched on
+        // reject, still active) already spent its own credit. findMembershipByBooking
+        // would still resolve the linked membership here regardless of the
+        // linked row's sessionsDeducted value, so restoring unconditionally
+        // would hand the client back a credit they never actually lost.
+        // Only a genuinely fresh (non-reschedule) booking — whose own credit
+        // really was deducted at creation time — should be restored on reject.
+        if (!updated.rescheduledFromBookingId) {
+          const membershipId = await findMembershipByBooking(updated.id);
+          if (membershipId !== null) {
+            await restoreCredit(membershipId, updated.id, `booking:${updated.id}:credit`);
+          }
         }
       }
 
