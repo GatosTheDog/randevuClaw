@@ -181,4 +181,65 @@ describe('direct client assignment to session', () => {
       .where(eq(bookings.requestId, idempotencyKey));
     expect(bookingRows).toHaveLength(0);
   });
+
+  // Phase 26 (CONF-02): bookSessionInstance's new 8th parameter
+  it('bookSessionInstance persists the supplied rescheduledFromBookingId on the inserted bookings row', async () => {
+    const instance = await insertTestSessionInstance(catalogId, {
+      sessionDate: '2099-11-14',
+      idempotencyKey: `test:reschedlink:${catalogId}:${Date.now()}`,
+    });
+
+    const clientPhone = `test-client-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const idempotencyKey = `reschedlink-test:${instance.id}:${clientPhone}`;
+    const fakeOldBookingId = 999999;
+
+    const result = await bookSessionInstance(
+      businessId,
+      instance.id,
+      clientPhone,
+      serviceId,
+      idempotencyKey,
+      undefined,
+      'pending_owner_approval',
+      fakeOldBookingId
+    );
+
+    expect(result.status).toBe('success');
+
+    const bookingRows = await db
+      .select()
+      .from(bookings)
+      .where(eq(bookings.id, result.bookingId!));
+
+    expect(bookingRows).toHaveLength(1);
+    expect(bookingRows[0].rescheduledFromBookingId).toBe(fakeOldBookingId);
+  });
+
+  it('bookSessionInstance persists null rescheduledFromBookingId when the argument is omitted (unchanged existing behavior)', async () => {
+    const instance = await insertTestSessionInstance(catalogId, {
+      sessionDate: '2099-11-15',
+      idempotencyKey: `test:noreschedlink:${catalogId}:${Date.now()}`,
+    });
+
+    const clientPhone = `test-client-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const idempotencyKey = `noreschedlink-test:${instance.id}:${clientPhone}`;
+
+    const result = await bookSessionInstance(
+      businessId,
+      instance.id,
+      clientPhone,
+      serviceId,
+      idempotencyKey
+    );
+
+    expect(result.status).toBe('success');
+
+    const bookingRows = await db
+      .select()
+      .from(bookings)
+      .where(eq(bookings.id, result.bookingId!));
+
+    expect(bookingRows).toHaveLength(1);
+    expect(bookingRows[0].rescheduledFromBookingId).toBeNull();
+  });
 });

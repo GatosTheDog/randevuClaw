@@ -186,6 +186,17 @@ export async function createSessionCatalogWithExpansion(
  *
  * Idempotency: onConflictDoNothing on the bookings insert + fallback lookup
  * returns the existing bookingId on replay (same idempotencyKey).
+ *
+ * Phase 26 (CONF-02): the optional 8th parameter `rescheduledFromBookingId`
+ * links this new booking back to the booking it is replacing (set by
+ * rescheduleSessionTool when a client reschedules a session-class booking).
+ * Persisted verbatim on the bookings insert; consumed later by the
+ * `sbk:approve` cascade in src/webhooks/telegram.ts, which cascade-cancels
+ * the linked old booking once the owner approves this new one. Appended as
+ * the LAST parameter (not inserted before `initialStatus`) so every existing
+ * call site that already passes 'confirmed' as the 7th positional argument
+ * (telegram.ts's escl:approve branch, ai-owner-agent.ts's
+ * assign_client_to_session case) keeps working unchanged.
  */
 export async function bookSessionInstance(
   businessId: number,
@@ -199,7 +210,8 @@ export async function bookSessionInstance(
   // that represent an owner's OWN decision (escalation-exception approval,
   // reschedule, direct owner assignment) explicitly pass 'confirmed' to
   // preserve their pre-existing immediate-confirm behavior.
-  initialStatus: 'pending_owner_approval' | 'confirmed' = 'pending_owner_approval'
+  initialStatus: 'pending_owner_approval' | 'confirmed' = 'pending_owner_approval',
+  rescheduledFromBookingId?: number | null
 ): Promise<BookSessionResult> {
   return withBusinessContext(businessId, async () => {
     // SELECT FOR UPDATE: serialize concurrent bookings on the same instance.
@@ -262,6 +274,9 @@ export async function bookSessionInstance(
         calendarTime: instance.sessionTime,
         bookingStatus: initialStatus,
         requestId: idempotencyKey,
+        // Phase 26 (CONF-02): links this booking back to the one it replaces
+        // on a session-class reschedule; null for every other call site.
+        rescheduledFromBookingId: rescheduledFromBookingId ?? null,
         // Matches the existing 2-hour cutoff constant used by insertBooking/
         // approveSlotlessRequest and the expiry sweep's own EXPIRY_CUTOFF_MS.
         expiresAt: initialStatus === 'pending_owner_approval' ? new Date(Date.now() + 2 * 3600 * 1000) : null,
