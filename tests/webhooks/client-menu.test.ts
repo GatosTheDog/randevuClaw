@@ -388,6 +388,47 @@ describe('Suite B: /start intercept and CMENU-05 free-text routing', () => {
 });
 
 // ---------------------------------------------------------------------------
+// showClientRootMenu — booking button label reflects business.bookingMode (D-03)
+//
+// Suite B mocks showClientRootMenu itself, so these tests reach the real
+// implementation via jest.requireActual (mirroring the module factory above).
+// ---------------------------------------------------------------------------
+
+describe('showClientRootMenu: booking button label reflects bookingMode (D-03)', () => {
+  const actualClientMenu = jest.requireActual('../../src/telegram/handlers/client-menu');
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockedSendTelegramMessageWithKeyboard.mockResolvedValue({ messageId: 998 });
+  });
+
+  it('renders "Κράτηση μαθήματος" when business.bookingMode === fixed_sessions', async () => {
+    await actualClientMenu.showClientRootMenu(CLIENT_TELEGRAM_ID, { ...BASE_BUSINESS });
+
+    expect(mockedSendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
+      CLIENT_TELEGRAM_ID,
+      expect.any(String),
+      expect.arrayContaining([
+        expect.arrayContaining([expect.objectContaining({ text: 'Κράτηση μαθήματος' })]),
+      ])
+    );
+  });
+
+  it('renders "Κράτηση ραντεβού" when business.bookingMode === open_slots', async () => {
+    const openSlotsBusiness = { ...BASE_BUSINESS, bookingMode: 'open_slots' };
+    await actualClientMenu.showClientRootMenu(CLIENT_TELEGRAM_ID, openSlotsBusiness);
+
+    expect(mockedSendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
+      CLIENT_TELEGRAM_ID,
+      expect.any(String),
+      expect.arrayContaining([
+        expect.arrayContaining([expect.objectContaining({ text: 'Κράτηση ραντεβού' })]),
+      ])
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
 // SUITE C: Booking flow via handleClientMenuCallback (direct unit tests)
 // ---------------------------------------------------------------------------
 

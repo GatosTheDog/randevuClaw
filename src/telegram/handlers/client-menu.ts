@@ -73,9 +73,12 @@ export async function showClientRootMenu(chatId: string, business: Business): Pr
   assertCallbackDataSize(callbackDataCancel);
   assertCallbackDataSize(callbackDataBalance);
 
+  const bookingButtonText =
+    business.bookingMode === 'fixed_sessions' ? 'Κράτηση μαθήματος' : 'Κράτηση ραντεβού';
+
   const keyboard: InlineKeyboard = [
     [
-      { text: 'Κράτηση μαθήματος', callback_data: callbackDataBook },
+      { text: bookingButtonText, callback_data: callbackDataBook },
       { text: 'Οι κρατήσεις μου', callback_data: callbackDataBookings },
     ],
     [
@@ -89,9 +92,6 @@ export async function showClientRootMenu(chatId: string, business: Business): Pr
     `Καλώς ήρθες! Τι θέλεις να κάνεις;`,
     keyboard
   );
-
-  // Suppress unused variable warning — business will be used in later plans
-  void business;
 }
 
 // ---------------------------------------------------------------------------
