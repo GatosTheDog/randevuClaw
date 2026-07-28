@@ -17,7 +17,7 @@ import { deleteBookingFromCalendar } from '../calendar/sync';
 import { logger } from '../utils/logger';
 import { getClientActiveMembership, deductSession, getClientName, findMembershipByBooking, restoreCredit, linkRescheduledBooking } from '../billing/queries';
 import { checkEnforcementAndGetMembership } from '../billing/enforcement';
-import { formatExpiryDateGreek, isoDateInAthens } from '../utils/timezone';
+import { formatExpiryDateGreek, isoDateInAthens, hoursUntilSession } from '../utils/timezone';
 import { listSessions, bookSessionInstance } from '../session/manager';
 import { insertSlotlessRequest, countSlotlessRequestsSinceCheckin } from '../session/slotless-requests';
 
@@ -103,24 +103,6 @@ const RescheduleSessionArgsSchema = z.object({
   booking_id: z.number().int(),
   new_session_instance_id: z.number().int(),
 });
-
-function hoursUntilSessionInAthens(sessionDate: string, sessionTime: string): number {
-  const noonUTC = new Date(`${sessionDate}T12:00:00Z`);
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Europe/Athens',
-    hour: '2-digit',
-    hour12: false,
-  }).formatToParts(noonUTC);
-  const athensHour = Number.parseInt(parts.find((p) => p.type === 'hour')!.value, 10);
-  const offsetHours = athensHour - 12;
-  const [hh, mm] = sessionTime.split(':').map(Number);
-  const sessionUTCMs =
-    Date.parse(
-      `${sessionDate}T${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:00Z`
-    ) -
-    offsetHours * 3_600_000;
-  return (sessionUTCMs - Date.now()) / 3_600_000;
-}
 
 export async function executeTool(
   name: string,
@@ -345,7 +327,7 @@ async function cancelAppointmentTool(
   const cutoffEnabled = context.business.cancellationCutoffEnabled;
   const cutoffHours = context.business.cancellationCutoffHours;
   if (cutoffEnabled && booking.calendarDate && booking.calendarTime) {
-    const hoursLeft = hoursUntilSessionInAthens(booking.calendarDate, booking.calendarTime);
+    const hoursLeft = hoursUntilSession(booking.calendarDate, booking.calendarTime);
     if (hoursLeft < cutoffHours) {
       if (!parsed.confirmed) {
         // First call: warn client, no DB mutation (CANC-05)
