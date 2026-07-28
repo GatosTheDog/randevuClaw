@@ -18,7 +18,7 @@ import { answerCallbackQuery, editTelegramMessageReplyMarkup, sendTelegramMessag
 import { getOrCreateBotInstance } from '../telegram/registry';
 import { routeConversationMessage } from '../conversation/router';
 import { deleteBookingFromCalendar, syncBookingToCalendar } from '../calendar/sync';
-import { aiOwnerAgent } from '../onboarding/ai-owner-agent';
+import { aiOwnerAgent, handleOwnerToolConfirmCallback, OwnerToolConfirmParams } from '../onboarding/ai-owner-agent';
 import { aiOnboardingAgent } from '../onboarding/ai-onboarding-agent';
 import { findBusinessByOwnerTelegramId } from '../onboarding/queries';
 import {
@@ -249,10 +249,20 @@ export type SessionBookingCallbackResult = {
   sbkAction: 'approve' | 'reject';
   bookingId: number;
 };
+// Phase 26 (CONF-01): owner confirm/abort tap on one of the 4 non-cancel_session
+// free-chat destructive tool-call confirmations — otc:<action>:<id>[:<secondId>]:<yes|no>.
+// Structurally identical to OwnerToolConfirmParams (ai-owner-agent.ts) so the
+// parsed value can be passed straight through to handleOwnerToolConfirmCallback.
+export type OwnerToolConfirmCallbackResult = {
+  otcAction: 'svc_del' | 'svc_price' | 'hrs_close' | 'assign';
+  id: number;
+  secondId?: number;
+  confirmed: boolean;
+};
 
 export function parseCallbackData(
   data: string | undefined
-): BookingCallbackResult | BillingCallbackResult | SlotlessCallbackResult | RenewalCallbackResult | EscalationCallbackResult | MenuCallbackResult | ClientMenuCallbackResult | SessionBookingCallbackResult | null {
+): BookingCallbackResult | BillingCallbackResult | SlotlessCallbackResult | RenewalCallbackResult | EscalationCallbackResult | MenuCallbackResult | ClientMenuCallbackResult | SessionBookingCallbackResult | OwnerToolConfirmCallbackResult | null {
   // Existing booking action pattern (unchanged — T-02-17)
   const bookingMatch = data?.match(/^(approve|reject|client_cancel)_(\d+)$/);
   if (bookingMatch) {
@@ -340,6 +350,18 @@ export function parseCallbackData(
     return {
       sbkAction: sbkMatch[1] as 'approve' | 'reject',
       bookingId: Number(sbkMatch[2]),
+    };
+  }
+
+  // Phase 26 (CONF-01): owner confirm/abort tap on a free-chat destructive
+  // tool-call confirmation — otc:<action>:<id>[:<secondId>]:<yes|no>
+  const otcMatch = data?.match(/^otc:(svc_del|svc_price|hrs_close|assign):(\d+)(?::(\d+))?:(yes|no)$/);
+  if (otcMatch) {
+    return {
+      otcAction: otcMatch[1] as OwnerToolConfirmCallbackResult['otcAction'],
+      id: Number(otcMatch[2]),
+      secondId: otcMatch[3] ? Number(otcMatch[3]) : undefined,
+      confirmed: otcMatch[4] === 'yes',
     };
   }
 
@@ -653,6 +675,34 @@ async function handleCallbackQuery(
     if (callbackQuery.message?.message_id) {
       await editTelegramMessageReplyMarkup(senderTelegramId, callbackQuery.message.message_id, []);
     }
+    return;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Phase 26 (CONF-01): owner confirm/abort tap on a free-chat destructive
+  // tool-call confirmation (delete_service, update_service_price, close_day,
+  // assign_client_to_session). cancel_session's free-chat confirmation is NOT
+  // routed here — it reuses the existing menuAction branch above (D-04).
+  // Discriminant: 'otcAction' in result → OwnerToolConfirmCallbackResult
+  // ---------------------------------------------------------------------------
+  if ('otcAction' in parsed) {
+    const otc = parsed as OwnerToolConfirmCallbackResult;
+    // Owner-only guard, mirroring every other owner-only branch's exact style
+    // (menuAction/sbkAction): reuse the webhook-scoped, HMAC-verified
+    // `business` param rather than re-deriving via
+    // findBusinessByOwnerTelegramId.
+    if (business.ownerTelegramId !== senderTelegramId) {
+      logger.warn({ senderTelegramId }, 'otc callback from non-owner, ignoring');
+      return;
+    }
+    // Clear old keyboard before executing (matches the menuAction branch's
+    // exact pattern).
+    if (callbackQuery.message?.message_id) {
+      await editTelegramMessageReplyMarkup(senderTelegramId, callbackQuery.message.message_id, []);
+    }
+    // Structurally identical to OwnerToolConfirmParams — passed straight
+    // through, no field-by-field reconstruction needed.
+    await handleOwnerToolConfirmCallback(otc as OwnerToolConfirmParams, business, senderTelegramId);
     return;
   }
 

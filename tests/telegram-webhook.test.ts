@@ -141,6 +141,10 @@ const mockedRestoreCredit = billingQueries.restoreCredit as jest.MockedFunction<
 const mockedAiOwnerAgent = aiOwnerAgentModule.aiOwnerAgent as jest.MockedFunction<
   typeof aiOwnerAgentModule.aiOwnerAgent
 >;
+const mockedHandleOwnerToolConfirmCallback =
+  aiOwnerAgentModule.handleOwnerToolConfirmCallback as jest.MockedFunction<
+    typeof aiOwnerAgentModule.handleOwnerToolConfirmCallback
+  >;
 
 function makeMessageUpdate(updateId: number, text: string, fromId = 111222333) {
   return {
@@ -356,6 +360,72 @@ describe('parseCallbackData', () => {
     expect(parseCallbackData('delete_42')).toBeNull();
     expect(parseCallbackData(undefined)).toBeNull();
     expect(parseCallbackData('')).toBeNull();
+  });
+
+  // Phase 26 (CONF-01): otc:<action>:<id>[:<secondId>]:<yes|no>
+  it('Test 26-01: parses a "svc_del"-shaped otc: callback (no secondId)', () => {
+    expect(parseCallbackData('otc:svc_del:5:yes')).toEqual({
+      otcAction: 'svc_del',
+      id: 5,
+      secondId: undefined,
+      confirmed: true,
+    });
+  });
+
+  it('Test 26-02: parses an "assign"-shaped otc: callback (with secondId), abort variant', () => {
+    expect(parseCallbackData('otc:assign:7:123456789:no')).toEqual({
+      otcAction: 'assign',
+      id: 7,
+      secondId: 123456789,
+      confirmed: false,
+    });
+  });
+
+  it('Test 26-03: returns null for a malformed otc: callback (unknown action)', () => {
+    expect(parseCallbackData('otc:unknown_action:5:yes')).toBeNull();
+  });
+});
+
+describe('POST /webhooks/telegram/:webhookId — otc: owner confirm/abort routing (CONF-01)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockedInsertOrIgnoreTelegramUpdate.mockResolvedValue('inserted');
+    mockedAnswerCallbackQuery.mockResolvedValue(undefined);
+    mockedSendTelegramMessage.mockResolvedValue({ messageId: 999 });
+    mockedEditTelegramMessageReplyMarkup.mockResolvedValue(undefined);
+    mockedFindBusinessByWebhookId.mockResolvedValue(KNOWN_BUSINESS);
+    mockedGetOrCreateBotInstance.mockReturnValue(mockBot as any);
+    mockedHandleOwnerToolConfirmCallback.mockResolvedValue(undefined);
+  });
+
+  it('Test 26-04: owner tap routes through handleOwnerToolConfirmCallback exactly once, clears the keyboard', async () => {
+    const res = await postWebhook(
+      'test-webhook-id-1',
+      makeCallbackQueryUpdate(200, Number(KNOWN_BUSINESS.ownerTelegramId), 'otc:svc_del:5:yes')
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockedHandleOwnerToolConfirmCallback).toHaveBeenCalledTimes(1);
+    expect(mockedHandleOwnerToolConfirmCallback).toHaveBeenCalledWith(
+      { otcAction: 'svc_del', id: 5, secondId: undefined, confirmed: true },
+      KNOWN_BUSINESS,
+      String(KNOWN_BUSINESS.ownerTelegramId)
+    );
+    expect(mockedEditTelegramMessageReplyMarkup).toHaveBeenCalledWith(
+      String(KNOWN_BUSINESS.ownerTelegramId),
+      42,
+      []
+    );
+  });
+
+  it('Test 26-05: a tap from a non-owner sender is ignored — handleOwnerToolConfirmCallback is never called', async () => {
+    const res = await postWebhook(
+      'test-webhook-id-1',
+      makeCallbackQueryUpdate(201, 555000111, 'otc:svc_del:5:yes')
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockedHandleOwnerToolConfirmCallback).not.toHaveBeenCalled();
   });
 });
 

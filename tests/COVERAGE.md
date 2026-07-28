@@ -26,3 +26,16 @@ Maps test files to requirement IDs. Updated at the end of each phase.
 | tests/enforcement-session-deduction.test.ts | SESS-01, SESS-02, SESS-03, SESS-04 |
 | tests/booking-enforcement.test.ts | ENFC-02, ENFC-03 |
 | tests/enforcement-nlu.test.ts | ENFC-01 |
+
+---
+
+## Phase 26 — confirmation-approval-policy
+
+| Test File | Requirements Covered |
+|-----------|----------------------|
+| tests/session-assignment.test.ts | CONF-02 |
+| tests/session-booking-flow.test.ts | CONF-02 |
+| tests/webhooks/client-menu.test.ts | CONF-02 |
+| tests/ai-owner-cancel-session.test.ts | CONF-01 |
+| tests/ai-owner-confirmation-policy.test.ts | CONF-01 |
+| tests/telegram-webhook.test.ts | CONF-01 |
