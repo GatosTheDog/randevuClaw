@@ -213,7 +213,13 @@ Plans:
   2. When a name matches multiple clients, the owner sees a disambiguation prompt instead of an ambiguous or wrong match being applied.
   3. Telegram persistent-menu-button reliability has been investigated; any code-addressable gap is fixed, and any purely client-side limitation is documented.
 
-**Plans**: TBD
+**Plans**: 0/2 plans complete
+
+Plans:
+**Wave 1**
+
+- [ ] 30-01-PLAN.md — Convert the 4 raw-ID owner tools to name-based matching with text disambiguation (UX-03)
+- [ ] 30-02-PLAN.md — Retry + backoff for finish_onboarding's menu setup, plus re-assertion on every /menu tap (ADMIN-05)
 
 ## Progress
 
@@ -248,7 +254,7 @@ Plans:
 | 27. Client Consent & Registration | v1.7 | 2/2 | Complete    | 2026-07-28 |
 | 28. Admin Menu Discoverability | v1.7 | 2/2 | Complete    | 2026-07-28 |
 | 29. Booking & List Clarity | v1.7 | 6/6 | Complete    | 2026-07-28 |
-| 30. Client Identification & Menu Reliability | v1.7 | 0/TBD | Not started | - |
+| 30. Client Identification & Menu Reliability | v1.7 | 0/2 | Not started | - |
 
 ## Backlog
 
