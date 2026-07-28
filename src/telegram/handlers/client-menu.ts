@@ -427,28 +427,22 @@ export async function handleCancelExecute(
   bookingId: number
 ): Promise<void> {
   const booking = await findBookingByIdUnscoped(bookingId);
-  if (!booking) {
+
+  // Ownership guard (T-29-05 pattern) — must be before any DB mutation, and
+  // both failure paths ("not found" and "not yours") return the identical
+  // generic message so an attacker cannot enumerate valid bookingIds by
+  // comparing response shapes (see showCancelConfirm above).
+  if (!booking || booking.clientPhone !== senderTelegramId) {
+    if (booking) {
+      logger.warn(
+        { bookingId, senderTelegramId, clientPhone: booking.clientPhone },
+        'client cancel ownership mismatch'
+      );
+    }
     const keyboard: InlineKeyboard = [
       [{ text: BACK_MENU_LABELS.CLIENT, callback_data: 'cmenu:root' }],
     ];
     await sendTelegramMessageWithKeyboard(chatId, 'Κράτηση δεν βρέθηκε.', keyboard);
-    return;
-  }
-
-  // Ownership guard — must be before any DB mutation
-  if (booking.clientPhone !== senderTelegramId) {
-    logger.warn(
-      { bookingId, senderTelegramId, clientPhone: booking.clientPhone },
-      'client cancel ownership mismatch'
-    );
-    const keyboard: InlineKeyboard = [
-      [{ text: BACK_MENU_LABELS.CLIENT, callback_data: 'cmenu:root' }],
-    ];
-    await sendTelegramMessageWithKeyboard(
-      chatId,
-      'Δεν έχετε δικαίωμα ακύρωσης αυτής της κράτησης.',
-      keyboard
-    );
     return;
   }
 

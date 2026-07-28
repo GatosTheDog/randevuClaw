@@ -1166,7 +1166,7 @@ describe('Suite D: cancel flow via handleClientMenuCallback', () => {
     );
   });
 
-  it('cancel:yes — ownership guard early-return (D-05.2): wrong clientPhone → updateBookingStatus NOT called, back-menu keyboard sent', async () => {
+  it('cancel:yes — ownership guard early-return (D-05.2, WR-01/T-29-05): wrong clientPhone → updateBookingStatus NOT called, byte-identical generic "not found" message sent (anti-enumeration, matches showCancelConfirm)', async () => {
     mockedFindBookingByIdUnscoped.mockResolvedValue({
       ...BASE_BOOKING,
       clientPhone: 'someone-else',
@@ -1178,7 +1178,7 @@ describe('Suite D: cancel flow via handleClientMenuCallback', () => {
     expect(mockedUpdateBookingStatus).not.toHaveBeenCalled();
     expect(mockedSendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
       senderTelegramId,
-      expect.stringContaining('δικαίωμα'),
+      'Κράτηση δεν βρέθηκε.',
       [[{ text: '« Πίσω', callback_data: 'cmenu:root' }]]
     );
   });
