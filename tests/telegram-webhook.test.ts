@@ -9,6 +9,7 @@ import * as billingQueries from '../src/billing/queries';
 import * as aiOwnerAgentModule from '../src/onboarding/ai-owner-agent';
 import { parseCallbackData } from '../src/webhooks/telegram';
 import { pendingReplies } from '../src/telegram/handlers/pending-reply';
+import { BACK_MENU_LABELS } from '../src/utils/greek-messages';
 
 jest.mock('../src/database/queries');
 jest.mock('../src/telegram/client');
@@ -599,22 +600,53 @@ describe('POST /webhooks/telegram/:webhookId — callback_query owner approval (
     expect(mockedUpdateBookingStatus).not.toHaveBeenCalled();
   });
 
-  it('Test 9: malformed callback data — acks (dismiss spinner) but never looks up or mutates a booking', async () => {
+  it('Test 9: malformed callback data — acks (dismiss spinner) but never looks up or mutates a booking, and sends a CLIENT back-menu recovery keyboard (D-05 Layer 1)', async () => {
+    // sender 'owner1' does NOT match KNOWN_BUSINESS.ownerTelegramId ('999999999')
+    // — treated as a non-owner (client), so the CLIENT back-menu keyboard is used.
     const res = await postWebhook('test-webhook-id-1', makeCallbackQueryUpdate(104, 'owner1', 'garbage'));
 
     expect(res.status).toBe(200);
     expect(mockedAnswerCallbackQuery).toHaveBeenCalledWith('cbq-1');
     expect(mockedFindBookingByIdUnscoped).not.toHaveBeenCalled();
     expect(mockedUpdateBookingStatus).not.toHaveBeenCalled();
+    expect(mockedSendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
+      'owner1',
+      'Η ενέργεια δεν αναγνωρίστηκε.',
+      [[{ text: BACK_MENU_LABELS.CLIENT, callback_data: 'cmenu:root' }]]
+    );
   });
 
-  it('Test 10: nonexistent booking id — no crash, no mutation, still 200', async () => {
+  it('Test 9b: malformed callback data from the actual business owner sends the ADMIN back-menu recovery keyboard (D-05 Layer 1)', async () => {
+    const res = await postWebhook(
+      'test-webhook-id-1',
+      makeCallbackQueryUpdate(1040, Number(KNOWN_BUSINESS.ownerTelegramId), 'garbage')
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockedFindBookingByIdUnscoped).not.toHaveBeenCalled();
+    expect(mockedUpdateBookingStatus).not.toHaveBeenCalled();
+    expect(mockedSendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
+      KNOWN_BUSINESS.ownerTelegramId,
+      'Η ενέργεια δεν αναγνωρίστηκε.',
+      [[{ text: BACK_MENU_LABELS.ADMIN, callback_data: 'menu:root' }]]
+    );
+  });
+
+  it('Test 10: nonexistent booking id — no crash, no mutation, still 200, and sends the ADMIN back-menu recovery keyboard unconditionally (D-05 Layer 1, legacy branch)', async () => {
     mockedFindBookingByIdUnscoped.mockResolvedValue(null);
 
     const res = await postWebhook('test-webhook-id-1', makeCallbackQueryUpdate(105, 'owner1', 'approve_9999'));
 
     expect(res.status).toBe(200);
     expect(mockedUpdateBookingStatus).not.toHaveBeenCalled();
+    // This legacy approve_/reject_ path is owner-only by construction (no
+    // identity check exists here), so it always uses the ADMIN label —
+    // regardless of the sender not matching KNOWN_BUSINESS's real owner id.
+    expect(mockedSendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
+      'owner1',
+      'Η κράτηση δεν βρέθηκε.',
+      [[{ text: BACK_MENU_LABELS.ADMIN, callback_data: 'menu:root' }]]
+    );
   });
 
   it('Test 11: wrong owner / spoofed tap — no mutation, no client message', async () => {

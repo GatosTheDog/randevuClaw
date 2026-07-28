@@ -16,7 +16,7 @@ import {
   withBusinessContext,
 } from '../database/queries';
 import { getOrCreateClientRelationship, CONSENT_PROMPT_GREEK_TEMPLATE, CONSENT_KEYBOARD } from '../consent/checker';
-import { answerCallbackQuery, editTelegramMessageReplyMarkup, sendTelegramMessage, sendTelegramMessageWithKeyboard, botTokenStore } from '../telegram/client';
+import { answerCallbackQuery, editTelegramMessageReplyMarkup, sendTelegramMessage, sendTelegramMessageWithKeyboard, botTokenStore, InlineKeyboard } from '../telegram/client';
 import { getOrCreateBotInstance } from '../telegram/registry';
 import { routeConversationMessage } from '../conversation/router';
 import { deleteBookingFromCalendar, syncBookingToCalendar } from '../calendar/sync';
@@ -41,6 +41,7 @@ import { bookSessionInstance, releaseSessionCapacity } from '../session/manager'
 import { db } from '../database/db';
 import { sessionInstances, sessionCatalog } from '../database/schema';
 import { eq } from 'drizzle-orm';
+import { BACK_MENU_LABELS } from '../utils/greek-messages';
 
 interface TelegramFrom {
   id: number;
@@ -556,7 +557,24 @@ async function handleCallbackQuery(
   await answerCallbackQuery(callbackQuery.id);
 
   if (!parsed) {
-    logger.warn({ data: callbackQuery.data }, 'Malformed callback_query data, ignoring');
+    logger.warn({ data: callbackQuery.data }, 'Malformed callback_query data');
+    // D-05 Layer 1: previously a fully silent drop (beyond the automatic
+    // spinner-dismiss above) — a stale/expired button tap or Telegram
+    // redelivering old callback_query data now gets a Greek recovery
+    // message with a working back-to-menu button instead of a dead end.
+    // Identity check mirrors the escalationAction/menuAction/sbkAction
+    // branches' exact `business.ownerTelegramId === senderTelegramId`
+    // idiom used elsewhere in this file.
+    const isAdmin = business.ownerTelegramId === senderTelegramId;
+    const keyboard: InlineKeyboard = [
+      [
+        {
+          text: isAdmin ? BACK_MENU_LABELS.ADMIN : BACK_MENU_LABELS.CLIENT,
+          callback_data: isAdmin ? 'menu:root' : 'cmenu:root',
+        },
+      ],
+    ];
+    await sendTelegramMessageWithKeyboard(senderTelegramId, 'Η ενέργεια δεν αναγνωρίστηκε.', keyboard);
     return;
   }
 
@@ -1031,6 +1049,13 @@ async function handleCallbackQuery(
   const booking = await findBookingByIdUnscoped(parsed.bookingId);
   if (!booking) {
     logger.warn({ bookingId: parsed.bookingId }, 'callback_query for unknown booking');
+    // D-05: this legacy approve_/reject_ path is reached only via the
+    // owner-only Έγκριση/Απόρριψη button (client_cancel is handled earlier
+    // in handleClientCancelCallback), so it always uses the ADMIN label
+    // unconditionally — no ownership check needed here, none existed
+    // before and none is needed for a pure "was it found" branch.
+    const keyboard: InlineKeyboard = [[{ text: BACK_MENU_LABELS.ADMIN, callback_data: 'menu:root' }]];
+    await sendTelegramMessageWithKeyboard(senderTelegramId, 'Η κράτηση δεν βρέθηκε.', keyboard);
     return;
   }
 
