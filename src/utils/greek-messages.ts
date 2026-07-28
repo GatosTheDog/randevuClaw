@@ -29,3 +29,18 @@ export const CONSENT_LABELS = {
   ACCEPT: 'Ναι',
   DECLINE: 'Όχι',
 } as const;
+
+// Phase 29 (D-07): shared back-menu button labels. Consolidates admin-menu.ts's
+// 11+ inline repeats of the ADMIN string and reconciles client-menu.ts's two
+// previously-inconsistent client-side strings ('« Πίσω' and '« Αρχικό μενού')
+// down to one ('« Πίσω'). Wave 2 plans of Phase 29 (29-03 telegram.ts, 29-04
+// admin-menu.ts, 29-05/29-06 client-menu.ts) import and use this constant
+// instead of any inline literal, including replacing their own file's existing
+// inline occurrences while they're already touching those functions for other
+// reasons this phase. Per this file's documented scope (see top-of-file
+// comment), this is button-label strings ONLY — no prompt-template function or
+// shared confirmation-keyboard helper is added here.
+export const BACK_MENU_LABELS = {
+  ADMIN: '« Πίσω στο Μενού',
+  CLIENT: '« Πίσω',
+} as const;
