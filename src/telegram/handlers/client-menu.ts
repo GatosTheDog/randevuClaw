@@ -530,7 +530,7 @@ export async function handleCancelExecute(
 export async function showClientBalance(chatId: string, business: Business): Promise<void> {
   const membership = await getClientActiveMembership(business.id, chatId);
 
-  const backButton = { text: '« Πίσω', callback_data: 'cmenu:root' };
+  const backButton = { text: BACK_MENU_LABELS.CLIENT, callback_data: 'cmenu:root' };
   assertCallbackDataSize(backButton.callback_data);
 
   if (!membership) {
