@@ -59,14 +59,22 @@ const PENDING_PRICE_CHANGE_TTL_MS = 10 * 60 * 1000;
 
 export const pendingServicePriceChanges = new Map<
   number,
-  { businessId: number; newPriceCents: number }
+  { businessId: number; newPriceCents: number; timer: ReturnType<typeof setTimeout> }
 >();
 
 function setPendingServicePriceChange(
   serviceId: number,
   value: { businessId: number; newPriceCents: number }
 ): void {
-  pendingServicePriceChanges.set(serviceId, value);
+  // WR-01: cancel any previously-scheduled deletion timer for this service
+  // before overwriting the entry. Without this, staging a second price change
+  // for the same service before the first is confirmed left the FIRST call's
+  // own independent timer scheduled — it would unconditionally delete
+  // whatever is currently staged (by then the SECOND, newer request) up to
+  // ~10 minutes earlier than the owner would expect from their most recent
+  // request.
+  const existing = pendingServicePriceChanges.get(serviceId);
+  if (existing) clearTimeout(existing.timer);
   // [Rule 3 - Blocking] Unlike membership-expiry.ts's pendingRenewalBatches
   // cleanup (which only ever runs behind the !JEST_WORKER_ID-gated poller in
   // server.ts, so its own bare setTimeout never actually fires under Jest),
@@ -79,7 +87,8 @@ function setPendingServicePriceChange(
   // event loop (and Jest) exit normally without the timer firing early —
   // production behavior (the map entry still self-expires after 10 minutes)
   // is unaffected.
-  setTimeout(() => pendingServicePriceChanges.delete(serviceId), PENDING_PRICE_CHANGE_TTL_MS).unref();
+  const timer = setTimeout(() => pendingServicePriceChanges.delete(serviceId), PENDING_PRICE_CHANGE_TTL_MS).unref();
+  pendingServicePriceChanges.set(serviceId, { ...value, timer });
 }
 
 // ---------------------------------------------------------------------------
