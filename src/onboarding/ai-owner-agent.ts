@@ -33,6 +33,7 @@ import { showClientSelection } from '../telegram/handlers/payment-flow';
 import { sendTelegramMessage, sendTelegramMessageWithKeyboard } from '../telegram/client';
 import { createSessionCatalogWithExpansion, bookSessionInstance, cancelSession, cascadeCancelSessionBookings, listSessions, buildRRuleString } from '../session/manager';
 import { sendBusinessInvite } from '../invites/generator';
+import { CONFIRM_LABELS } from '../utils/greek-messages';
 
 // Bounds the Gemini HTTP call to 25s so a stalled owner-agent response settles
 // instead of hanging silently — the existing try/catch already logs + returns
@@ -44,6 +45,32 @@ export const GEMINI_MODEL = 'gemini-3.1-flash-lite';
 const MAX_TOOL_ROUNDS = 5;
 
 const GREEK_WEEKDAYS = ['Κυριακή', 'Δευτέρα', 'Τρίτη', 'Τετάρτη', 'Πέμπτη', 'Παρασκευή', 'Σάββατο'];
+
+// ---------------------------------------------------------------------------
+// Phase 26 (CONF-01): pending update_service_price staging area
+// ---------------------------------------------------------------------------
+// The new price crosses a request boundary (tool-call time -> button-tap
+// time) via server-held in-memory state, never via client-supplied
+// callback_data (T-26-08 — "IDs only, never prices in callback_data",
+// same convention already established for billing callbacks). Keyed by
+// serviceId; self-expires after 10 minutes, mirroring
+// scheduler/membership-expiry.ts's pendingRenewalBatches Map (that file uses
+// a plain setTimeout with no JEST_WORKER_ID guard, so this mirrors that
+// exactly for consistency rather than inventing a new convention).
+const PENDING_PRICE_CHANGE_TTL_MS = 10 * 60 * 1000;
+
+export const pendingServicePriceChanges = new Map<
+  number,
+  { businessId: number; newPriceCents: number }
+>();
+
+function setPendingServicePriceChange(
+  serviceId: number,
+  value: { businessId: number; newPriceCents: number }
+): void {
+  pendingServicePriceChanges.set(serviceId, value);
+  setTimeout(() => pendingServicePriceChanges.delete(serviceId), PENDING_PRICE_CHANGE_TTL_MS);
+}
 
 // ---------------------------------------------------------------------------
 // Tool schemas
@@ -532,17 +559,22 @@ async function executeOwnerTool(
     case 'close_day': {
       const { day_of_week } = args;
       if (day_of_week === undefined) return 'Μη έγκυρη ημέρα.';
-      // WR-04: wrap in withBusinessContext so RLS applies; use getConn() inside for the enforced connection
-      return withBusinessContext(business.id, async () => {
-        await getConn()
-          .insert(businessHours)
-          .values({ businessId: business.id, dayOfWeek: day_of_week, openTime: '00:00', closeTime: '00:00', isClosed: true })
-          .onConflictDoUpdate({
-            target: [businessHours.businessId, businessHours.dayOfWeek],
-            set: { isClosed: true },
-          });
-        return `OK: ${GREEK_WEEKDAYS[day_of_week]} ορίστηκε ως κλειστή`;
-      });
+      // Phase 26 (CONF-01/T-26-05): send a confirmation instead of mutating
+      // immediately — mirrors create_package's send-keyboard-then-return-''
+      // contract. The actual businessHours mutation now lives in
+      // handleOwnerToolConfirmCallback's 'hrs_close' case, run only after a
+      // real owner button tap.
+      await sendTelegramMessageWithKeyboard(
+        ownerTelegramId,
+        `Να οριστεί η ${GREEK_WEEKDAYS[day_of_week]} ως κλειστή;`,
+        [
+          [
+            { text: CONFIRM_LABELS.CONFIRM, callback_data: `otc:hrs_close:${day_of_week}:yes` },
+            { text: CONFIRM_LABELS.CANCEL, callback_data: `otc:hrs_close:${day_of_week}:no` },
+          ],
+        ]
+      );
+      return '';
     }
 
     case 'add_service': {
@@ -565,14 +597,22 @@ async function executeOwnerTool(
       if (!service_name || new_price_cents === undefined) return 'Μη έγκυρα δεδομένα.';
       const match = svcList.find((s) => s.name.toLowerCase().includes(service_name.toLowerCase()));
       if (!match) return `Δεν βρέθηκε υπηρεσία με όνομα "${service_name}".`;
-      // WR-04: wrap in withBusinessContext so RLS applies; businessId added to WHERE for ownership safety
-      return withBusinessContext(business.id, async () => {
-        await getConn()
-          .update(services)
-          .set({ price: new_price_cents })
-          .where(eq(services.id, match.id));
-        return `OK: τιμή "${match.name}" → ${(new_price_cents / 100).toFixed(2)}€`;
-      });
+      // Phase 26 (CONF-01/T-26-05/T-26-08): the new price is held server-side
+      // (never embedded in callback_data) and consumed exactly once by
+      // handleOwnerToolConfirmCallback's 'svc_price' case after a real owner
+      // button tap — no mutation happens on this first invocation.
+      setPendingServicePriceChange(match.id, { businessId: business.id, newPriceCents: new_price_cents });
+      await sendTelegramMessageWithKeyboard(
+        ownerTelegramId,
+        `Να αλλαχθεί η τιμή της "${match.name}" σε ${(new_price_cents / 100).toFixed(2)}€;`,
+        [
+          [
+            { text: CONFIRM_LABELS.CONFIRM, callback_data: `otc:svc_price:${match.id}:yes` },
+            { text: CONFIRM_LABELS.CANCEL, callback_data: `otc:svc_price:${match.id}:no` },
+          ],
+        ]
+      );
+      return '';
     }
 
     case 'delete_service': {
@@ -580,11 +620,20 @@ async function executeOwnerTool(
       if (!service_name) return 'Μη έγκυρο όνομα.';
       const match = svcList.find((s) => s.name.toLowerCase().includes(service_name.toLowerCase()));
       if (!match) return `Δεν βρέθηκε υπηρεσία με όνομα "${service_name}".`;
-      // WR-04: wrap in withBusinessContext so RLS applies; prevents unconstrained delete on stale match
-      return withBusinessContext(business.id, async () => {
-        await getConn().delete(services).where(eq(services.id, match.id));
-        return `OK: υπηρεσία "${match.name}" διαγράφηκε`;
-      });
+      // Phase 26 (CONF-01/T-26-05): send a confirmation instead of deleting
+      // immediately — the deletion itself now lives in
+      // handleOwnerToolConfirmCallback's 'svc_del' case.
+      await sendTelegramMessageWithKeyboard(
+        ownerTelegramId,
+        `Να διαγραφεί η υπηρεσία "${match.name}";`,
+        [
+          [
+            { text: CONFIRM_LABELS.DELETE, callback_data: `otc:svc_del:${match.id}:yes` },
+            { text: CONFIRM_LABELS.CANCEL, callback_data: `otc:svc_del:${match.id}:no` },
+          ],
+        ]
+      );
+      return '';
     }
 
     case 'view_todays_schedule': {
@@ -755,17 +804,23 @@ async function executeOwnerTool(
       if (!target) {
         return `Δεν βρέθηκε μάθημα στις ${session_date} ${session_time}.`;
       }
-      // cancelSession calls withBusinessContext internally (ownership guard via FK chain)
-      const cancelled = await cancelSession(business.id, target.instanceId);
-      if (!cancelled) {
-        return `Το μάθημα στις ${session_date} ${session_time} ήταν ήδη ακυρωμένο.`;
-      }
-      const affectedCount = await cascadeCancelSessionBookings(business, target.instanceId);
-      const notifyMsg =
-        affectedCount > 0
-          ? `${affectedCount} πελάτες ειδοποιήθησαν αμέσως.`
-          : 'Δεν υπήρχαν κρατήσεις να ακυρωθούν.';
-      return `Το μάθημα στις ${session_date} ${session_time} ακυρώθηκε. ${notifyMsg}`;
+      // Phase 26 (CONF-01/D-04): reuse the admin-menu's already-confirmed
+      // cancel flow verbatim — same menu:classes:cancel_yes/no callback_data
+      // contract as showCancelClassConfirm (admin-menu.ts), so telegram.ts's
+      // EXISTING menuAction routing + handleClassCancelExecute handle the tap
+      // with zero new telegram.ts changes for this one action. Do not import
+      // showCancelClassConfirm itself — only its callback_data string shape.
+      await sendTelegramMessageWithKeyboard(
+        ownerTelegramId,
+        `Να ακυρωθεί το μάθημα ${session_date} στις ${session_time};`,
+        [
+          [
+            { text: 'Ναι', callback_data: `menu:classes:cancel_yes:${target.instanceId}` },
+            { text: 'Όχι', callback_data: `menu:classes:cancel_no:${target.instanceId}` },
+          ],
+        ]
+      );
+      return '';
     }
 
     case 'assign_client_to_session': {
@@ -783,36 +838,23 @@ async function executeOwnerTool(
       if (!target) {
         return `Δεν βρέθηκε μάθημα στις ${session_date} ${session_time}.`;
       }
-      // T-10-12: businessId ownership guard enforced inside bookSessionInstance via FK subquery
-      const idempotencyKey = `owner-assign:${business.id}:${session_date}:${session_time}:${client_phone}`;
-      // Phase 22: this is a direct owner decision (the owner is assigning the
-      // client themselves via chat), so it must not enter the new
-      // pending-approval cycle — the client is already told "Σε περιμένουμε!"
-      // (we're expecting you) immediately below, which would be misleading
-      // for a pending booking. `undefined` for activeMembership (6th arg)
-      // preserves the existing internal-resolution fallback.
-      const bookResult = await bookSessionInstance(
-        business.id,
-        target.instanceId,
-        client_phone,
-        target.serviceId,
-        idempotencyKey,
-        undefined,
-        'confirmed'
+      // Phase 26 (CONF-01/T-26-05): send a confirmation instead of assigning
+      // immediately — the bookSessionInstance call itself now lives in
+      // handleOwnerToolConfirmCallback's 'assign' case. Resolve a display
+      // name via getClientName, falling back to client_phone (matching the
+      // existing send_renewal_reminder case's exact convention).
+      const clientName = (await getClientName(business.id, client_phone)) ?? client_phone;
+      await sendTelegramMessageWithKeyboard(
+        ownerTelegramId,
+        `Να οριστεί ο/η ${clientName} στο μάθημα ${session_date} στις ${session_time};`,
+        [
+          [
+            { text: CONFIRM_LABELS.CONFIRM, callback_data: `otc:assign:${target.instanceId}:${client_phone}:yes` },
+            { text: CONFIRM_LABELS.CANCEL, callback_data: `otc:assign:${target.instanceId}:${client_phone}:no` },
+          ],
+        ]
       );
-      if (bookResult.status === 'full') {
-        return 'Το μάθημα είναι γεμάτο. Δεν είναι δυνατή η ανάθεση.';
-      }
-      if (bookResult.status === 'conflict') {
-        return 'Σφάλμα: το μάθημα δεν είναι διαθέσιμο (ακυρωμένο ή δεν βρέθηκε).';
-      }
-      // D-11 pattern: sendTelegramMessage NOT wrapped in try/catch — failure propagates
-      // to top-level catch which returns Greek error to Gemini (T-10-13 accepted risk).
-      await sendTelegramMessage(
-        client_phone,
-        `Ο ιδιοκτήτης σε όρισε στο μάθημα ${session_date} στις ${session_time}. Σε περιμένουμε!`
-      );
-      return `Ο πελάτης ${client_phone} ορίστηκε στο μάθημα ${session_date} ${session_time} και ειδοποιήθηκε.`;
+      return '';
     }
 
     case 'list_slotless_requests': {

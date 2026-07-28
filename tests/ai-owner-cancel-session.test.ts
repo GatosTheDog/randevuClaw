@@ -1,12 +1,17 @@
-// covers CLSS-07
+// covers CLSS-07, CONF-01
 // Unit tests for the cancel_session tool case wiring in ai-owner-agent.ts —
-// Phase 23 Plan 01 Task 3. Proves cascadeCancelSessionBookings is called only
-// when cancelSession succeeds (idempotency on replay/no-match), matching the
-// admin-menu wiring proven in tests/admin-menu.test.ts.
+// originally Phase 23 Plan 01 Task 3, updated in Phase 26 Plan 02 Task 1
+// (D-04): the free-chat cancel_session tool call no longer calls
+// cancelSession/cascadeCancelSessionBookings directly — it sends the EXACT
+// same menu:classes:cancel_yes/no confirmation the admin-menu path already
+// uses (showCancelClassConfirm), so telegram.ts's existing menuAction routing
+// + handleClassCancelExecute execute the actual cancellation only after a
+// real owner button tap.
 //
 // Architecture tested:
 //   owner text → aiOwnerAgent → Gemini (mocked) → executeOwnerTool (cancel_session)
-//   → listSessions/cancelSession/cascadeCancelSessionBookings (mocked, session/manager)
+//   → listSessions (mocked, session/manager) → sendTelegramMessageWithKeyboard
+//     (mocked, telegram/client) with menu:classes:cancel_yes/no callback_data
 
 // ---------------------------------------------------------------------------
 // Module mocks (hoisted before imports by Jest)
@@ -73,12 +78,15 @@ jest.mock('../src/session/manager', () => ({
 
 import { aiOwnerAgent } from '../src/onboarding/ai-owner-agent';
 import * as sessionManager from '../src/session/manager';
+import * as telegramClient from '../src/telegram/client';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockCreate = (require('@google/genai') as any)._mockCreate as jest.Mock;
 const mockListSessions = sessionManager.listSessions as jest.Mock;
 const mockCancelSession = sessionManager.cancelSession as jest.Mock;
 const mockCascadeCancel = sessionManager.cascadeCancelSessionBookings as jest.Mock;
+const mockSendTelegramMessageWithKeyboard =
+  telegramClient.sendTelegramMessageWithKeyboard as jest.Mock;
 
 // ---------------------------------------------------------------------------
 // Test fixtures
@@ -134,34 +142,42 @@ beforeEach(() => {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('cancel_session tool case — cascade-cancel wiring (CLSS-07)', () => {
-  it('calls cascadeCancelSessionBookings with (business, instanceId) when cancelSession succeeds', async () => {
+describe('cancel_session tool case — free-chat confirmation reuses admin-menu contract (CONF-01/D-04)', () => {
+  it('sends the menu:classes:cancel_yes/no confirmation keyboard when a matching session is found, and does NOT call cancelSession/cascadeCancelSessionBookings directly', async () => {
     mockListSessions.mockResolvedValue([
       { instanceId: 7, catalogId: 1, sessionDate: '2026-08-01', sessionTime: '10:00', bookedCount: 2, capacity: 5, serviceId: 1 },
     ]);
-    mockCancelSession.mockResolvedValue(true);
-    mockCascadeCancel.mockResolvedValue(2);
 
     mockCreate.mockResolvedValueOnce(
       makeCancelSessionCall({ session_date: '2026-08-01', session_time: '10:00' })
     );
 
-    await aiOwnerAgent(
+    const reply = await aiOwnerAgent(
       MOCK_BUSINESS as any, // eslint-disable-line @typescript-eslint/no-explicit-any
       OWNER_TELEGRAM_ID,
       'Ακύρωσε το μάθημα της 1/8 στις 10:00',
       '2026-07-27'
     );
 
-    expect(mockCancelSession).toHaveBeenCalledWith(MOCK_BUSINESS.id, 7);
-    expect(mockCascadeCancel).toHaveBeenCalledWith(MOCK_BUSINESS, 7);
+    expect(reply).toBe('');
+    expect(mockSendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
+      OWNER_TELEGRAM_ID,
+      expect.any(String),
+      [
+        [
+          { text: 'Ναι', callback_data: 'menu:classes:cancel_yes:7' },
+          { text: 'Όχι', callback_data: 'menu:classes:cancel_no:7' },
+        ],
+      ]
+    );
+    expect(mockCancelSession).not.toHaveBeenCalled();
+    expect(mockCascadeCancel).not.toHaveBeenCalled();
   });
 
-  it('does NOT call cascadeCancelSessionBookings when cancelSession returns false (already cancelled)', async () => {
+  it('confirmation prompt restates the session date/time (D-06 contextual detail)', async () => {
     mockListSessions.mockResolvedValue([
       { instanceId: 7, catalogId: 1, sessionDate: '2026-08-01', sessionTime: '10:00', bookedCount: 2, capacity: 5, serviceId: 1 },
     ]);
-    mockCancelSession.mockResolvedValue(false);
 
     mockCreate.mockResolvedValueOnce(
       makeCancelSessionCall({ session_date: '2026-08-01', session_time: '10:00' })
@@ -174,8 +190,9 @@ describe('cancel_session tool case — cascade-cancel wiring (CLSS-07)', () => {
       '2026-07-27'
     );
 
-    expect(mockCancelSession).toHaveBeenCalledWith(MOCK_BUSINESS.id, 7);
-    expect(mockCascadeCancel).not.toHaveBeenCalled();
+    const [, promptText] = mockSendTelegramMessageWithKeyboard.mock.calls[0];
+    expect(promptText).toContain('2026-08-01');
+    expect(promptText).toContain('10:00');
   });
 
   it('calls neither cancelSession nor cascadeCancelSessionBookings when no matching session is found', async () => {
