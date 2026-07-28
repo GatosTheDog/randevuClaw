@@ -463,9 +463,14 @@ describe('SBOK-03: reschedule expiry gate', () => {
       expiresAt: membershipExpiresAt,
     });
 
-    // instanceC: today + 5 days (within expiry)
+    // instanceC: today + 6 days (within expiry). Deliberately distinct from
+    // instanceA's addDays(5) above — both share this describe block's single
+    // catalogId, and unique_session_instance is keyed on
+    // (catalogId, sessionDate, sessionTime); reusing addDays(5) here collided
+    // with instanceA's row (Rule 3 blocking fix, pre-existing test bug,
+    // unrelated to Phase 26).
     const instanceC = await insertTestSessionInstance(catalogId, {
-      sessionDate: addDays(5),
+      sessionDate: addDays(6),
       idempotencyKey: `sbok03-allow-instC:${catalogId}:${Date.now()}`,
     });
 
@@ -481,14 +486,16 @@ describe('SBOK-03: reschedule expiry gate', () => {
       expiresAt: membership.expiresAt,
     };
 
-    // Book instanceC first
+    // Book instanceC first — pass initialStatus='confirmed' so this mirrors a
+    // realistic already-approved booking a client is now trying to reschedule.
     const bookResult = await bookSessionInstance(
       businessId,
       instanceC.id,
       clientPhone2,
       serviceId,
       `sbok03-allow-book:${instanceC.id}:${clientPhone2}`,
-      activeMembership
+      activeMembership,
+      'confirmed'
     );
     expect(bookResult.status).toBe('success');
     const bookingId = bookResult.bookingId!;
@@ -513,6 +520,35 @@ describe('SBOK-03: reschedule expiry gate', () => {
     );
 
     expect(result.success).toBe(true);
+
+    // Phase 26 (CONF-02/D-03): the new booking is pending owner approval and
+    // linked back to the original booking via rescheduledFromBookingId.
+    const newBookingRows = await db
+      .select()
+      .from(bookings)
+      .where(eq(bookings.id, result.booking_id as number));
+    expect(newBookingRows).toHaveLength(1);
+    expect(newBookingRows[0].bookingStatus).toBe('pending_owner_approval');
+    expect(newBookingRows[0].rescheduledFromBookingId).toBe(bookingId);
+
+    // The OLD booking (instanceC's) is untouched — still confirmed, not cancelled.
+    const oldBookingRows = await db.select().from(bookings).where(eq(bookings.id, bookingId));
+    expect(oldBookingRows).toHaveLength(1);
+    expect(oldBookingRows[0].bookingStatus).toBe('confirmed');
+
+    // Accepted trade-off (D-03): both instances show an incremented bookedCount
+    // during the pending window — the client soft-holds both slots briefly.
+    const instanceCRows = await db
+      .select({ bookedCount: sessionInstances.bookedCount })
+      .from(sessionInstances)
+      .where(eq(sessionInstances.id, instanceC.id));
+    expect(instanceCRows[0].bookedCount).toBe(1);
+
+    const instanceDRows = await db
+      .select({ bookedCount: sessionInstances.bookedCount })
+      .from(sessionInstances)
+      .where(eq(sessionInstances.id, instanceD.id));
+    expect(instanceDRows[0].bookedCount).toBe(1);
   });
 });
 

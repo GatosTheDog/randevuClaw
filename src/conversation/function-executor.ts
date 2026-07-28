@@ -764,14 +764,11 @@ async function rescheduleSessionTool(
     }
   }
 
-  // Cancel old booking and restore credit (same pattern as cancelAppointmentTool)
-  await updateBookingStatus(original.id, 'cancelled');
-  const oldMembershipId = await findMembershipByBooking(original.id);
-  if (oldMembershipId !== null) {
-    await restoreCredit(oldMembershipId, original.id, 'booking:' + original.id + ':credit');
-  }
-
-  // Fetch fresh membership after restore so deductSession sees the updated counter
+  // Phase 26 (CONF-02/D-03): the OLD booking is NOT cancelled here anymore.
+  // It stays confirmed and completely untouched until the owner approves or
+  // rejects the new booking below — a reject must never leave the client
+  // with zero active bookings. Fetch the client's current membership as-is
+  // (no restore-then-refetch dance needed since nothing was restored).
   const activeMembership = await getActiveMembershipForDeduction(context.business.id, context.clientPhone);
   const newKey = context.idempotencyKey + ':reschedule:' + parsed.new_session_instance_id;
 
@@ -782,20 +779,19 @@ async function rescheduleSessionTool(
     newSession.serviceId,
     newKey,
     activeMembership,
-    // Phase 22: reschedule keeps its pre-existing immediate-confirm behavior
-    // deliberately — a client rescheduling an already-confirmed booking to a
-    // new slot is not a new approval request. Without this override the new
-    // pending-by-default default would leave every reschedule stuck pending
-    // with no keyboard ever sent (this call site sends no owner notification
-    // at all, before or after this phase).
-    'confirmed'
+    // No 'confirmed' override (Phase 26/D-03 reverses the Phase 22 decision):
+    // initialStatus defaults to 'pending_owner_approval' so a reschedule goes
+    // through the same owner approve/reject cascade as a brand-new booking.
+    undefined,
+    original.id
   );
 
   if (result.status !== 'success') {
-    // New session unavailable — log partial failure; old booking is already cancelled
+    // New session unavailable — the OLD booking is untouched, so the client
+    // simply keeps their original confirmed booking (no partial failure state).
     logger.error(
       { bookingId: original.id, newSessionInstanceId: parsed.new_session_instance_id, status: result.status },
-      'reschedule_session: new session unavailable after cancelling old booking'
+      'reschedule_session: new session unavailable, original booking left untouched'
     );
     return {
       success: false,
@@ -804,11 +800,42 @@ async function rescheduleSessionTool(
     };
   }
 
+  // Phase 26 (D-03): mirrors bookSessionTool's approval-keyboard block above —
+  // the reschedule request is now pending owner approval, same as a new
+  // session booking. Best-effort: a failure here must not fail the tool call.
+  try {
+    if (context.business.ownerTelegramId && result.bookingId) {
+      const approveData = `sbk:approve:${result.bookingId}`;
+      const rejectData = `sbk:reject:${result.bookingId}`;
+      const keyboard: InlineKeyboard = [
+        [
+          { text: 'Έγκριση', callback_data: approveData },
+          { text: 'Απόρριψη', callback_data: rejectData },
+        ],
+      ];
+      const msgResp = await sendTelegramMessageWithKeyboard(
+        context.business.ownerTelegramId,
+        'Αίτημα μετακίνησης κράτησης σε ' +
+          newSession.sessionDate +
+          ' ' +
+          newSession.sessionTime +
+          ' — πελάτης: ' +
+          context.clientPhone,
+        keyboard
+      );
+      await updateBookingOwnerMessageId(result.bookingId, msgResp.messageId);
+    }
+  } catch (err) {
+    logger.error({ err }, 'Reschedule session owner alert failed (best-effort)');
+  }
+
   return {
     success: true,
     booking_id: result.bookingId,
-    cancelled_booking_id: original.id,
+    status: 'pending_owner_approval',
     new_session_date: newSession.sessionDate,
     new_session_time: newSession.sessionTime,
+    message:
+      'Το αίτημα μετακίνησης στάλθηκε στην επιχείρηση για έγκριση. Η αρχική σας κράτηση παραμένει ενεργή μέχρι να απαντήσει η επιχείρηση.',
   };
 }
