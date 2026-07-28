@@ -5,8 +5,8 @@ milestone_name: UX & Trust Polish
 current_phase: 28
 current_phase_name: Admin Menu Discoverability
 status: verifying
-stopped_at: Completed 27-02-PLAN.md
-last_updated: "2026-07-28T12:05:44.524Z"
+stopped_at: Phase 28 context gathered
+last_updated: "2026-07-28T12:42:39.368Z"
 last_activity: 2026-07-28
 last_activity_desc: Phase 27 complete, transitioned to Phase 28
 progress:
@@ -335,9 +335,9 @@ Items acknowledged and deferred at v1.6 milestone close on 2026-07-28:
 
 ## Session Continuity
 
-Last session: 2026-07-28T11:31:16.449Z
-Stopped at: Completed 27-02-PLAN.md
-Resume file: None
+Last session: 2026-07-28T12:42:39.358Z
+Stopped at: Phase 28 context gathered
+Resume file: .planning/phases/28-admin-menu-discoverability/28-CONTEXT.md
 
 **Phase 12 Plan 01 completed:** a940588, 6c5830e, 7d64f85
 
