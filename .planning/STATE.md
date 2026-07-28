@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: UX & Trust Polish
-current_phase: 29
-current_phase_name: Booking & List Clarity
+current_phase: 30
+current_phase_name: Client Identification & Menu Reliability
 status: executing
 stopped_at: Phase 29 context gathered
-last_updated: "2026-07-28T18:06:06.469Z"
+last_updated: "2026-07-28T20:27:47.434Z"
 last_activity: 2026-07-28
-last_activity_desc: Phase 28 complete, transitioned to Phase 29
+last_activity_desc: Phase 29 complete, transitioned to Phase 30
 progress:
   total_phases: 5
-  completed_phases: 3
-  total_plans: 6
-  completed_plans: 6
-  percent: 60
+  completed_phases: 4
+  total_plans: 12
+  completed_plans: 12
+  percent: 80
 ---
 
 # Project State
@@ -24,20 +24,20 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-28 after v1.6 milestone close)
 
 **Core value:** A client can book or cancel an appointment with a Greek business entirely through a chat conversation, in Greek, with zero friction — and the owner's calendar updates automatically.
-**Current focus:** Phase 28 — admin-menu-discoverability
+**Current focus:** Phase 29 — booking-list-clarity
 
 ## Current Position
 
-Phase: 29 — Booking & List Clarity
+Phase: 30 — Client Identification & Menu Reliability
 Plan: Not started
-Status: Executing Phase 28
-Last activity: 2026-07-28 — Phase 28 complete, transitioned to Phase 29
+Status: Executing Phase 29
+Last activity: 2026-07-28 — Phase 29 complete, transitioned to Phase 30
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 47
+- Total plans completed: 53
 - Average duration: - min
 - Total execution time: 0 hours
 
@@ -57,6 +57,7 @@ Last activity: 2026-07-28 — Phase 28 complete, transitioned to Phase 29
 | 26 | 2 | - | - |
 | 27 | 2 | - | - |
 | 28 | 2 | - | - |
+| 29 | 6 | - | - |
 
 **Recent Trend:**
 
