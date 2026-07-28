@@ -19,3 +19,13 @@ export const CONFIRM_LABELS = {
   REJECT: 'Απόρριψη',
   CANCEL: 'Άκυρο',
 } as const;
+
+// Phase 27 (COMP-01/COMP-02, D-01): client-facing consent/registration
+// accept-decline labels. Kept SEPARATE from CONFIRM_LABELS above — different
+// audience (client-facing, not owner-facing) and a different callback_data
+// convention (consent:yes/consent:no vs otc:.../menu:...). Merging them would
+// couple two unrelated keyboards that happen to share the same Greek words.
+export const CONSENT_LABELS = {
+  ACCEPT: 'Ναι',
+  DECLINE: 'Όχι',
+} as const;
