@@ -163,6 +163,7 @@ async function handleFoundBusiness(
     await withBusinessContext(business.id, async () => {
       await routeConversationMessage(business, senderTelegramId, messageText, {
         sendMessage: sendTelegramMessage,
+        sendMessageWithKeyboard: sendTelegramMessageWithKeyboard,
       });
       await markTelegramUpdateProcessed(updateId, business.id);
     });

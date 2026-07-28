@@ -1,7 +1,7 @@
 import * as queries from '../src/database/queries';
 import * as greekPreprocessor from '../src/conversation/greek-preprocessor';
 import * as aiAgent from '../src/conversation/ai-agent';
-import { CONSENT_NOTICE_GREEK_TEMPLATE } from '../src/consent/checker';
+import { CONSENT_PROMPT_GREEK_TEMPLATE, CONSENT_KEYBOARD } from '../src/consent/checker';
 import { routeConversationMessage, ConversationChannel } from '../src/conversation/router';
 
 jest.mock('../src/database/queries');
@@ -41,6 +41,14 @@ const BUSINESS: queries.Business = {
   webhookId: null,
   webhookSecret: null,
   enforcementPolicy: 'allow',
+  bookingMode: 'open_slots',
+  allowMultiBooking: false,
+  cancellationCutoffEnabled: false,
+  cancellationCutoffHours: 24,
+  slotlessRequestsEnabled: false,
+  lastSessionThresholdEnabled: false,
+  lastSessionThresholdCount: 1,
+  onboardingCompleted: true,
   createdAt: new Date(),
 };
 
@@ -59,8 +67,11 @@ function makeConversationTurn(overrides: Partial<queries.ConversationTurn> = {})
   };
 }
 
-function makeChannel(): ConversationChannel & { sendMessage: jest.Mock } {
-  return { sendMessage: jest.fn().mockResolvedValue({ messageId: 1 }) };
+function makeChannel(): ConversationChannel & { sendMessage: jest.Mock; sendMessageWithKeyboard: jest.Mock } {
+  return {
+    sendMessage: jest.fn().mockResolvedValue({ messageId: 1 }),
+    sendMessageWithKeyboard: jest.fn().mockResolvedValue({ messageId: 2 }),
+  };
 }
 
 describe('routeConversationMessage', () => {
@@ -100,15 +111,20 @@ describe('routeConversationMessage', () => {
     );
   });
 
-  it('Test 2: first-contact client -> consent notice prepended before the AI reply', async () => {
-    mockedGetOrCreateClientRelationship.mockResolvedValue({ isFirstContact: true, consentGiven: true });
+  it('Test 2: consentGiven=false -> hard gate: consent prompt+keyboard sent, aiBookingAgent/insertConversationTurn/sendMessage NOT called', async () => {
+    mockedGetOrCreateClientRelationship.mockResolvedValue({ isFirstContact: true, consentGiven: false });
     const channel = makeChannel();
 
     await routeConversationMessage(BUSINESS, 'tg123', 'θέλω ραντεβού αύριο', channel);
 
-    const [, text] = channel.sendMessage.mock.calls[0];
-    expect(text.startsWith(CONSENT_NOTICE_GREEK_TEMPLATE(BUSINESS.name))).toBe(true);
-    expect(text.endsWith('\n\nΕντάξει!')).toBe(true);
+    expect(channel.sendMessageWithKeyboard).toHaveBeenCalledWith(
+      'tg123',
+      CONSENT_PROMPT_GREEK_TEMPLATE(BUSINESS.name),
+      CONSENT_KEYBOARD
+    );
+    expect(mockedAiBookingAgent).not.toHaveBeenCalled();
+    expect(mockedInsertConversationTurn).not.toHaveBeenCalled();
+    expect(channel.sendMessage).not.toHaveBeenCalled();
   });
 
   it('Test 3: aiBookingAgent receives the preprocessed annotated text, not the raw message', async () => {
