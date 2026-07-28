@@ -16,6 +16,7 @@ import {
   findBookingByIdUnscoped,
   updateBookingStatus,
   updateBookingOwnerMessageId,
+  findServiceById,
 } from '../../database/queries';
 import { sendEscalationToAdmin, EscalationReason } from '../escalation';
 import {
@@ -26,6 +27,7 @@ import {
 } from '../client';
 import { logger } from '../../utils/logger';
 import { listSessions, bookSessionInstance } from '../../session/manager';
+import { BACK_MENU_LABELS } from '../../utils/greek-messages';
 import { checkEnforcementAndGetMembership } from '../../billing/enforcement';
 import {
   getClientActiveMembership,
@@ -128,19 +130,23 @@ function hoursUntilSession(sessionDate: string, sessionTime: string): number {
  */
 export async function showBookSessionList(chatId: string, business: Business): Promise<void> {
   if (business.bookingMode !== 'fixed_sessions') {
-    await sendTelegramMessage(
+    const keyboard: InlineKeyboard = [
+      [{ text: BACK_MENU_LABELS.CLIENT, callback_data: 'cmenu:root' }],
+    ];
+    await sendTelegramMessageWithKeyboard(
       chatId,
-      'Για κράτηση μαθήματος, γράψε μου στο chat τι θέλεις να κλείσεις.'
+      'Για κράτηση ραντεβού, γράψε μου στο chat τι θέλεις να κλείσεις.',
+      keyboard
     );
     return;
   }
 
-  const sessions = await listSessions(business.id, 14);
+  const sessions = await listSessions(business.id, 14, true);
   const available = sessions.filter((s) => s.bookedCount < s.capacity).slice(0, 10);
 
   if (available.length === 0) {
     const keyboard: InlineKeyboard = [
-      [{ text: '« Πίσω', callback_data: 'cmenu:root' }],
+      [{ text: BACK_MENU_LABELS.CLIENT, callback_data: 'cmenu:root' }],
     ];
     await sendTelegramMessageWithKeyboard(
       chatId,
@@ -150,12 +156,24 @@ export async function showBookSessionList(chatId: string, business: Business): P
     return;
   }
 
+  const serviceIds = [...new Set(available.map((s) => s.serviceId))];
+  const serviceNamesById = new Map<number, string>();
+  for (const serviceId of serviceIds) {
+    const service = await findServiceById(business.id, serviceId);
+    serviceNamesById.set(serviceId, service?.name ?? '(άγνωστη υπηρεσία)');
+  }
+
   const rows: InlineKeyboard = available.map((s) => {
     const callbackData = `cmenu:book:confirm:${s.instanceId}`;
     assertCallbackDataSize(callbackData);
-    return [{ text: `${s.sessionDate} ${s.sessionTime}`, callback_data: callbackData }];
+    return [
+      {
+        text: `${serviceNamesById.get(s.serviceId)} - ${s.sessionDate} ${s.sessionTime}`,
+        callback_data: callbackData,
+      },
+    ];
   });
-  rows.push([{ text: '« Πίσω', callback_data: 'cmenu:root' }]);
+  rows.push([{ text: BACK_MENU_LABELS.CLIENT, callback_data: 'cmenu:root' }]);
 
   await sendTelegramMessageWithKeyboard(chatId, 'Επίλεξε μάθημα:', rows);
 }

@@ -201,6 +201,10 @@ const mockedGetOrCreateClientRelationship =
 const mockedUpdateClientConsentGiven = queries.updateClientConsentGiven as jest.MockedFunction<
   typeof queries.updateClientConsentGiven
 >;
+// Phase 29 (D-10): showBookSessionList service-name enrichment.
+const mockedFindServiceById = queries.findServiceById as jest.MockedFunction<
+  typeof queries.findServiceById
+>;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -627,17 +631,128 @@ describe('Suite C: booking flow via handleClientMenuCallback', () => {
     );
   });
 
-  it('book — business.bookingMode === open_slots → fallback message sent, listSessions NOT called', async () => {
+  it('book — business.bookingMode === open_slots → back-button keyboard sent, listSessions NOT called (D-04)', async () => {
     const openSlotsBusiness = { ...BASE_BUSINESS, bookingMode: 'open_slots' };
 
     const result: ClientMenuCallbackResult = { clientMenuAction: 'book' };
     await handleClientMenuCallback(result, openSlotsBusiness as any, senderTelegramId);
 
-    expect(mockedSendTelegramMessage).toHaveBeenCalledWith(
+    expect(mockedSendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
       senderTelegramId,
-      expect.stringContaining('γράψε μου')
+      expect.stringContaining('γράψε μου'),
+      [[{ text: '« Πίσω', callback_data: 'cmenu:root' }]]
     );
     expect(mockedListSessions).not.toHaveBeenCalled();
+  });
+
+  it('book — fixed_sessions business → listSessions called with (business.id, 14, true) (D-01)', async () => {
+    mockedListSessions.mockResolvedValue([]);
+
+    const result: ClientMenuCallbackResult = { clientMenuAction: 'book' };
+    await handleClientMenuCallback(result, BASE_BUSINESS as any, senderTelegramId);
+
+    expect(mockedListSessions).toHaveBeenCalledWith(BASE_BUSINESS.id, 14, true);
+  });
+
+  it('book — available sessions render with the resolved service name alongside date/time (D-10)', async () => {
+    mockedListSessions.mockResolvedValue([
+      {
+        instanceId: 101,
+        catalogId: 1,
+        sessionDate: '2026-08-01',
+        sessionTime: '09:00',
+        bookedCount: 0,
+        capacity: 5,
+        serviceId: 3,
+      },
+    ] as any);
+    mockedFindServiceById.mockResolvedValue({
+      id: 3,
+      businessId: BASE_BUSINESS.id,
+      name: 'Yoga',
+      durationMin: 60,
+      price: null,
+      createdAt: new Date(),
+    } as any);
+
+    const result: ClientMenuCallbackResult = { clientMenuAction: 'book' };
+    await handleClientMenuCallback(result, BASE_BUSINESS as any, senderTelegramId);
+
+    expect(mockedFindServiceById).toHaveBeenCalledWith(BASE_BUSINESS.id, 3);
+    expect(mockedSendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
+      senderTelegramId,
+      'Επίλεξε μάθημα:',
+      expect.arrayContaining([
+        [{ text: 'Yoga - 2026-08-01 09:00', callback_data: 'cmenu:book:confirm:101' }],
+      ])
+    );
+  });
+
+  it('book — a serviceId with no matching service falls back to "(άγνωστη υπηρεσία)" (D-10)', async () => {
+    mockedListSessions.mockResolvedValue([
+      {
+        instanceId: 102,
+        catalogId: 2,
+        sessionDate: '2026-08-02',
+        sessionTime: '10:00',
+        bookedCount: 0,
+        capacity: 5,
+        serviceId: 999,
+      },
+    ] as any);
+    mockedFindServiceById.mockResolvedValue(null);
+
+    const result: ClientMenuCallbackResult = { clientMenuAction: 'book' };
+    await handleClientMenuCallback(result, BASE_BUSINESS as any, senderTelegramId);
+
+    expect(mockedSendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
+      senderTelegramId,
+      'Επίλεξε μάθημα:',
+      expect.arrayContaining([
+        [
+          {
+            text: '(άγνωστη υπηρεσία) - 2026-08-02 10:00',
+            callback_data: 'cmenu:book:confirm:102',
+          },
+        ],
+      ])
+    );
+  });
+
+  it('book — 2 available sessions sharing one serviceId result in exactly 1 findServiceById call (batching)', async () => {
+    mockedListSessions.mockResolvedValue([
+      {
+        instanceId: 103,
+        catalogId: 1,
+        sessionDate: '2026-08-01',
+        sessionTime: '09:00',
+        bookedCount: 0,
+        capacity: 5,
+        serviceId: 3,
+      },
+      {
+        instanceId: 104,
+        catalogId: 1,
+        sessionDate: '2026-08-02',
+        sessionTime: '11:00',
+        bookedCount: 0,
+        capacity: 5,
+        serviceId: 3,
+      },
+    ] as any);
+    mockedFindServiceById.mockResolvedValue({
+      id: 3,
+      businessId: BASE_BUSINESS.id,
+      name: 'Yoga',
+      durationMin: 60,
+      price: null,
+      createdAt: new Date(),
+    } as any);
+
+    const result: ClientMenuCallbackResult = { clientMenuAction: 'book' };
+    await handleClientMenuCallback(result, BASE_BUSINESS as any, senderTelegramId);
+
+    expect(mockedFindServiceById).toHaveBeenCalledTimes(1);
   });
 });
 
