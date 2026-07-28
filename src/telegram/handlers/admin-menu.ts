@@ -287,8 +287,15 @@ export async function showClassesMenu(chatId: string, business: Business): Promi
 
   let messageText: string;
   if (sessions.length > 0) {
+    const serviceIds = [...new Set(sessions.map((s) => s.serviceId))];
+    const serviceNamesById = new Map<number, string>();
+    for (const serviceId of serviceIds) {
+      const service = await findServiceById(business.id, serviceId);
+      serviceNamesById.set(serviceId, service?.name ?? '(άγνωστη υπηρεσία)');
+    }
+
     const lines = sessions.map(
-      (s) => `${s.sessionDate} ${s.sessionTime} — ${s.bookedCount}/${s.capacity} θέσεις`
+      (s) => `${serviceNamesById.get(s.serviceId)} - ${s.sessionDate} ${s.sessionTime} — ${s.bookedCount}/${s.capacity} θέσεις`
     );
     messageText = 'Επερχόμενα μαθήματα (7 ημέρες):\n\n' + lines.join('\n');
   } else {
@@ -321,10 +328,18 @@ export async function showCancelClassList(chatId: string, business: Business): P
   }
 
   const capped = sessions.slice(0, 10);
+
+  const serviceIds = [...new Set(capped.map((s) => s.serviceId))];
+  const serviceNamesById = new Map<number, string>();
+  for (const serviceId of serviceIds) {
+    const service = await findServiceById(business.id, serviceId);
+    serviceNamesById.set(serviceId, service?.name ?? '(άγνωστη υπηρεσία)');
+  }
+
   const keyboard: InlineKeyboard = capped.map((s) => {
     const cbData = `menu:classes:cancel_confirm_req:${s.instanceId}`;
     assertCallbackDataSize(cbData);
-    return [{ text: `${s.sessionDate} ${s.sessionTime}`, callback_data: cbData }];
+    return [{ text: `${serviceNamesById.get(s.serviceId)} - ${s.sessionDate} ${s.sessionTime}`, callback_data: cbData }];
   });
 
   keyboard.push([backButton]);

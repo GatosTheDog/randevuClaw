@@ -519,3 +519,124 @@ describe('showCancelClassConfirm — real context instead of raw instance id (D-
     expect(kbCalls[0][1]).toContain('(άγνωστη υπηρεσία)');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 29 Plan 04: showClassesMenu / showCancelClassList show service names (UX-04, D-10)
+// ---------------------------------------------------------------------------
+
+describe('showClassesMenu — service names via batched lookup (D-10)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+
+    const telegramClient = require('../src/telegram/client');
+    telegramClient.sendTelegramMessage.mockResolvedValue({ messageId: 1 });
+    telegramClient.sendTelegramMessageWithKeyboard.mockResolvedValue({ messageId: 2 });
+  });
+
+  test('calls findServiceById exactly once for 2 sessions sharing the same serviceId (no N+1), and message includes the service name', async () => {
+    const sessionManager = require('../src/session/manager');
+    sessionManager.listSessions.mockResolvedValue([
+      { instanceId: 1, catalogId: 1, sessionDate: '2026-08-01', sessionTime: '10:00', bookedCount: 3, capacity: 15, serviceId: 7 },
+      { instanceId: 2, catalogId: 1, sessionDate: '2026-08-03', sessionTime: '10:00', bookedCount: 5, capacity: 15, serviceId: 7 },
+    ]);
+
+    const queries = require('../src/database/queries');
+    queries.findServiceById.mockResolvedValue({
+      id: 7,
+      businessId: 1,
+      name: 'Pilates',
+      durationMin: 60,
+      price: 60,
+      createdAt: new Date(),
+    });
+
+    const telegramClient = require('../src/telegram/client');
+
+    await showClassesMenu('123', mockBusiness);
+
+    expect(queries.findServiceById).toHaveBeenCalledTimes(1);
+    expect(queries.findServiceById).toHaveBeenCalledWith(mockBusiness.id, 7);
+
+    const kbCalls = (telegramClient.sendTelegramMessageWithKeyboard as jest.Mock).mock.calls;
+    expect(kbCalls.length).toBe(1);
+    const messageText = kbCalls[0][1];
+    expect(messageText).toContain('Pilates - 2026-08-01 10:00');
+    expect(messageText).toContain('Pilates - 2026-08-03 10:00');
+  });
+
+  test('falls back to "(άγνωστη υπηρεσία)" when findServiceById resolves to null', async () => {
+    const sessionManager = require('../src/session/manager');
+    sessionManager.listSessions.mockResolvedValue([
+      { instanceId: 1, catalogId: 1, sessionDate: '2026-08-01', sessionTime: '10:00', bookedCount: 3, capacity: 15, serviceId: 7 },
+    ]);
+
+    const queries = require('../src/database/queries');
+    queries.findServiceById.mockResolvedValue(null);
+
+    const telegramClient = require('../src/telegram/client');
+
+    await showClassesMenu('123', mockBusiness);
+
+    const kbCalls = (telegramClient.sendTelegramMessageWithKeyboard as jest.Mock).mock.calls;
+    expect(kbCalls[0][1]).toContain('(άγνωστη υπηρεσία) - 2026-08-01 10:00');
+  });
+});
+
+describe('showCancelClassList — service names via batched lookup (D-10)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+
+    const telegramClient = require('../src/telegram/client');
+    telegramClient.sendTelegramMessage.mockResolvedValue({ messageId: 1 });
+    telegramClient.sendTelegramMessageWithKeyboard.mockResolvedValue({ messageId: 2 });
+  });
+
+  test('calls findServiceById exactly once for 2 sessions sharing the same serviceId, and button labels include the service name', async () => {
+    const sessionManager = require('../src/session/manager');
+    sessionManager.listSessions.mockResolvedValue([
+      { instanceId: 1, catalogId: 1, sessionDate: '2026-08-01', sessionTime: '10:00', bookedCount: 3, capacity: 15, serviceId: 7 },
+      { instanceId: 2, catalogId: 1, sessionDate: '2026-08-03', sessionTime: '10:00', bookedCount: 5, capacity: 15, serviceId: 7 },
+    ]);
+
+    const queries = require('../src/database/queries');
+    queries.findServiceById.mockResolvedValue({
+      id: 7,
+      businessId: 1,
+      name: 'Pilates',
+      durationMin: 60,
+      price: 60,
+      createdAt: new Date(),
+    });
+
+    const telegramClient = require('../src/telegram/client');
+
+    await showCancelClassList('123', mockBusiness);
+
+    expect(queries.findServiceById).toHaveBeenCalledTimes(1);
+    expect(queries.findServiceById).toHaveBeenCalledWith(mockBusiness.id, 7);
+
+    const kbCalls = (telegramClient.sendTelegramMessageWithKeyboard as jest.Mock).mock.calls;
+    expect(kbCalls.length).toBe(1);
+    const keyboard = kbCalls[0][2];
+    expect(keyboard[0][0].text).toBe('Pilates - 2026-08-01 10:00');
+    expect(keyboard[1][0].text).toBe('Pilates - 2026-08-03 10:00');
+  });
+
+  test('falls back to "(άγνωστη υπηρεσία)" when findServiceById resolves to null', async () => {
+    const sessionManager = require('../src/session/manager');
+    sessionManager.listSessions.mockResolvedValue([
+      { instanceId: 1, catalogId: 1, sessionDate: '2026-08-01', sessionTime: '10:00', bookedCount: 3, capacity: 15, serviceId: 7 },
+    ]);
+
+    const queries = require('../src/database/queries');
+    queries.findServiceById.mockResolvedValue(null);
+
+    const telegramClient = require('../src/telegram/client');
+
+    await showCancelClassList('123', mockBusiness);
+
+    const kbCalls = (telegramClient.sendTelegramMessageWithKeyboard as jest.Mock).mock.calls;
+    const keyboard = kbCalls[0][2];
+    expect(keyboard[0][0].text).toBe('(άγνωστη υπηρεσία) - 2026-08-01 10:00');
+  });
+});
