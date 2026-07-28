@@ -4,17 +4,17 @@ milestone: v1.7
 milestone_name: UX & Trust Polish
 current_phase: 26
 current_phase_name: confirmation-approval-policy
-status: executing
-stopped_at: Completed 26-01-PLAN.md
-last_updated: "2026-07-28T08:02:52.102Z"
+status: verifying
+stopped_at: Completed 26-02-PLAN.md
+last_updated: "2026-07-28T08:29:17.692Z"
 last_activity: 2026-07-28
 last_activity_desc: Phase 26 execution started
 progress:
   total_phases: 5
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 2
-  completed_plans: 1
-  percent: 0
+  completed_plans: 2
+  percent: 20
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-07-28 after v1.6 milestone close)
 
 Phase: 26 (confirmation-approval-policy) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-28 — Phase 26 execution started
 
 ## Performance Metrics
@@ -107,6 +107,7 @@ Last activity: 2026-07-28 — Phase 26 execution started
 | Phase 21 P03 | 20min | 2 tasks | 10 files |
 | Phase quick P260725-hlh | 8min | 2 tasks | 3 files |
 | Phase 26 P01 | 25min | 3 tasks | 6 files |
+| Phase 26 P02 | 23min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -225,6 +226,8 @@ Recent decisions affecting current work:
 - [Phase 26]: rescheduledFromBookingId appended as bookSessionInstance's 8th (last) parameter, not inserted before initialStatus, so existing call sites passing 'confirmed' as the 7th arg stay unaffected
 - [Phase 26]: rescheduleSessionTool defers old-booking cancellation to owner-approval time (D-03): new booking created pending_owner_approval and linked via rescheduledFromBookingId, old booking stays confirmed/untouched until approve/reject
 - [Phase 26]: sbk:approve cascade-cancels the superseded old booking with no credit restore (its credit was never touched); sbk:reject needs zero new logic since the old booking was never cancelled
+- [Phase 26]: [Phase 26-02]: pendingServicePriceChanges Map created in Task 1's commit (not Task 2's) so Task 1's own case compiles/behaves correctly at its own commit boundary
+- [Phase 26]: [Phase 26-02]: pending-price-change cleanup timer uses .unref() (unlike the pendingRenewalBatches precedent it mirrors) because it is exercised by direct unit tests, not gated behind a JEST_WORKER_ID poller
 
 ### Pending Todos
 
@@ -323,9 +326,9 @@ Items acknowledged and deferred at v1.6 milestone close on 2026-07-28:
 
 ## Session Continuity
 
-Last session: 2026-07-28T08:02:43.573Z
-Stopped at: Completed 26-01-PLAN.md
-Resume file: .planning/phases/26-confirmation-approval-policy/26-CONTEXT.md
+Last session: 2026-07-28T08:29:17.682Z
+Stopped at: Completed 26-02-PLAN.md
+Resume file: None
 
 **Phase 12 Plan 01 completed:** a940588, 6c5830e, 7d64f85
 

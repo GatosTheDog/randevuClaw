@@ -99,7 +99,7 @@ See: `.planning/milestones/v1.6-ROADMAP.md`
 
 **Milestone Goal:** Close UX/trust gaps surfaced by a full-bot audit — fix broken/inconsistent owner tooling, make high-frequency actions discoverable, close a real compliance hole, and give clients a genuine opt-in path.
 
-- [ ] **Phase 26: Confirmation & Approval Policy** - Uniform Ναι/Όχι confirmation on every destructive owner action, and client reschedules now require owner approval like new bookings
+- [x] **Phase 26: Confirmation & Approval Policy** - Uniform Ναι/Όχι confirmation on every destructive owner action, and client reschedules now require owner approval like new bookings (completed 2026-07-28)
 - [ ] **Phase 27: Client Consent & Registration** - GDPR consent notice shown before any client relationship row is created, with a real opt-in flag distinguishing registered clients
 - [ ] **Phase 28: Admin Menu Discoverability** - Payment recording, setup editing, and escalation reply are all reachable from `/menu`; dead decorative buttons removed
 - [ ] **Phase 29: Booking & List Clarity** - Slots, cancel prompts, and booking lists show accurate, contextual information instead of raw IDs or stale bookable slots
@@ -117,7 +117,7 @@ See: `.planning/milestones/v1.6-ROADMAP.md`
   3. If the owner rejects a reschedule, the client's original booking remains intact and the client receives a Greek notification explaining the rejection.
   4. Reschedules already confirmed under the previous auto-confirm behavior continue to behave correctly after the new approval gate ships (no orphaned capacity holds or double-booked slots).
 
-**Plans**: 1/2 plans executed
+**Plans**: 2/2 plans complete
 
 Plans:
 **Wave 1**
@@ -126,7 +126,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 26-02-PLAN.md — Uniform confirm-before-mutate policy for the 5 CONF-01 destructive owner actions, reusing the admin-menu cancel_session confirmation where it already exists (CONF-01)
+- [x] 26-02-PLAN.md — Uniform confirm-before-mutate policy for the 5 CONF-01 destructive owner actions, reusing the admin-menu cancel_session confirmation where it already exists (CONF-01)
 
 #### Phase 27: Client Consent & Registration
 
@@ -213,7 +213,7 @@ Plans:
 | 23. Lesson Deletion & Cascade Cancellation | v1.6 | 1/1 | Complete | 2026-07-27 |
 | 24. Bot Access & Diagnostics Polish | v1.6 | 1/1 | Complete | 2026-07-27 |
 | 25. Client Invite Generator | v1.6 | 1/1 | Complete | 2026-07-27 |
-| 26. Confirmation & Approval Policy | v1.7 | 1/2 | In Progress|  |
+| 26. Confirmation & Approval Policy | v1.7 | 2/2 | Complete   | 2026-07-28 |
 | 27. Client Consent & Registration | v1.7 | 0/TBD | Not started | - |
 | 28. Admin Menu Discoverability | v1.7 | 0/TBD | Not started | - |
 | 29. Booking & List Clarity | v1.7 | 0/TBD | Not started | - |
