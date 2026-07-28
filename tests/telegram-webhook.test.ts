@@ -160,6 +160,22 @@ function makeMessageUpdate(updateId: number, text: string, fromId = 111222333) {
   };
 }
 
+// WR-03 regression: a real Telegram photo/sticker/voice message has no
+// `text` field at all (not an empty string) — handleFoundBusiness receives
+// it as update.message.text ?? ''.
+function makePhotoMessageUpdate(updateId: number, fromId = 111222333) {
+  return {
+    update_id: updateId,
+    message: {
+      message_id: 500 + updateId,
+      from: { id: fromId, is_bot: false, first_name: 'Test' },
+      chat: { id: fromId, type: 'private' },
+      date: 1234567890,
+      photo: [{ file_id: 'AgACAgIAAxkBAAtest', width: 100, height: 100 }],
+    },
+  };
+}
+
 function makeCallbackQueryUpdate(
   updateId: number,
   fromId: number | string = 111222333,
@@ -862,5 +878,38 @@ describe('POST /webhooks/telegram/:webhookId — reply-relay flow (ADMIN-01)', (
       KNOWN_BUSINESS.ownerTelegramId,
       'Σφάλμα: δεν ήταν δυνατή η αποστολή της απάντησης.'
     );
+  });
+
+  it('Test 28-04 (WR-03 regression): a non-text owner message (photo) while a reply is pending sends a Greek text-only explanation and leaves the pending reply intact for retry', async () => {
+    await postWebhook(
+      'test-webhook-id-1',
+      makeCallbackQueryUpdate(430, OWNER_FROM_ID, `escl:reply:${CLIENT_TELEGRAM_ID}`)
+    );
+
+    const photoRes = await postWebhook('test-webhook-id-1', makePhotoMessageUpdate(431, OWNER_FROM_ID));
+    expect(photoRes.status).toBe(200);
+
+    // Never attempted to relay an empty string to the client.
+    expect(mockedSendTelegramMessage).not.toHaveBeenCalledWith(CLIENT_TELEGRAM_ID, '');
+    // Told the owner specifically that only text is forwarded (D-05), not
+    // the generic relay-failure error.
+    expect(mockedSendTelegramMessage).toHaveBeenCalledWith(
+      KNOWN_BUSINESS.ownerTelegramId,
+      'Μόνο κείμενο προωθείται στον πελάτη. Γράψε την απάντησή σου σε μήνυμα κειμένου.'
+    );
+    expect(mockedSendTelegramMessage).not.toHaveBeenCalledWith(
+      KNOWN_BUSINESS.ownerTelegramId,
+      'Σφάλμα: δεν ήταν δυνατή η αποστολή της απάντησης.'
+    );
+
+    // The pending reply must still be staged — a follow-up text message now
+    // relays successfully without needing to re-tap escl:reply.
+    const textRes = await postWebhook(
+      'test-webhook-id-1',
+      makeMessageUpdate(432, 'Θα είμαστε εκεί στις 5', OWNER_FROM_ID)
+    );
+    expect(textRes.status).toBe(200);
+    expect(mockedSendTelegramMessage).toHaveBeenCalledWith(CLIENT_TELEGRAM_ID, 'Θα είμαστε εκεί στις 5');
+    expect(mockedAiOwnerAgent).not.toHaveBeenCalled();
   });
 });

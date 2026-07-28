@@ -88,6 +88,18 @@ export function consumePendingReply(
 }
 
 /**
+ * Peek (read-only, non-consuming) whether a pending reply is currently
+ * staged for (businessId, ownerTelegramId). WR-03: lets callers distinguish
+ * "no reply staged, route normally" from "a reply IS staged but this
+ * particular incoming message can't be relayed" (e.g. a non-text
+ * photo/sticker/voice message, which arrives as messageText === '') without
+ * consuming (and thus destroying) the staged entry in the latter case.
+ */
+export function hasPendingReply(businessId: number, ownerTelegramId: string): boolean {
+  return pendingReplies.has(pendingReplyKey(businessId, ownerTelegramId));
+}
+
+/**
  * Clear any pending reply staged for (businessId, ownerTelegramId) without
  * consuming it (D-03: called when the owner navigates via /menu or /start
  * before typing their reply, so a stale pending reply never accidentally

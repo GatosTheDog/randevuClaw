@@ -32,7 +32,7 @@ import {
 } from '../telegram/handlers/payment-flow';
 import { handleMenuCallback, MenuCallbackResult, showAdminRootMenu } from '../telegram/handlers/admin-menu';
 import { ClientMenuCallbackResult, showClientRootMenu, handleClientMenuCallback } from '../telegram/handlers/client-menu';
-import { stagePendingReply, consumePendingReply, clearPendingReply } from '../telegram/handlers/pending-reply';
+import { stagePendingReply, consumePendingReply, clearPendingReply, hasPendingReply } from '../telegram/handlers/pending-reply';
 import { findMembershipByBooking, restoreCredit } from '../billing/queries';
 import { isoDateInAthens } from '../utils/timezone';
 import { approveSlotlessRequest, rejectSlotlessRequest } from '../session/slotless-requests';
@@ -142,6 +142,29 @@ async function handleFoundBusiness(
       // multiple businesses — an unscoped key would allow a reply staged
       // for Business A to be consumed by an unrelated message sent to a
       // different business's bot.
+      //
+      // WR-03 fix: only intercept when messageText is non-empty. A photo,
+      // sticker, or voice note arrives here as '' (handleFoundBusiness is
+      // called with update.message.text ?? ''); consuming the pending reply
+      // for an empty relay attempt would both throw (Telegram rejects empty
+      // `text`) AND destroy the staged entry, forcing the owner to re-tap
+      // escl:reply from scratch with no explanation. Peek without consuming
+      // so a media-only message while a reply is pending leaves the pending
+      // reply intact and tells the owner only text replies are relayed
+      // (D-05), instead of falling through to consume+fail or to aiOwnerAgent.
+      if (messageText.trim() === '' && hasPendingReply(business.id, senderTelegramId)) {
+        await sendTelegramMessage(
+          senderTelegramId,
+          'Μόνο κείμενο προωθείται στον πελάτη. Γράψε την απάντησή σου σε μήνυμα κειμένου.'
+        );
+        await withBusinessContext(business.id, () => markTelegramUpdateProcessed(updateId, business.id));
+        logger.info(
+          { updateId, businessId: business.id, elapsedMs: Date.now() - startedAt },
+          'handleFoundBusiness: exit (reply-relay branch, non-text message)'
+        );
+        return;
+      }
+
       const pendingReply = consumePendingReply(business.id, senderTelegramId);
       if (pendingReply) {
         try {

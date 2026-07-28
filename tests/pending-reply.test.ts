@@ -9,6 +9,7 @@
  *   - staging a second reply for the SAME businessId+ownerId before the first is consumed overwrites (no leaked/duplicate timer)
  *   - CR-01: a reply staged for businessId A is not visible to consume/clear for businessId B, even with the
  *     same ownerTelegramId (cross-business relay leak regression guard)
+ *   - WR-03: hasPendingReply peeks without consuming
  *
  * NEVER run bare `npm test` — machine crashes on full suite.
  * Use: npm test -- --testPathPattern="pending-reply" --testTimeout=20000
@@ -23,7 +24,7 @@ jest.mock('../src/utils/logger', () => ({
   },
 }));
 
-import { pendingReplies, stagePendingReply, consumePendingReply, clearPendingReply } from '../src/telegram/handlers/pending-reply';
+import { pendingReplies, stagePendingReply, consumePendingReply, clearPendingReply, hasPendingReply } from '../src/telegram/handlers/pending-reply';
 
 const BUSINESS_A = 1;
 const BUSINESS_B = 2;
@@ -94,5 +95,17 @@ describe('pending-reply', () => {
     clearPendingReply(BUSINESS_B, OWNER_ID);
 
     expect(consumePendingReply(BUSINESS_A, OWNER_ID)).toEqual({ clientTelegramId: CLIENT_ID });
+  });
+
+  it('WR-03: hasPendingReply returns true after staging and false after consuming, without itself consuming', () => {
+    expect(hasPendingReply(BUSINESS_A, OWNER_ID)).toBe(false);
+
+    stagePendingReply(BUSINESS_A, OWNER_ID, CLIENT_ID);
+    expect(hasPendingReply(BUSINESS_A, OWNER_ID)).toBe(true);
+    // Peeking must not consume — the entry is still there afterwards.
+    expect(hasPendingReply(BUSINESS_A, OWNER_ID)).toBe(true);
+
+    expect(consumePendingReply(BUSINESS_A, OWNER_ID)).toEqual({ clientTelegramId: CLIENT_ID });
+    expect(hasPendingReply(BUSINESS_A, OWNER_ID)).toBe(false);
   });
 });
