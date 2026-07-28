@@ -613,7 +613,11 @@ async function executeOwnerTool(
 
     case 'update_service_price': {
       const { service_name, new_price_cents } = args;
-      if (!service_name || new_price_cents === undefined) return 'Μη έγκυρα δεδομένα.';
+      // WR-02: unlike add_service (price_cents && price_cents > 0 ? price_cents : null),
+      // this case only checked new_price_cents === undefined — a 0 or negative
+      // Gemini-parsed price was staged, shown in the confirmation prompt, and
+      // applied verbatim on confirm, with nothing preventing a negative price.
+      if (!service_name || new_price_cents === undefined || new_price_cents <= 0) return 'Μη έγκυρη τιμή.';
       const match = svcList.find((s) => s.name.toLowerCase().includes(service_name.toLowerCase()));
       if (!match) return `Δεν βρέθηκε υπηρεσία με όνομα "${service_name}".`;
       // Phase 26 (CONF-01/T-26-05/T-26-08): the new price is held server-side
