@@ -11,9 +11,11 @@ import {
   markTelegramUpdateProcessed,
   updateBookingStatus,
   updateBookingStatusIfPending,
+  updateClientConsentGiven,
   findBusinessByWebhookId,
   withBusinessContext,
 } from '../database/queries';
+import { getOrCreateClientRelationship, CONSENT_PROMPT_GREEK_TEMPLATE, CONSENT_KEYBOARD } from '../consent/checker';
 import { answerCallbackQuery, editTelegramMessageReplyMarkup, sendTelegramMessage, sendTelegramMessageWithKeyboard, botTokenStore } from '../telegram/client';
 import { getOrCreateBotInstance } from '../telegram/registry';
 import { routeConversationMessage } from '../conversation/router';
@@ -136,7 +138,19 @@ async function handleFoundBusiness(
     // CMENU-01: /start command — structured keyboard, no Gemini round-trip.
     if (messageText.trim() === '/start') {
       await withBusinessContext(business.id, async () => {
-        await showClientRootMenu(senderTelegramId, business);
+        // Phase 27 (COMP-01/COMP-02, D-01/D-02): hard consent gate — a client
+        // who has not yet accepted the merged Ναι/Όχι consent+registration
+        // prompt sees ONLY that prompt, never the client menu.
+        const { consentGiven } = await getOrCreateClientRelationship(business.id, senderTelegramId);
+        if (!consentGiven) {
+          await sendTelegramMessageWithKeyboard(
+            senderTelegramId,
+            CONSENT_PROMPT_GREEK_TEMPLATE(business.name),
+            CONSENT_KEYBOARD
+          );
+        } else {
+          await showClientRootMenu(senderTelegramId, business);
+        }
         await markTelegramUpdateProcessed(updateId, business.id);
       });
       logger.info(
@@ -259,10 +273,15 @@ export type OwnerToolConfirmCallbackResult = {
   secondId?: number;
   confirmed: boolean;
 };
+// Phase 27 (COMP-01/COMP-02): client tap on the hard consent gate's Ναι/Όχι
+// keyboard — consent:yes / consent:no. No ids in the callback_data itself;
+// the handler trusts only the webhook-scoped `business` param plus
+// Telegram's own callback_query.from.id (T-27-04).
+export type ConsentCallbackResult = { consentAction: 'yes' | 'no' };
 
 export function parseCallbackData(
   data: string | undefined
-): BookingCallbackResult | BillingCallbackResult | SlotlessCallbackResult | RenewalCallbackResult | EscalationCallbackResult | MenuCallbackResult | ClientMenuCallbackResult | SessionBookingCallbackResult | OwnerToolConfirmCallbackResult | null {
+): BookingCallbackResult | BillingCallbackResult | SlotlessCallbackResult | RenewalCallbackResult | EscalationCallbackResult | MenuCallbackResult | ClientMenuCallbackResult | SessionBookingCallbackResult | OwnerToolConfirmCallbackResult | ConsentCallbackResult | null {
   // Existing booking action pattern (unchanged — T-02-17)
   const bookingMatch = data?.match(/^(approve|reject|client_cancel)_(\d+)$/);
   if (bookingMatch) {
@@ -365,6 +384,13 @@ export function parseCallbackData(
     };
   }
 
+  // Phase 27 (COMP-01/COMP-02): client tap on the hard consent gate —
+  // consent:yes / consent:no.
+  const consentMatch = data?.match(/^consent:(yes|no)$/);
+  if (consentMatch) {
+    return { consentAction: consentMatch[1] as 'yes' | 'no' };
+  }
+
   return null;
 }
 
@@ -374,6 +400,12 @@ export function parseCallbackData(
 // restore these constants and call answerCallbackQuery after ownership + CAS.
 const CLIENT_REJECT_NOTICE_GREEK =
   'Δυστυχώς η επιχείρηση δεν μπόρεσε να επιβεβαιώσει το ραντεβού σας. Δοκιμάστε άλλη ώρα.';
+
+// Phase 27 (COMP-01/COMP-02, D-02): acknowledges a client's Όχι tap on the
+// consent gate. The gate re-appears on their very next message — this text
+// makes that recoverability explicit rather than leaving a silent dead end.
+const CONSENT_DECLINE_ACK_GREEK =
+  'Εντάξει, δεν αποθηκεύσαμε τα στοιχεία σας. Στείλτε μας μήνυμα οποτεδήποτε αν αλλάξετε γνώμη.';
 
 // Client tap handler for the 🚫 Ακύρωση κράτησης inline-keyboard button.
 // Validates client ownership via clientPhone, cancels the booking, removes the
@@ -444,6 +476,26 @@ async function handleCallbackQuery(
 
   if (!parsed) {
     logger.warn({ data: callbackQuery.data }, 'Malformed callback_query data, ignoring');
+    return;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Phase 27 (COMP-01/COMP-02): client tap on the hard consent gate.
+  // Discriminant: 'consentAction' in result → ConsentCallbackResult
+  // T-27-04: no ids in callback_data — the UPDATE targets exactly
+  // (business.id, senderTelegramId), both derived from authenticated context.
+  // ---------------------------------------------------------------------------
+  if ('consentAction' in parsed) {
+    const consentResult = parsed as ConsentCallbackResult;
+    if (callbackQuery.message?.message_id) {
+      await editTelegramMessageReplyMarkup(senderTelegramId, callbackQuery.message.message_id, []);
+    }
+    if (consentResult.consentAction === 'yes') {
+      await updateClientConsentGiven(business.id, senderTelegramId, true);
+      await showClientRootMenu(senderTelegramId, business);
+    } else {
+      await sendTelegramMessage(senderTelegramId, CONSENT_DECLINE_ACK_GREEK);
+    }
     return;
   }
 

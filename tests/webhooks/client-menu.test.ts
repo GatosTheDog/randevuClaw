@@ -16,6 +16,8 @@ import * as registryModule from '../../src/telegram/registry';
 import * as onboardingQueries from '../../src/onboarding/queries';
 import * as billingQueries from '../../src/billing/queries';
 import * as calendarSync from '../../src/calendar/sync';
+import * as consentChecker from '../../src/consent/checker';
+import { CONSENT_PROMPT_GREEK_TEMPLATE, CONSENT_KEYBOARD } from '../../src/consent/checker';
 import { parseCallbackData } from '../../src/webhooks/telegram';
 import {
   handleClientMenuCallback,
@@ -33,6 +35,14 @@ jest.mock('../../src/database/queries');
 jest.mock('../../src/telegram/client');
 jest.mock('../../src/conversation/router');
 jest.mock('../../src/calendar/sync');
+// Phase 27 (COMP-01/COMP-02): partial mock — keep the real
+// CONSENT_PROMPT_GREEK_TEMPLATE/CONSENT_KEYBOARD (used for this file's own
+// assertions) while replacing only getOrCreateClientRelationship, mirroring
+// tests/conversation-router.test.ts's established pattern.
+jest.mock('../../src/consent/checker', () => ({
+  ...jest.requireActual('../../src/consent/checker'),
+  getOrCreateClientRelationship: jest.fn(),
+}));
 jest.mock('../../src/telegram/registry');
 jest.mock('../../src/billing/queries');
 jest.mock('../../src/onboarding/queries');
@@ -183,6 +193,14 @@ const mockedReleaseSessionCapacity =
   sessionManager.releaseSessionCapacity as jest.MockedFunction<
     typeof sessionManager.releaseSessionCapacity
   >;
+// Phase 27 (COMP-01/COMP-02): consent gate mocks.
+const mockedGetOrCreateClientRelationship =
+  consentChecker.getOrCreateClientRelationship as jest.MockedFunction<
+    typeof consentChecker.getOrCreateClientRelationship
+  >;
+const mockedUpdateClientConsentGiven = queries.updateClientConsentGiven as jest.MockedFunction<
+  typeof queries.updateClientConsentGiven
+>;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -251,6 +269,10 @@ function setupCommonMocks() {
   );
   // showClientRootMenu — used in Suite B; default resolved
   mockedShowClientRootMenu.mockResolvedValue(undefined);
+  // Phase 27 (COMP-01/COMP-02): default to already-consented so existing
+  // Suite B/F /start and callback flows are unaffected by the new gate.
+  mockedGetOrCreateClientRelationship.mockResolvedValue({ isFirstContact: false, consentGiven: true });
+  mockedUpdateClientConsentGiven.mockResolvedValue(undefined);
 }
 
 // ---------------------------------------------------------------------------
@@ -911,5 +933,77 @@ describe('Suite F: sbk: session booking approval routing', () => {
 
     expect(res.status).toBe(200);
     expect(mockedUpdateBookingStatus).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SUITE G: Phase 27 (COMP-01/COMP-02) — client consent gate
+// ---------------------------------------------------------------------------
+
+describe('Suite G: client consent gate', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    setupCommonMocks();
+    mockedFindBusinessByWebhookId.mockResolvedValue({ ...BASE_BUSINESS });
+  });
+
+  it('parseCallbackData("consent:yes") → { consentAction: "yes" }', () => {
+    expect(parseCallbackData('consent:yes')).toEqual({ consentAction: 'yes' });
+  });
+
+  it('parseCallbackData("consent:no") → { consentAction: "no" }', () => {
+    expect(parseCallbackData('consent:no')).toEqual({ consentAction: 'no' });
+  });
+
+  it('/start with consentGiven=false → consent prompt+keyboard sent, showClientRootMenu NOT called', async () => {
+    mockedGetOrCreateClientRelationship.mockResolvedValue({ isFirstContact: true, consentGiven: false });
+
+    const res = await postToWebhook(makeMessageUpdate(20, CLIENT_TELEGRAM_ID, '/start'));
+
+    expect(res.status).toBe(200);
+    expect(mockedSendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
+      String(CLIENT_TELEGRAM_ID),
+      CONSENT_PROMPT_GREEK_TEMPLATE(BASE_BUSINESS.name),
+      CONSENT_KEYBOARD
+    );
+    expect(mockedShowClientRootMenu).not.toHaveBeenCalled();
+  });
+
+  it('/start with consentGiven=true → showClientRootMenu called, consent prompt NOT sent (unchanged behavior)', async () => {
+    mockedGetOrCreateClientRelationship.mockResolvedValue({ isFirstContact: false, consentGiven: true });
+
+    const res = await postToWebhook(makeMessageUpdate(21, CLIENT_TELEGRAM_ID, '/start'));
+
+    expect(res.status).toBe(200);
+    expect(mockedShowClientRootMenu).toHaveBeenCalledTimes(1);
+    expect(mockedSendTelegramMessageWithKeyboard).not.toHaveBeenCalled();
+  });
+
+  it('consent:yes callback → updateClientConsentGiven(business.id, senderTelegramId, true) called, then showClientRootMenu called', async () => {
+    const res = await postToWebhook(
+      makeCallbackQueryUpdate(22, CLIENT_TELEGRAM_ID, 'consent:yes')
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockedUpdateClientConsentGiven).toHaveBeenCalledWith(
+      BASE_BUSINESS.id,
+      String(CLIENT_TELEGRAM_ID),
+      true
+    );
+    expect(mockedShowClientRootMenu).toHaveBeenCalledTimes(1);
+  });
+
+  it('consent:no callback → updateClientConsentGiven NOT called, decline-ack sent, showClientRootMenu NOT called', async () => {
+    const res = await postToWebhook(
+      makeCallbackQueryUpdate(23, CLIENT_TELEGRAM_ID, 'consent:no')
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockedUpdateClientConsentGiven).not.toHaveBeenCalled();
+    expect(mockedShowClientRootMenu).not.toHaveBeenCalled();
+    expect(mockedSendTelegramMessage).toHaveBeenCalledWith(
+      String(CLIENT_TELEGRAM_ID),
+      expect.stringContaining('Εντάξει')
+    );
   });
 });
