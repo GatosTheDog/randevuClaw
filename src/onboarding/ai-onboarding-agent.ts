@@ -614,7 +614,15 @@ export async function executeOnboardingTool(
           try {
             await setMyCommands(
               business.botToken!,
-              [{ command: 'menu', description: 'Εμφάνιση μενού διαχείρισης' }],
+              [
+                { command: 'menu', description: 'Εμφάνιση μενού διαχείρισης' },
+                { command: 'settings', description: 'Ρυθμίσεις' },
+                { command: 'classes', description: 'Μαθήματα' },
+                { command: 'clients', description: 'Πελάτες' },
+                { command: 'agenda', description: 'Ατζέντα Σήμερα' },
+                { command: 'payment', description: 'Καταχώρηση Πληρωμής' },
+                { command: 'invite', description: 'Πρόσκληση Πελάτη' },
+              ],
               { type: 'chat', chat_id: ownerTelegramId }
             );
             await setMyCommands(business.botToken!, [

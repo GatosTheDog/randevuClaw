@@ -206,7 +206,15 @@ describe('showAdminRootMenu — menu button re-assertion (D-06.2)', () => {
     expect(telegramClient.setChatMenuButton).toHaveBeenCalledWith(mockBusiness.botToken);
     expect(telegramClient.setMyCommands).toHaveBeenCalledWith(
       mockBusiness.botToken,
-      [{ command: 'menu', description: 'Εμφάνιση μενού διαχείρισης' }],
+      [
+        { command: 'menu', description: 'Εμφάνιση μενού διαχείρισης' },
+        { command: 'settings', description: 'Ρυθμίσεις' },
+        { command: 'classes', description: 'Μαθήματα' },
+        { command: 'clients', description: 'Πελάτες' },
+        { command: 'agenda', description: 'Ατζέντα Σήμερα' },
+        { command: 'payment', description: 'Καταχώρηση Πληρωμής' },
+        { command: 'invite', description: 'Πρόσκληση Πελάτη' },
+      ],
       { type: 'chat', chat_id: '999' }
     );
     expect(telegramClient.setMyCommands).toHaveBeenCalledWith(
