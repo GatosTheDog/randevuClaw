@@ -13,7 +13,20 @@
  */
 
 import { parseCallbackData } from '../src/webhooks/telegram';
-import { showAdminRootMenu, showSettingsMenu, handleMenuCallback, handleClassCancelExecute, showCancelClassConfirm, showClassesMenu, showCancelClassList } from '../src/telegram/handlers/admin-menu';
+import {
+  showAdminRootMenu,
+  showSettingsMenu,
+  handleMenuCallback,
+  handleClassCancelExecute,
+  showCancelClassConfirm,
+  showClassesMenu,
+  showCancelClassList,
+  showClientBalance,
+  showDeleteFullConfirm,
+  handleDeleteFullExecute,
+  showUnlinkConfirm,
+  handleUnlinkExecute,
+} from '../src/telegram/handlers/admin-menu';
 import { Business } from '../src/database/queries';
 
 // ---------------------------------------------------------------------------
@@ -735,5 +748,253 @@ describe('handleMenuCallback — default case (unrecognized menuAction, D-05.1)'
     expect(kbCalls.length).toBe(1);
     expect(kbCalls[0][1]).toBe('Άγνωστη ενέργεια μενού.');
     expect(kbCalls[0][2]).toEqual([[{ text: '« Πίσω στο Μενού', callback_data: 'menu:root' }]]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Quick task 260729-n05: showClientBalance — delete/unlink buttons
+// ---------------------------------------------------------------------------
+
+describe('showClientBalance — delete/unlink buttons (n05)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+
+    const telegramClient = require('../src/telegram/client');
+    telegramClient.sendTelegramMessage.mockResolvedValue({ messageId: 1 });
+    telegramClient.sendTelegramMessageWithKeyboard.mockResolvedValue({ messageId: 2 });
+
+    const queries = require('../src/database/queries');
+    queries.findClientBusinessRelationshipById.mockResolvedValue({
+      id: 42,
+      businessId: mockBusiness.id,
+      senderPhone: '111222333',
+      clientName: 'Maria',
+      consentGiven: true,
+      consentTimestamp: new Date(),
+      createdAt: new Date(),
+    });
+  });
+
+  test('renders both new buttons when the client has an active membership', async () => {
+    const billingQueries = require('../src/billing/queries');
+    billingQueries.getClientActiveMembership.mockResolvedValue({
+      packageName: 'Pilates 10',
+      sessionsRemaining: 5,
+      expiresAt: new Date('2026-09-01'),
+      isUnlimited: false,
+    });
+
+    const telegramClient = require('../src/telegram/client');
+    await showClientBalance('123', mockBusiness, 42);
+
+    const kbCalls = (telegramClient.sendTelegramMessageWithKeyboard as jest.Mock).mock.calls;
+    expect(kbCalls.length).toBe(1);
+    const keyboard = kbCalls[0][2];
+    const flat = keyboard.flat();
+    expect(flat).toContainEqual({ text: 'Πλήρης διαγραφή', callback_data: 'menu:clients:del_full_confirm:42' });
+    expect(flat).toContainEqual({ text: 'Αφαίρεση από λίστα', callback_data: 'menu:clients:del_unlink_confirm:42' });
+  });
+
+  test('renders both new buttons even when the client has no active membership', async () => {
+    const billingQueries = require('../src/billing/queries');
+    billingQueries.getClientActiveMembership.mockResolvedValue(null);
+
+    const telegramClient = require('../src/telegram/client');
+    await showClientBalance('123', mockBusiness, 42);
+
+    const kbCalls = (telegramClient.sendTelegramMessageWithKeyboard as jest.Mock).mock.calls;
+    expect(kbCalls.length).toBe(1);
+    const keyboard = kbCalls[0][2];
+    const flat = keyboard.flat();
+    expect(flat).toContainEqual({ text: 'Πλήρης διαγραφή', callback_data: 'menu:clients:del_full_confirm:42' });
+    expect(flat).toContainEqual({ text: 'Αφαίρεση από λίστα', callback_data: 'menu:clients:del_unlink_confirm:42' });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Quick task 260729-n05: showDeleteFullConfirm / handleDeleteFullExecute — full erase
+// ---------------------------------------------------------------------------
+
+describe('showDeleteFullConfirm / handleDeleteFullExecute — full erase (n05)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+
+    const telegramClient = require('../src/telegram/client');
+    telegramClient.sendTelegramMessage.mockResolvedValue({ messageId: 1 });
+    telegramClient.sendTelegramMessageWithKeyboard.mockResolvedValue({ messageId: 2 });
+  });
+
+  test('ownership guard: mismatched businessId sends only the generic not-found message and calls no delete function', async () => {
+    const queries = require('../src/database/queries');
+    queries.findClientBusinessRelationshipById.mockResolvedValue({
+      id: 42,
+      businessId: mockBusiness.id + 999,
+      senderPhone: '111222333',
+      clientName: 'Maria',
+      consentGiven: true,
+      consentTimestamp: new Date(),
+      createdAt: new Date(),
+    });
+
+    const billingQueries = require('../src/billing/queries');
+    const telegramClient = require('../src/telegram/client');
+
+    await handleDeleteFullExecute('123', mockBusiness, 42);
+
+    const msgCalls = (telegramClient.sendTelegramMessage as jest.Mock).mock.calls;
+    expect(msgCalls.length).toBe(1);
+    expect(msgCalls[0][1]).toBe('Ο πελάτης δεν βρέθηκε.');
+
+    expect(billingQueries.deleteClientBillingData).not.toHaveBeenCalled();
+    expect(queries.deleteClientBookingData).not.toHaveBeenCalled();
+    expect(queries.deleteClientBusinessRelationship).not.toHaveBeenCalled();
+  });
+
+  test('showDeleteFullConfirm happy path: Ναι/Όχι keyboard with matching callback_data and client name in the message', async () => {
+    const queries = require('../src/database/queries');
+    queries.findClientBusinessRelationshipById.mockResolvedValue({
+      id: 42,
+      businessId: mockBusiness.id,
+      senderPhone: '111222333',
+      clientName: 'Maria',
+      consentGiven: true,
+      consentTimestamp: new Date(),
+      createdAt: new Date(),
+    });
+
+    const telegramClient = require('../src/telegram/client');
+    await showDeleteFullConfirm('123', mockBusiness, 42);
+
+    const kbCalls = (telegramClient.sendTelegramMessageWithKeyboard as jest.Mock).mock.calls;
+    expect(kbCalls.length).toBe(1);
+    expect(kbCalls[0][1]).toContain('Maria');
+    expect(kbCalls[0][2]).toEqual([[
+      { text: 'Ναι', callback_data: 'menu:clients:del_full_yes:42' },
+      { text: 'Όχι', callback_data: 'menu:clients:del_full_no:42' },
+    ]]);
+  });
+
+  test('handleDeleteFullExecute happy path: all 3 delete functions called exactly once, success message contains client name', async () => {
+    const queries = require('../src/database/queries');
+    queries.findClientBusinessRelationshipById.mockResolvedValue({
+      id: 42,
+      businessId: mockBusiness.id,
+      senderPhone: '111222333',
+      clientName: 'Maria',
+      consentGiven: true,
+      consentTimestamp: new Date(),
+      createdAt: new Date(),
+    });
+    queries.deleteClientBookingData.mockResolvedValue(undefined);
+    queries.deleteClientBusinessRelationship.mockResolvedValue(true);
+
+    const billingQueries = require('../src/billing/queries');
+    billingQueries.deleteClientBillingData.mockResolvedValue(undefined);
+
+    const telegramClient = require('../src/telegram/client');
+
+    await handleDeleteFullExecute('123', mockBusiness, 42);
+
+    expect(billingQueries.deleteClientBillingData).toHaveBeenCalledTimes(1);
+    expect(billingQueries.deleteClientBillingData).toHaveBeenCalledWith(mockBusiness.id, '111222333');
+    expect(queries.deleteClientBookingData).toHaveBeenCalledTimes(1);
+    expect(queries.deleteClientBookingData).toHaveBeenCalledWith(mockBusiness.id, '111222333');
+    expect(queries.deleteClientBusinessRelationship).toHaveBeenCalledTimes(1);
+    expect(queries.deleteClientBusinessRelationship).toHaveBeenCalledWith(42, mockBusiness.id);
+
+    const msgCalls = (telegramClient.sendTelegramMessage as jest.Mock).mock.calls;
+    expect(msgCalls.some((c: [string, string]) => c[1].includes('Maria'))).toBe(true);
+
+    expect(telegramClient.sendTelegramMessageWithKeyboard).toHaveBeenCalledWith('123', 'Τι άλλο θέλεις να κάνεις;', [
+      [{ text: '« Πίσω στο Μενού', callback_data: 'menu:root' }],
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Quick task 260729-n05: showUnlinkConfirm / handleUnlinkExecute — unlink only
+// ---------------------------------------------------------------------------
+
+describe('showUnlinkConfirm / handleUnlinkExecute — unlink only (n05)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+
+    const telegramClient = require('../src/telegram/client');
+    telegramClient.sendTelegramMessage.mockResolvedValue({ messageId: 1 });
+    telegramClient.sendTelegramMessageWithKeyboard.mockResolvedValue({ messageId: 2 });
+  });
+
+  test('ownership guard: mismatched businessId sends only the generic not-found message and calls no delete function', async () => {
+    const queries = require('../src/database/queries');
+    queries.findClientBusinessRelationshipById.mockResolvedValue({
+      id: 42,
+      businessId: mockBusiness.id + 999,
+      senderPhone: '111222333',
+      clientName: 'Maria',
+      consentGiven: true,
+      consentTimestamp: new Date(),
+      createdAt: new Date(),
+    });
+
+    const telegramClient = require('../src/telegram/client');
+
+    await handleUnlinkExecute('123', mockBusiness, 42);
+
+    const msgCalls = (telegramClient.sendTelegramMessage as jest.Mock).mock.calls;
+    expect(msgCalls.length).toBe(1);
+    expect(msgCalls[0][1]).toBe('Ο πελάτης δεν βρέθηκε.');
+
+    expect(queries.deleteClientBusinessRelationship).not.toHaveBeenCalled();
+  });
+
+  test('showUnlinkConfirm happy path: Ναι/Όχι keyboard with matching callback_data', async () => {
+    const queries = require('../src/database/queries');
+    queries.findClientBusinessRelationshipById.mockResolvedValue({
+      id: 42,
+      businessId: mockBusiness.id,
+      senderPhone: '111222333',
+      clientName: 'Maria',
+      consentGiven: true,
+      consentTimestamp: new Date(),
+      createdAt: new Date(),
+    });
+
+    const telegramClient = require('../src/telegram/client');
+    await showUnlinkConfirm('123', mockBusiness, 42);
+
+    const kbCalls = (telegramClient.sendTelegramMessageWithKeyboard as jest.Mock).mock.calls;
+    expect(kbCalls.length).toBe(1);
+    expect(kbCalls[0][1]).toContain('Maria');
+    expect(kbCalls[0][2]).toEqual([[
+      { text: 'Ναι', callback_data: 'menu:clients:del_unlink_yes:42' },
+      { text: 'Όχι', callback_data: 'menu:clients:del_unlink_no:42' },
+    ]]);
+  });
+
+  test('handleUnlinkExecute happy path: only deleteClientBusinessRelationship called, billing/booking delete not called', async () => {
+    const queries = require('../src/database/queries');
+    queries.findClientBusinessRelationshipById.mockResolvedValue({
+      id: 42,
+      businessId: mockBusiness.id,
+      senderPhone: '111222333',
+      clientName: 'Maria',
+      consentGiven: true,
+      consentTimestamp: new Date(),
+      createdAt: new Date(),
+    });
+    queries.deleteClientBusinessRelationship.mockResolvedValue(true);
+
+    const billingQueries = require('../src/billing/queries');
+    const telegramClient = require('../src/telegram/client');
+
+    await handleUnlinkExecute('123', mockBusiness, 42);
+
+    expect(queries.deleteClientBusinessRelationship).toHaveBeenCalledTimes(1);
+    expect(queries.deleteClientBusinessRelationship).toHaveBeenCalledWith(42, mockBusiness.id);
+    expect(billingQueries.deleteClientBillingData).not.toHaveBeenCalled();
+    expect(queries.deleteClientBookingData).not.toHaveBeenCalled();
+
+    const msgCalls = (telegramClient.sendTelegramMessage as jest.Mock).mock.calls;
+    expect(msgCalls.some((c: [string, string]) => c[1].includes('Maria'))).toBe(true);
   });
 });

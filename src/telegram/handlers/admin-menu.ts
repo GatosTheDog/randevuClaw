@@ -12,7 +12,14 @@
 
 import { eq } from 'drizzle-orm';
 import { db } from '../../database/db';
-import { Business, findServiceById, listBookingsForDate, findClientBusinessRelationshipById } from '../../database/queries';
+import {
+  Business,
+  findServiceById,
+  listBookingsForDate,
+  findClientBusinessRelationshipById,
+  deleteClientBookingData,
+  deleteClientBusinessRelationship,
+} from '../../database/queries';
 import { businesses } from '../../database/schema';
 import { formatAgendaMessage } from '../../scheduler/agenda';
 import { isoDateInAthens } from '../../utils/timezone';
@@ -27,7 +34,7 @@ import {
   setMyCommands,
   setChatMenuButton,
 } from '../client';
-import { getAllClientsForBusiness, getClientActiveMembership } from '../../billing/queries';
+import { getAllClientsForBusiness, getClientActiveMembership, deleteClientBillingData } from '../../billing/queries';
 import { sendBusinessInvite } from '../../invites/generator';
 import { showClientSelection } from './payment-flow';
 import { BACK_MENU_LABELS } from '../../utils/greek-messages';
@@ -529,6 +536,11 @@ export async function showClientBalance(
   }
 
   const backButton = { text: BACK_MENU_LABELS.ADMIN, callback_data: 'menu:root' };
+  const deleteFullData = `menu:clients:del_full_confirm:${relId}`;
+  const unlinkData = `menu:clients:del_unlink_confirm:${relId}`;
+  assertCallbackDataSize(deleteFullData);
+  assertCallbackDataSize(unlinkData);
+
   let keyboard: InlineKeyboard;
 
   if (membership) {
@@ -536,10 +548,16 @@ export async function showClientBalance(
     assertCallbackDataSize(nudgeData);
     keyboard = [
       [{ text: 'Αποστολή υπενθύμισης', callback_data: nudgeData }],
+      [{ text: 'Πλήρης διαγραφή', callback_data: deleteFullData }],
+      [{ text: 'Αφαίρεση από λίστα', callback_data: unlinkData }],
       [backButton],
     ];
   } else {
-    keyboard = [[backButton]];
+    keyboard = [
+      [{ text: 'Πλήρης διαγραφή', callback_data: deleteFullData }],
+      [{ text: 'Αφαίρεση από λίστα', callback_data: unlinkData }],
+      [backButton],
+    ];
   }
 
   await sendTelegramMessageWithKeyboard(chatId, messageText, keyboard);
@@ -587,6 +605,133 @@ export async function handleRenewalNudge(
   });
 
   await sendTelegramMessage(chatId, `Υπενθύμιση στάλθηκε στον ${rel.clientName ?? rel.senderPhone}.`);
+
+  await sendTelegramMessageWithKeyboard(chatId, 'Τι άλλο θέλεις να κάνεις;', [
+    [{ text: BACK_MENU_LABELS.ADMIN, callback_data: 'menu:root' }],
+  ]);
+}
+
+// ---------------------------------------------------------------------------
+// Quick task 260729-n05: Client deletion (GDPR full erase + unlink-only)
+// ---------------------------------------------------------------------------
+
+/**
+ * Shows the "Πλήρης διαγραφή" (full GDPR-style erase) confirmation prompt.
+ * T-quick-01: ownership check — rel.businessId must match the owner's business.
+ */
+export async function showDeleteFullConfirm(
+  chatId: string,
+  business: Business,
+  relId: number
+): Promise<void> {
+  const rel = await findClientBusinessRelationshipById(relId);
+
+  if (rel?.businessId !== business.id) {
+    await sendTelegramMessage(chatId, 'Ο πελάτης δεν βρέθηκε.');
+    return;
+  }
+
+  const displayName = rel.clientName ?? rel.senderPhone;
+  const yesData = `menu:clients:del_full_yes:${relId}`;
+  const noData = `menu:clients:del_full_no:${relId}`;
+  assertCallbackDataSize(yesData);
+  assertCallbackDataSize(noData);
+
+  await sendTelegramMessageWithKeyboard(
+    chatId,
+    `Να διαγραφεί ΠΛΗΡΩΣ ο πελάτης ${displayName};\nΘα διαγραφούν οριστικά όλες οι κρατήσεις, συνδρομές και το ιστορικό του. Η ενέργεια δεν αναιρείται.`,
+    [[
+      { text: 'Ναι', callback_data: yesData },
+      { text: 'Όχι', callback_data: noData },
+    ]]
+  );
+}
+
+/**
+ * Executes the full GDPR-style erase: deletes every DB row tied to this
+ * client for this business (billing data, booking data, then the
+ * relationship row itself), in that FK-safe order. No message is sent to the
+ * client's own chat. T-quick-01: ownership check before any mutation.
+ */
+export async function handleDeleteFullExecute(
+  chatId: string,
+  business: Business,
+  relId: number
+): Promise<void> {
+  const rel = await findClientBusinessRelationshipById(relId);
+
+  if (rel?.businessId !== business.id) {
+    await sendTelegramMessage(chatId, 'Ο πελάτης δεν βρέθηκε.');
+    return;
+  }
+
+  const displayName = rel.clientName ?? rel.senderPhone;
+
+  await deleteClientBillingData(business.id, rel.senderPhone);
+  await deleteClientBookingData(business.id, rel.senderPhone);
+  await deleteClientBusinessRelationship(relId, business.id);
+
+  await sendTelegramMessage(chatId, `Ο πελάτης ${displayName} διαγράφηκε πλήρως.`);
+
+  await sendTelegramMessageWithKeyboard(chatId, 'Τι άλλο θέλεις να κάνεις;', [
+    [{ text: BACK_MENU_LABELS.ADMIN, callback_data: 'menu:root' }],
+  ]);
+}
+
+/**
+ * Shows the "Αφαίρεση από λίστα" (unlink-only) confirmation prompt.
+ * T-quick-01: ownership check — rel.businessId must match the owner's business.
+ */
+export async function showUnlinkConfirm(
+  chatId: string,
+  business: Business,
+  relId: number
+): Promise<void> {
+  const rel = await findClientBusinessRelationshipById(relId);
+
+  if (rel?.businessId !== business.id) {
+    await sendTelegramMessage(chatId, 'Ο πελάτης δεν βρέθηκε.');
+    return;
+  }
+
+  const displayName = rel.clientName ?? rel.senderPhone;
+  const yesData = `menu:clients:del_unlink_yes:${relId}`;
+  const noData = `menu:clients:del_unlink_no:${relId}`;
+  assertCallbackDataSize(yesData);
+  assertCallbackDataSize(noData);
+
+  await sendTelegramMessageWithKeyboard(
+    chatId,
+    `Να αφαιρεθεί ο πελάτης ${displayName} από τη λίστα πελατών;\nΟι κρατήσεις και οι συνδρομές του ΔΕΝ διαγράφονται — παραμένουν στο ιστορικό.`,
+    [[
+      { text: 'Ναι', callback_data: yesData },
+      { text: 'Όχι', callback_data: noData },
+    ]]
+  );
+}
+
+/**
+ * Executes the unlink-only action: deletes ONLY the clientBusinessRelationships
+ * row. All booking/membership/conversation history rows remain untouched.
+ * T-quick-01: ownership check before any mutation.
+ */
+export async function handleUnlinkExecute(
+  chatId: string,
+  business: Business,
+  relId: number
+): Promise<void> {
+  const rel = await findClientBusinessRelationshipById(relId);
+
+  if (rel?.businessId !== business.id) {
+    await sendTelegramMessage(chatId, 'Ο πελάτης δεν βρέθηκε.');
+    return;
+  }
+
+  const displayName = rel.clientName ?? rel.senderPhone;
+
+  await deleteClientBusinessRelationship(relId, business.id);
+
+  await sendTelegramMessage(chatId, `Ο πελάτης ${displayName} αφαιρέθηκε από τη λίστα.`);
 
   await sendTelegramMessageWithKeyboard(chatId, 'Τι άλλο θέλεις να κάνεις;', [
     [{ text: BACK_MENU_LABELS.ADMIN, callback_data: 'menu:root' }],
@@ -732,6 +877,58 @@ export async function handleMenuCallback(
         return;
       }
       await handleRenewalNudge(chatId, business, result.id);
+      break;
+    }
+
+    case menuAction === 'clients:del_full_confirm': {
+      if (result.id === undefined) {
+        await sendTelegramMessage(chatId, 'Σφάλμα: λείπει το αναγνωριστικό πελάτη.');
+        return;
+      }
+      await showDeleteFullConfirm(chatId, business, result.id);
+      break;
+    }
+
+    case menuAction === 'clients:del_full_yes': {
+      if (result.id === undefined) {
+        await sendTelegramMessage(chatId, 'Σφάλμα: λείπει το αναγνωριστικό πελάτη.');
+        return;
+      }
+      await handleDeleteFullExecute(chatId, business, result.id);
+      break;
+    }
+
+    case menuAction === 'clients:del_full_no': {
+      await sendTelegramMessage(chatId, 'Η διαγραφή ματαιώθηκε.');
+      await sendTelegramMessageWithKeyboard(chatId, 'Τι άλλο θέλεις να κάνεις;', [
+        [{ text: BACK_MENU_LABELS.ADMIN, callback_data: 'menu:root' }],
+      ]);
+      break;
+    }
+
+    case menuAction === 'clients:del_unlink_confirm': {
+      if (result.id === undefined) {
+        await sendTelegramMessage(chatId, 'Σφάλμα: λείπει το αναγνωριστικό πελάτη.');
+        return;
+      }
+      await showUnlinkConfirm(chatId, business, result.id);
+      break;
+    }
+
+    case menuAction === 'clients:del_unlink_yes': {
+      if (result.id === undefined) {
+        await sendTelegramMessage(chatId, 'Σφάλμα: λείπει το αναγνωριστικό πελάτη.');
+        return;
+      }
+      await handleUnlinkExecute(chatId, business, result.id);
+      break;
+    }
+
+    case menuAction === 'clients:del_unlink_no': {
+      await sendTelegramMessage(chatId, 'Η αφαίρεση ματαιώθηκε.');
+      await sendTelegramMessageWithKeyboard(chatId, 'Τι άλλο θέλεις να κάνεις;', [
+        [{ text: BACK_MENU_LABELS.ADMIN, callback_data: 'menu:root' }],
+      ]);
       break;
     }
 
