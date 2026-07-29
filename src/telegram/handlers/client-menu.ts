@@ -87,11 +87,14 @@ export async function showClientRootMenu(chatId: string, business: Business): Pr
     ],
   ];
 
-  await sendTelegramMessageWithKeyboard(
-    chatId,
-    `Καλώς ήρθες! Τι θέλεις να κάνεις;`,
-    keyboard
-  );
+  const menuText = `Καλώς ήρθες! Τι θέλεις να κάνεις;
+
+1. ${bookingButtonText}
+2. Οι κρατήσεις μου
+3. Ακύρωση κράτησης
+4. Υπόλοιπο μαθημάτων`;
+
+  await sendTelegramMessageWithKeyboard(chatId, menuText, keyboard);
 }
 
 // ---------------------------------------------------------------------------
