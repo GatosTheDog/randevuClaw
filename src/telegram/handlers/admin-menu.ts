@@ -19,7 +19,14 @@ import { isoDateInAthens } from '../../utils/timezone';
 import { logger } from '../../utils/logger';
 import { findBusinessByOwnerTelegramId } from '../../onboarding/queries';
 import { listSessions, cancelSession, cascadeCancelSessionBookings, findSessionInstanceById } from '../../session/manager';
-import { InlineKeyboard, sendTelegramMessage, sendTelegramMessageWithKeyboard, botTokenStore } from '../client';
+import {
+  InlineKeyboard,
+  sendTelegramMessage,
+  sendTelegramMessageWithKeyboard,
+  botTokenStore,
+  setMyCommands,
+  setChatMenuButton,
+} from '../client';
 import { getAllClientsForBusiness, getClientActiveMembership } from '../../billing/queries';
 import { sendBusinessInvite } from '../../invites/generator';
 import { showClientSelection } from './payment-flow';
@@ -41,6 +48,27 @@ function assertCallbackDataSize(data: string): void {
       'callback_data exceeds 64 bytes — Telegram will reject'
     );
   }
+}
+
+/**
+ * D-06.2: re-asserts the same 4 idempotent Bot-API calls finish_onboarding
+ * makes once at onboarding time (BOT-06). Since finish_onboarding fires
+ * exactly once in a business's entire lifetime, re-running these idempotent
+ * calls on every /menu tap is a cheap, safe hedge against that one-shot call
+ * never having a second chance. No retry loop here — a failed re-assertion
+ * is cheap to retry naturally the next time the owner taps /menu.
+ */
+async function reassertMenuButtonAndCommands(botToken: string, chatId: string): Promise<void> {
+  await setMyCommands(
+    botToken,
+    [{ command: 'menu', description: 'Εμφάνιση μενού διαχείρισης' }],
+    { type: 'chat', chat_id: chatId }
+  );
+  await setMyCommands(botToken, [
+    { command: 'start', description: 'Έναρξη κράτησης ραντεβού' },
+  ], { type: 'all_private_chats' });
+  await setChatMenuButton(botToken, chatId);
+  await setChatMenuButton(botToken);
 }
 
 /**
@@ -79,6 +107,20 @@ export async function showAdminRootMenu(chatId: string, business: Business): Pro
     `Πίνακας Ελέγχου — ${business.name}`,
     keyboard
   );
+
+  // D-06.2: fire-and-forget re-assertion — deliberately not awaited so it
+  // never delays or can fail the caller's own response. Covers both /menu
+  // entry points (the '/menu'/'/start' text-command branch in
+  // webhooks/telegram.ts and the menu:root callback branch below), since
+  // both call this same function.
+  if (business.botToken) {
+    reassertMenuButtonAndCommands(business.botToken, chatId).catch((err) => {
+      logger.warn(
+        { err, businessId: business.id },
+        'showAdminRootMenu: menu button re-assertion failed (non-blocking)'
+      );
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------

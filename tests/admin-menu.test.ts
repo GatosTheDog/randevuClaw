@@ -134,6 +134,76 @@ describe('showAdminRootMenu — keyboard shape', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Phase 30 Plan 02: showAdminRootMenu menu button re-assertion (ADMIN-05, D-06.2)
+// ---------------------------------------------------------------------------
+
+describe('showAdminRootMenu — menu button re-assertion (D-06.2)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    const telegramClient = require('../src/telegram/client');
+    telegramClient.sendTelegramMessageWithKeyboard.mockResolvedValue({ messageId: 1 });
+    telegramClient.sendTelegramMessage.mockResolvedValue({ messageId: 2 });
+  });
+
+  test('resolves even when setChatMenuButton never settles (non-blocking)', async () => {
+    const telegramClient = require('../src/telegram/client');
+    telegramClient.setMyCommands.mockResolvedValue(undefined);
+    telegramClient.setChatMenuButton.mockReturnValue(new Promise(() => {})); // never resolves
+
+    await expect(showAdminRootMenu('123', mockBusiness)).resolves.toBeUndefined();
+  });
+
+  test('resolves without throwing even when setMyCommands/setChatMenuButton reject (swallow-on-failure)', async () => {
+    const telegramClient = require('../src/telegram/client');
+    telegramClient.setMyCommands.mockRejectedValue(new Error('Telegram API down'));
+    telegramClient.setChatMenuButton.mockRejectedValue(new Error('Telegram API down'));
+
+    await expect(showAdminRootMenu('123', mockBusiness)).resolves.toBeUndefined();
+
+    // Flush the fire-and-forget microtask/macrotask queue so the internal
+    // .catch() handler runs before the test ends (avoids an unhandled
+    // rejection warning leaking into a later test).
+    await new Promise((resolve) => setImmediate(resolve));
+  });
+
+  test('re-asserts using the caller\'s own business botToken and chatId', async () => {
+    const telegramClient = require('../src/telegram/client');
+    telegramClient.setMyCommands.mockResolvedValue(undefined);
+    telegramClient.setChatMenuButton.mockResolvedValue(undefined);
+
+    await showAdminRootMenu('999', mockBusiness);
+    // Flush the fire-and-forget chain so its calls have landed before assertions.
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(telegramClient.setChatMenuButton).toHaveBeenCalledWith(mockBusiness.botToken, '999');
+    expect(telegramClient.setChatMenuButton).toHaveBeenCalledWith(mockBusiness.botToken);
+    expect(telegramClient.setMyCommands).toHaveBeenCalledWith(
+      mockBusiness.botToken,
+      [{ command: 'menu', description: 'Εμφάνιση μενού διαχείρισης' }],
+      { type: 'chat', chat_id: '999' }
+    );
+    expect(telegramClient.setMyCommands).toHaveBeenCalledWith(
+      mockBusiness.botToken,
+      [{ command: 'start', description: 'Έναρξη κράτησης ραντεβού' }],
+      { type: 'all_private_chats' }
+    );
+  });
+
+  test('skips re-assertion cleanly when business.botToken is null', async () => {
+    const telegramClient = require('../src/telegram/client');
+    telegramClient.setMyCommands.mockResolvedValue(undefined);
+    telegramClient.setChatMenuButton.mockResolvedValue(undefined);
+    const businessWithoutToken: Business = { ...mockBusiness, botToken: null };
+
+    await showAdminRootMenu('123', businessWithoutToken);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(telegramClient.setMyCommands).not.toHaveBeenCalled();
+    expect(telegramClient.setChatMenuButton).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Phase 28 Plan 01: handleMenuCallback 'payment' dispatch (ADMIN-03, D-10/D-11/D-12)
 // ---------------------------------------------------------------------------
 
