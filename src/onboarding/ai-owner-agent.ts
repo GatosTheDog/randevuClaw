@@ -935,7 +935,12 @@ async function executeOwnerTool(
       if (resolved.kind === 'none') return CLIENT_NOT_FOUND_MSG;
       if (resolved.kind === 'ambiguous') return formatClientDisambiguation(resolved.matches);
       const clientPhone = resolved.match.senderPhone;
-      const clientDisplayName = resolved.match.clientName ?? clientPhone;
+      // WR-02: never fall back to clientPhone here — resolveClientByName's
+      // filter guarantees clientName is truthy for a 'single' match, and
+      // D-05 forbids leaking senderPhone into owner-facing text if that
+      // ever changes. Use the same placeholder formatClientDisambiguation
+      // already uses instead.
+      const clientDisplayName = resolved.match.clientName ?? '(χωρίς όνομα)';
       // Find matching session instance via in-memory filter
       const allSessions = await listSessions(business.id);
       const target = allSessions.find(
@@ -971,7 +976,12 @@ async function executeOwnerTool(
       if (resolved.kind === 'none') return CLIENT_NOT_FOUND_MSG;
       if (resolved.kind === 'ambiguous') return formatClientDisambiguation(resolved.matches);
       const clientPhone = resolved.match.senderPhone;
-      const clientDisplayName = resolved.match.clientName ?? clientPhone;
+      // WR-02: never fall back to clientPhone here — resolveClientByName's
+      // filter guarantees clientName is truthy for a 'single' match, and
+      // D-05 forbids leaking senderPhone into owner-facing text if that
+      // ever changes. Use the same placeholder formatClientDisambiguation
+      // already uses instead.
+      const clientDisplayName = resolved.match.clientName ?? '(χωρίς όνομα)';
       const requests = await listSlotlessRequestsForClient(business.id, clientPhone);
       if (requests.length === 0) return `Δεν υπάρχουν αιτήματα χωρίς θέση για τον πελάτη ${clientDisplayName}.`;
       const lines = requests.map((r, i) =>
@@ -994,7 +1004,12 @@ async function executeOwnerTool(
       if (resolved.kind === 'none') return CLIENT_NOT_FOUND_MSG;
       if (resolved.kind === 'ambiguous') return formatClientDisambiguation(resolved.matches);
       const clientPhone = resolved.match.senderPhone;
-      const clientDisplayName = resolved.match.clientName ?? clientPhone;
+      // WR-02: never fall back to clientPhone here — resolveClientByName's
+      // filter guarantees clientName is truthy for a 'single' match, and
+      // D-05 forbids leaking senderPhone into owner-facing text if that
+      // ever changes. Use the same placeholder formatClientDisambiguation
+      // already uses instead.
+      const clientDisplayName = resolved.match.clientName ?? '(χωρίς όνομα)';
       const membership = await getClientActiveMembership(business.id, clientPhone);
       if (!membership) return `Ο πελάτης ${clientDisplayName} δεν έχει ενεργή συνδρομή.`;
       await sendTelegramMessage(
