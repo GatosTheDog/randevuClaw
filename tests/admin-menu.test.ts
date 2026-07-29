@@ -144,6 +144,20 @@ describe('showAdminRootMenu — keyboard shape', () => {
     const totalButtons = keyboard.flat().length;
     expect(totalButtons).toBe(6);
   });
+
+  test('message text enumerates all 6 button labels as a numbered list', async () => {
+    const telegramClient = require('../src/telegram/client');
+    await showAdminRootMenu('123', mockBusiness);
+
+    const sendCalls = (telegramClient.sendTelegramMessageWithKeyboard as jest.Mock).mock.calls;
+    const menuText = sendCalls[0][1];
+    expect(menuText).toContain('1. Ρυθμίσεις');
+    expect(menuText).toContain('2. Μαθήματα');
+    expect(menuText).toContain('3. Πελάτες');
+    expect(menuText).toContain('4. Ατζέντα Σήμερα');
+    expect(menuText).toContain('5. Καταχώρηση Πληρωμής');
+    expect(menuText).toContain('6. Πρόσκληση Πελάτη');
+  });
 });
 
 // ---------------------------------------------------------------------------

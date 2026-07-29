@@ -109,9 +109,18 @@ export async function showAdminRootMenu(chatId: string, business: Business): Pro
     [{ text: 'Πρόσκληση Πελάτη', callback_data: callbackDataInvite }],
   ];
 
+  const menuText = `Πίνακας Ελέγχου — ${business.name}
+
+1. Ρυθμίσεις
+2. Μαθήματα
+3. Πελάτες
+4. Ατζέντα Σήμερα
+5. Καταχώρηση Πληρωμής
+6. Πρόσκληση Πελάτη`;
+
   await sendTelegramMessageWithKeyboard(
     chatId,
-    `Πίνακας Ελέγχου — ${business.name}`,
+    menuText,
     keyboard
   );
 
