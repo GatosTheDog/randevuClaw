@@ -39,7 +39,7 @@ created: 2026-07-29
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
 | 30-01-* | 01 | 1 | UX-03 | T-30-01 | Name filtering scoped to `withBusinessContext()` — owner cannot resolve another business's client by name | integration | `npm test -- --testPathPattern='ai-owner-agent'` | ❌ W0 | ⬜ pending |
-| 30-02-* | 02 | 1 | ADMIN-05 | — | N/A | unit+integration | `npm test -- --testPathPattern='menu-button\|onboarding'` | ❌ W0 | ⬜ pending |
+| 30-02-* | 02 | 1 | ADMIN-05 | — | N/A | unit+integration | `npm test -- --testPathPattern='onboarding/ai-onboarding-agent\|admin-menu'` | ❌ W0 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 

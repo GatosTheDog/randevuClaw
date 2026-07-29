@@ -481,22 +481,16 @@ await setChatMenuButton(ownerTelegramId, { type: 'default' });
 
 **If this table is empty:** All claims in this research were verified (codebase references, Telegram official docs, community reports) or cited from CONTEXT.md's locked decisions — no user confirmation needed before proceeding.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Should disambiguation text include last-booking-date for tie-breaking identical names?**
-   - What we know: D-05 allows "last-booking-date or other name-adjacent context" at Claude's discretion; existing pattern for Greek-language client lists exists in `showClientSelection`
-   - What's unclear: UX tradeoff between simpler "just names" vs. richer "names + dates" for same-named clients
-   - Recommendation: Start with name-only (simplest), add last-booking-date in a future iteration if owners report ambiguity issues with identical names
+1. **(RESOLVED) Should disambiguation text include last-booking-date for tie-breaking identical names?**
+   - RESOLVED: Name-only, per `30-01-PLAN.md` Task 1 — simplest option, matches D-05.
 
-2. **Exact retry count and backoff shape for D-06.1?**
-   - What we know: Exponential backoff (500ms → 1s → 2s) is standard; 3–5 attempts should cover transient network hiccups
-   - What's unclear: Optimal counts for Telegram's infrastructure; risk of retry storms vs. giving up too early
-   - Recommendation: Start with 3 attempts, 500ms base backoff, exponential. Test against Telegram API rate limits. Adjust if needed based on production logs.
+2. **(RESOLVED) Exact retry count and backoff shape for D-06.1?**
+   - RESOLVED: 3 attempts, 300ms base exponential backoff (`MENU_SETUP_MAX_ATTEMPTS = 3`, `MENU_SETUP_BASE_BACKOFF_MS = 300`), per `30-02-PLAN.md` Task 1.
 
-3. **Where exactly to wire D-06.2's re-assertion on /menu tap?**
-   - What we know: Owner taps `/menu` button in both text-command form and callback form; re-assertion must not block the menu response
-   - What's unclear: Exact call site (inside the `/menu` text handler vs. the `menu:root` callback handler vs. both)
-   - Recommendation: Implement in the callback handler (`menu:root`) first; use `setImmediate(async () => { ... })` to fire after the response. Add text-command handler if testing shows it's needed.
+3. **(RESOLVED) Where exactly to wire D-06.2's re-assertion on /menu tap?**
+   - RESOLVED: Inside `showAdminRootMenu` (`src/telegram/handlers/admin-menu.ts`), fire-and-forget via a new `reassertMenuButtonAndCommands()` helper — covers both the `/menu`/`/start` text-command branch and the `menu:root` callback branch in one change, since both call this same function. Per `30-02-PLAN.md` Task 2.
 
 ## Environment Availability
 
