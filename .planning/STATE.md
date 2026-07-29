@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: UX & Trust Polish
-current_phase: 7
+current_phase: 30
 status: Awaiting next milestone
-stopped_at: Phase 30 context gathered
-last_updated: "2026-07-29T01:17:47.912Z"
+stopped_at: Milestone v1.7 completed and archived
+last_updated: "2026-07-29T01:23:14.000Z"
 last_activity: 2026-07-29
 last_activity_desc: Milestone v1.7 completed and archived
 progress:
@@ -14,17 +14,17 @@ progress:
   total_plans: 14
   completed_plans: 14
   percent: 100
-current_phase_name: ESCL-03 completion
+current_phase_name: v1.7 complete — awaiting next milestone
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-07-28 after v1.6 milestone close)
+See: .planning/PROJECT.md (updated 2026-07-29 after v1.7 milestone close)
 
 **Core value:** A client can book or cancel an appointment with a Greek business entirely through a chat conversation, in Greek, with zero friction — and the owner's calendar updates automatically.
-**Current focus:** Phase 30 — client-identification-menu-reliability
+**Current focus:** Planning next milestone
 
 ## Current Position
 
