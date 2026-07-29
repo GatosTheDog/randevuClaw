@@ -29,8 +29,18 @@ import {
   handleConfirmPackage,
   showPackageSelection,
   showMembershipConfirmation,
+  showClientSelection,
 } from '../telegram/handlers/payment-flow';
-import { handleMenuCallback, MenuCallbackResult, showAdminRootMenu } from '../telegram/handlers/admin-menu';
+import {
+  handleMenuCallback,
+  MenuCallbackResult,
+  showAdminRootMenu,
+  showSettingsMenu,
+  showClassesMenu,
+  showClientsList,
+  showTodaysAgenda,
+  handleInviteGeneration,
+} from '../telegram/handlers/admin-menu';
 import {
   ClientMenuCallbackResult,
   showClientRootMenu,
@@ -169,6 +179,89 @@ async function handleFoundBusiness(
         logger.info(
           { updateId, businessId: business.id, elapsedMs: Date.now() - startedAt },
           'handleFoundBusiness: exit (/menu or /start branch)'
+        );
+        return;
+      }
+
+      // Quick 260729-s9c: native-menu-routed owner sub-menu commands, mirroring
+      // the /menu-or-/start block above exactly (clear pending reply -> handler
+      // -> mark processed). No consent gate needed — the owner branch's entry
+      // condition (business.ownerTelegramId === senderTelegramId) already gates
+      // all 6 of these.
+      if (messageText.trim() === '/settings') {
+        await withBusinessContext(business.id, async () => {
+          clearPendingReply(business.id, senderTelegramId);
+          await showSettingsMenu(senderTelegramId, business);
+          await markTelegramUpdateProcessed(updateId, business.id);
+        });
+        logger.info(
+          { updateId, businessId: business.id, elapsedMs: Date.now() - startedAt },
+          'handleFoundBusiness: exit (/settings branch)'
+        );
+        return;
+      }
+
+      if (messageText.trim() === '/classes') {
+        await withBusinessContext(business.id, async () => {
+          clearPendingReply(business.id, senderTelegramId);
+          await showClassesMenu(senderTelegramId, business);
+          await markTelegramUpdateProcessed(updateId, business.id);
+        });
+        logger.info(
+          { updateId, businessId: business.id, elapsedMs: Date.now() - startedAt },
+          'handleFoundBusiness: exit (/classes branch)'
+        );
+        return;
+      }
+
+      if (messageText.trim() === '/clients') {
+        await withBusinessContext(business.id, async () => {
+          clearPendingReply(business.id, senderTelegramId);
+          await showClientsList(senderTelegramId, business);
+          await markTelegramUpdateProcessed(updateId, business.id);
+        });
+        logger.info(
+          { updateId, businessId: business.id, elapsedMs: Date.now() - startedAt },
+          'handleFoundBusiness: exit (/clients branch)'
+        );
+        return;
+      }
+
+      if (messageText.trim() === '/agenda') {
+        await withBusinessContext(business.id, async () => {
+          clearPendingReply(business.id, senderTelegramId);
+          await showTodaysAgenda(senderTelegramId, business);
+          await markTelegramUpdateProcessed(updateId, business.id);
+        });
+        logger.info(
+          { updateId, businessId: business.id, elapsedMs: Date.now() - startedAt },
+          'handleFoundBusiness: exit (/agenda branch)'
+        );
+        return;
+      }
+
+      if (messageText.trim() === '/payment') {
+        await withBusinessContext(business.id, async () => {
+          clearPendingReply(business.id, senderTelegramId);
+          await showClientSelection(business.id, senderTelegramId);
+          await markTelegramUpdateProcessed(updateId, business.id);
+        });
+        logger.info(
+          { updateId, businessId: business.id, elapsedMs: Date.now() - startedAt },
+          'handleFoundBusiness: exit (/payment branch)'
+        );
+        return;
+      }
+
+      if (messageText.trim() === '/invite') {
+        await withBusinessContext(business.id, async () => {
+          clearPendingReply(business.id, senderTelegramId);
+          await handleInviteGeneration(senderTelegramId, business);
+          await markTelegramUpdateProcessed(updateId, business.id);
+        });
+        logger.info(
+          { updateId, businessId: business.id, elapsedMs: Date.now() - startedAt },
+          'handleFoundBusiness: exit (/invite branch)'
         );
         return;
       }

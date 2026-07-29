@@ -24,6 +24,8 @@ import {
   ClientMenuCallbackResult,
 } from '../../src/telegram/handlers/client-menu';
 import * as clientMenuModule from '../../src/telegram/handlers/client-menu';
+import * as adminMenuModule from '../../src/telegram/handlers/admin-menu';
+import * as paymentFlowModule from '../../src/telegram/handlers/payment-flow';
 import * as enforcement from '../../src/billing/enforcement';
 import * as sessionManager from '../../src/session/manager';
 
@@ -71,6 +73,27 @@ jest.mock('../../src/telegram/handlers/client-menu', () => {
     // handleClientMenuCallback uses the real implementation (not mocked)
   };
 });
+
+// Quick task 260729-s9c: mock the owner-side sub-menu handlers so telegram.ts's
+// new /settings, /classes, /clients, /agenda, /invite text-command branches
+// can be asserted in isolation. Mirrors the client-menu partial-mock factory
+// above exactly.
+jest.mock('../../src/telegram/handlers/admin-menu', () => ({
+  ...jest.requireActual('../../src/telegram/handlers/admin-menu'),
+  showSettingsMenu: jest.fn().mockResolvedValue(undefined),
+  showClassesMenu: jest.fn().mockResolvedValue(undefined),
+  showClientsList: jest.fn().mockResolvedValue(undefined),
+  showTodaysAgenda: jest.fn().mockResolvedValue(undefined),
+  handleInviteGeneration: jest.fn().mockResolvedValue(undefined),
+}));
+
+// Quick task 260729-s9c: mock showClientSelection so the new /payment
+// text-command branch (business.id-first signature) can be asserted in
+// isolation, mirroring the admin-menu partial-mock factory above.
+jest.mock('../../src/telegram/handlers/payment-flow', () => ({
+  ...jest.requireActual('../../src/telegram/handlers/payment-flow'),
+  showClientSelection: jest.fn().mockResolvedValue(undefined),
+}));
 
 // Mocking the db module to avoid Neon connection during tests
 jest.mock('../../src/database/db', () => ({
@@ -172,6 +195,27 @@ const mockedShowCancelBookingList = clientMenuModule.showCancelBookingList as je
 >;
 const mockedShowClientBalance = clientMenuModule.showClientBalance as jest.MockedFunction<
   typeof clientMenuModule.showClientBalance
+>;
+// Quick task 260729-s9c: mocked so the new /settings, /classes, /clients,
+// /agenda, /payment, /invite text-command branches in telegram.ts can be
+// asserted in isolation.
+const mockedShowSettingsMenu = adminMenuModule.showSettingsMenu as jest.MockedFunction<
+  typeof adminMenuModule.showSettingsMenu
+>;
+const mockedShowClassesMenu = adminMenuModule.showClassesMenu as jest.MockedFunction<
+  typeof adminMenuModule.showClassesMenu
+>;
+const mockedShowClientsList = adminMenuModule.showClientsList as jest.MockedFunction<
+  typeof adminMenuModule.showClientsList
+>;
+const mockedShowTodaysAgenda = adminMenuModule.showTodaysAgenda as jest.MockedFunction<
+  typeof adminMenuModule.showTodaysAgenda
+>;
+const mockedHandleInviteGeneration = adminMenuModule.handleInviteGeneration as jest.MockedFunction<
+  typeof adminMenuModule.handleInviteGeneration
+>;
+const mockedShowClientSelection = paymentFlowModule.showClientSelection as jest.MockedFunction<
+  typeof paymentFlowModule.showClientSelection
 >;
 const mockedCheckEnforcementAndGetMembership =
   enforcement.checkEnforcementAndGetMembership as jest.MockedFunction<
@@ -307,6 +351,13 @@ function setupCommonMocks() {
   mockedShowClientBookings.mockResolvedValue(undefined);
   mockedShowCancelBookingList.mockResolvedValue(undefined);
   mockedShowClientBalance.mockResolvedValue(undefined);
+  // Quick task 260729-s9c: default-resolve the new owner-side routed-command handlers.
+  mockedShowSettingsMenu.mockResolvedValue(undefined);
+  mockedShowClassesMenu.mockResolvedValue(undefined);
+  mockedShowClientsList.mockResolvedValue(undefined);
+  mockedShowTodaysAgenda.mockResolvedValue(undefined);
+  mockedShowClientSelection.mockResolvedValue(undefined);
+  mockedHandleInviteGeneration.mockResolvedValue(undefined);
   // Phase 27 (COMP-01/COMP-02): default to already-consented so existing
   // Suite B/F /start and callback flows are unaffected by the new gate.
   mockedGetOrCreateClientRelationship.mockResolvedValue({ isFirstContact: false, consentGiven: true });
@@ -1610,5 +1661,91 @@ describe('Suite G: client consent gate', () => {
       CONSENT_KEYBOARD
     );
     expect(mockedShowBookSessionList).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SUITE H: owner native-menu routed commands (quick 260729-s9c)
+// ---------------------------------------------------------------------------
+
+describe('Suite H: owner native-menu routed commands (quick 260729-s9c)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    setupCommonMocks();
+    mockedFindBusinessByWebhookId.mockResolvedValue({ ...BASE_BUSINESS });
+  });
+
+  it('owner sends /settings → showSettingsMenu called', async () => {
+    const res = await postToWebhook(makeMessageUpdate(30, OWNER_TELEGRAM_ID, '/settings'));
+
+    expect(res.status).toBe(200);
+    expect(mockedShowSettingsMenu).toHaveBeenCalledTimes(1);
+    expect(mockedShowSettingsMenu).toHaveBeenCalledWith(
+      String(OWNER_TELEGRAM_ID),
+      expect.objectContaining({ id: 1 })
+    );
+  });
+
+  it('owner sends /classes → showClassesMenu called', async () => {
+    const res = await postToWebhook(makeMessageUpdate(31, OWNER_TELEGRAM_ID, '/classes'));
+
+    expect(res.status).toBe(200);
+    expect(mockedShowClassesMenu).toHaveBeenCalledTimes(1);
+    expect(mockedShowClassesMenu).toHaveBeenCalledWith(
+      String(OWNER_TELEGRAM_ID),
+      expect.objectContaining({ id: 1 })
+    );
+  });
+
+  it('owner sends /clients → showClientsList called', async () => {
+    const res = await postToWebhook(makeMessageUpdate(32, OWNER_TELEGRAM_ID, '/clients'));
+
+    expect(res.status).toBe(200);
+    expect(mockedShowClientsList).toHaveBeenCalledTimes(1);
+    expect(mockedShowClientsList).toHaveBeenCalledWith(
+      String(OWNER_TELEGRAM_ID),
+      expect.objectContaining({ id: 1 })
+    );
+  });
+
+  it('owner sends /agenda → showTodaysAgenda called', async () => {
+    const res = await postToWebhook(makeMessageUpdate(33, OWNER_TELEGRAM_ID, '/agenda'));
+
+    expect(res.status).toBe(200);
+    expect(mockedShowTodaysAgenda).toHaveBeenCalledTimes(1);
+    expect(mockedShowTodaysAgenda).toHaveBeenCalledWith(
+      String(OWNER_TELEGRAM_ID),
+      expect.objectContaining({ id: 1 })
+    );
+  });
+
+  it('owner sends /payment → showClientSelection called with (businessId, chatId)', async () => {
+    const res = await postToWebhook(makeMessageUpdate(34, OWNER_TELEGRAM_ID, '/payment'));
+
+    expect(res.status).toBe(200);
+    expect(mockedShowClientSelection).toHaveBeenCalledTimes(1);
+    expect(mockedShowClientSelection).toHaveBeenCalledWith(
+      BASE_BUSINESS.id,
+      String(OWNER_TELEGRAM_ID)
+    );
+  });
+
+  it('owner sends /invite → handleInviteGeneration called', async () => {
+    const res = await postToWebhook(makeMessageUpdate(35, OWNER_TELEGRAM_ID, '/invite'));
+
+    expect(res.status).toBe(200);
+    expect(mockedHandleInviteGeneration).toHaveBeenCalledTimes(1);
+    expect(mockedHandleInviteGeneration).toHaveBeenCalledWith(
+      String(OWNER_TELEGRAM_ID),
+      expect.objectContaining({ id: 1 })
+    );
+  });
+
+  it('non-owner client sends /settings → showSettingsMenu NOT called, falls through to routeConversationMessage', async () => {
+    const res = await postToWebhook(makeMessageUpdate(36, CLIENT_TELEGRAM_ID, '/settings'));
+
+    expect(res.status).toBe(200);
+    expect(mockedShowSettingsMenu).not.toHaveBeenCalled();
+    expect(mockedRouteConversationMessage).toHaveBeenCalledTimes(1);
   });
 });
