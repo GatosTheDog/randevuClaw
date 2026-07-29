@@ -285,6 +285,50 @@ Session-class bookings switched from auto-confirm to a real owner approve/reject
 
 ---
 
+## Milestone: v1.7 — UX & Trust Polish
+
+**Shipped:** 2026-07-29
+
+**Phases:** 5 (26-30) | **Plans:** 14 | **Tasks:** 34
+**Code:** +18,077 / -764 lines | 108 files changed | 30,374 total src/+tests/ LOC | ~1 day (2026-07-28 → 2026-07-29)
+
+### What Was Built
+
+A uniform Ναι/Όχι confirmation policy across every destructive owner action, plus reschedules now requiring the same owner approval as new bookings (Phase 26). A hard, blocking GDPR consent gate on both `/start` and free-chat first contact, replacing a soft after-the-fact notice (Phase 27). The owner's highest-frequency actions — payment recording, setup guidance, escalation reply — all surfaced in `/menu` for the first time (Phase 28). Five booking/list UX gaps closed: same-day past-time slots no longer bookable, cancel-confirm prompts and lists show real names instead of raw IDs, the open-slot booking button stopped silently redirecting, and stale callback taps recover to a menu instead of dead-ending (Phase 29). Owners can now address clients by name instead of a raw Telegram ID in 4 free-chat tools, and real Telegram Bot API platform research grounded a code-side retry/re-assertion hedge for menu-button reliability (Phase 30).
+
+### What Worked
+
+- **Real external platform research, not guessing (Phase 30):** Spawning a researcher with WebSearch/WebFetch against the actual Telegram Bot API docs confirmed `setChatMenuButton` persists server-side indefinitely and isolated the real gap (client-side app caching) from the code-addressable one (no retry, no re-assertion) — avoided shipping a fix aimed at the wrong layer.
+- **Optional-parameter design over unconditional change (Phase 29's `excludePastToday`, Phase 30's name-only-tools):** Every time a fix touched a hot-path function with many call sites, defaulting the new behavior off and opting in only the call sites that needed it prevented breaking the 8+ owner-facing tools that deliberately needed the old behavior.
+- **Text-based disambiguation reusing the existing stateless-agent architecture (Phase 30):** Choosing "return matches as text, let Gemini re-ask" over a new inline-keyboard-plus-resume-mechanism avoided inventing new state machinery for a feature that didn't need it.
+- **Discuss-phase research catching gaps before planning (Phase 30):** An Explore-agent codebase scout during discuss-phase found a 4th raw-ID tool (`list_slotless_requests`) the ROADMAP hadn't named, and surfaced the exact file:line map for every decision before the formal researcher even ran — cheap insurance against an incomplete fix.
+
+### What Was Inefficient
+
+- **The same wrong-test-DB-port environment issue was independently rediscovered three separate times** (regression gates in phases 28, 29, and 30 all hit a misleading SASL auth error before someone worked out it was `localhost:5432` vs. the real `5433` container). The fix (`SESSION_TEST_DATABASE_URL=...5433...`) should have been written into a durable project note (now finally added to PROJECT.md's Context section) the first time it was diagnosed, not re-discovered per phase.
+- **Two code-review subagents stalled with zero output this milestone** (a spend-limit interruption in Phase 28, and a genuine no-progress stall in Phase 30) — both required noticing via `TaskOutput(block=false)` polling and a clean retry rather than trusting the agent's return status alone. Always verify the artifact (`*-REVIEW.md`) actually exists on disk before treating a review as complete or lost.
+- **`git status --porcelain` after moving a resolved todo to `completed/` missed staging the deletion from `pending/`** once (Phase 29's `state.commit --files` call listed the destination but not the source path) — required a follow-up commit to actually stage the removal. Using `git mv` explicitly (done correctly for Phase 30's equivalent step) avoids this class of mistake.
+
+### Patterns Established
+
+- **Centralize a cross-tenant lookup helper the moment a phase touches 2+ ad-hoc inline joins for the same entity** (`findSessionInstanceById` in Phase 29, `resolveClientByName`/`getAllClientsForBusiness` in Phase 30) — every phase this milestone that consolidated such a helper also had it code-review-verified as genuinely `businessId`-scoped, closing a class of bug (Phase 28's pending-reply leak, Phase 29's `escl:approve` unscoped join) that recurred until centralized.
+- **A locked user decision that removes a fallback path should get an explicit "what happens at the edge this creates" follow-up question in the same discuss-phase session** (Phase 30's name-only override immediately followed by the zero-match-message clarifying question) — this directly fed the CONTEXT.md decision that made the eventual WR-01 code-review finding fixable without re-litigating the original choice.
+- **When a code-reviewer or fixer subagent's result includes an unexpected "SECURITY WARNING" or similar classifier flag, verify the actual commits/diffs directly rather than either blindly trusting or blindly discarding the agent's work** (Phase 29's fixer hit a transient classifier flag; the underlying 3 commits were verified clean and scoped exactly as described).
+
+### Key Lessons
+
+1. **Code review before marking a phase complete is load-bearing, not optional insurance.** All 5 v1.7 phases went through a review pass, and every single one surfaced at least one real cross-tenant/cross-client data-isolation bug that the executor's own passing tests had not caught (Phase 28: pending-reply cross-business leak; Phase 29: `showCancelConfirm` zero ownership check + `escl:approve` unscoped join; Phase 30: permanent disambiguation dead-end + latent ID-leak trap). None of these were exotic — they were the same "did this query actually filter by businessId, or just accept the parameter" class of bug the v1.4/v1.5 retrospectives already flagged. The lesson compounds: keep the review-before-close gate standing practice, and specifically brief reviewers to re-check this exact bug class every time a phase adds a new by-ID lookup.
+2. **Diagnose an environment quirk once, then write it down somewhere every subsequent agent prompt in the same milestone will see** — re-discovering the same wrong-DB-port issue three times this milestone was pure avoidable overhead; a one-line addition to PROJECT.md's Context section the first time would have saved it.
+3. **Subagent "no output" is not the same as "no result"** — check the filesystem (does the expected artifact exist?) before deciding whether to retry, accept partial work, or escalate. Both stalls this milestone had recoverable partial state (one had already written a complete REVIEW.md before dying; the other genuinely had nothing and needed a clean re-run) and treating them identically would have wasted one and lost the other.
+
+### Cost Observations
+
+- Sessions: 1 continuous session covering phases 26-30 execution, 5 code-review-and-fix cycles, and full v1.7 milestone close
+- Model mix: Sonnet 5 for executors/planners/fixers, Haiku for researchers/verifiers (per project's configured model profile)
+- Notable: 5/5 phases required a fix-after-review cycle before verification — none were "clean on first pass," suggesting the executor prompts could be strengthened up front with the specific bug class from Key Lesson 1 rather than relying entirely on the review gate to catch it after the fact
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -298,6 +342,7 @@ Session-class bookings switched from auto-confirm to a real owner approve/reject
 | v1.4 | 5 | 16 | Single-bot merge + menus + escalation; first milestone with a retroactive verification sweep at close |
 | v1.5 | 1 | 3 | AI-driven onboarding replaces step-machine; ad-hoc phase retroactively versioned at close |
 | v1.6 | 4 | 4 | Booking approval + admin power tools + invite generator; first close to run a full open-artifact audit (9 items triaged) |
+| v1.7 | 5 | 14 | UX/trust polish across confirmation policy, consent, discoverability, list clarity, and client identification; first milestone where every phase's code review caught a real cross-tenant/cross-client data bug |
 
 ### Cumulative Quality
 
@@ -310,6 +355,7 @@ Session-class bookings switched from auto-confirm to a real owner approve/reject
 | v1.4 | 344 total, 247 passing | Clean (src/) | 94 pre-existing test failures unrelated to v1.4 (stale fixtures, TS6200 collisions) — test-suite health debt flagged, not fixed |
 | v1.5 | 36/36 (onboarding) | Clean | Full-suite figure not re-measured |
 | v1.6 | not re-measured | Clean (src/) | 4 WhatsApp-only test files removed; v1.4's 247/344 figure no longer trustworthy — recommend a fresh full measurement early v1.7 |
+| v1.7 | not re-measured (full suite never run per project convention — machine-crash risk) | Clean (src/) | Every touched test file passed via scoped `--testPathPattern` runs; 1 known pre-existing unrelated failure (`SBOK-04`, logged in Phase 29's deferred-items.md) confirmed via `git stash` to predate v1.7. Recommend the fresh full-suite health measurement (already recommended at v1.6 close) actually happen early v1.8. |
 
 ### Top Lessons (Verified Across Milestones)
 
@@ -323,3 +369,6 @@ Session-class bookings switched from auto-confirm to a real owner approve/reject
 8. A debug session that spins off a distinct follow-on issue into a new session must have its own frontmatter `status` updated at that moment — otherwise it sits as a false "open" item until the next milestone's audit catches it (v1.6).
 9. Human-verification gaps backed by strong automated proxy evidence (e.g. `jsQR`-decoded QR payload matching exactly) are usually a one-line user confirmation away from closing — ask immediately rather than letting them become a milestone-close blocker (v1.6).
 8. Phases executed without per-phase code review + verification accumulate risk invisibly — a milestone-close sweep that retroactively verifies every phase (not just the currently active one) is the last safety net, but it's much cheaper to catch bugs per-phase than to batch-discover 3 of them at once during close.
+10. Code review before marking any phase complete is load-bearing, not optional — v1.7 is the first milestone where every single phase's review pass caught a real cross-tenant/cross-client data-isolation bug that passing tests had missed, all the same "did this query actually filter by tenant ID" bug class flagged since v1.4/v1.5 (v1.7).
+11. Diagnose an environment quirk (wrong port, wrong env var) once and write it into a durable project doc immediately — re-discovering the same fix independently across multiple phases in one milestone is pure avoidable overhead (v1.7).
+12. A subagent returning with no output is not the same as a lost result — check whether the expected artifact file actually exists on disk before deciding to retry, accept, or escalate (v1.7).

@@ -8,30 +8,9 @@
 
 A Telegram-native appointment booking platform for Greek service businesses (pilates studios, gyms, hair salons, etc.). Clients book, cancel, or ask questions by chatting with their business's own bot; an AI agent understands the request and handles the booking. Business owners run everything — setup, accepting/rejecting bookings, cancellations, daily agenda, billing — through chat too, no separate app or dashboard required.
 
-**PoC state (v1.6):** Each business runs its own Telegram bot, single entry point for both owner and clients. Owners onboard themselves via a freeform Gemini tool-calling conversation (including class schedule), configure billing packages, and record client payments entirely through guided chat. The bot tracks session balances, enforces membership policies, books/cancels specific class sessions with atomic capacity locking, and proactively notifies before memberships expire. Session-class bookings now require owner approval before confirming; owners can delete lessons (cascading to affected bookings), get a persistent menu button, and can invite new clients via a generated QR/deep-link message. The WhatsApp Cloud API integration was removed from the codebase (v1.6) — the bot is Telegram-only; re-introducing per-business WhatsApp is a deferred future decision (not blocked mid-build like before), tracked in `.planning/todos/pending/2026-07-07-pivot-to-per-business-whatsapp-numbers-post-poc.md`.
+**PoC state (v1.7):** Each business runs its own Telegram bot, single entry point for both owner and clients. Owners onboard themselves via a freeform Gemini tool-calling conversation (including class schedule), configure billing packages, and record client payments entirely through guided chat — now also reachable from `/menu` directly. The bot tracks session balances, enforces membership policies, books/cancels specific class sessions with atomic capacity locking, and proactively notifies before memberships expire. Session-class bookings and reschedules both require owner approval before confirming, and every destructive owner action requires a real button-tap confirmation regardless of entry path. A client's first contact — via `/start` or free chat — hard-gates on an explicit Ναι/Όχι consent prompt before any menu or AI reply. Owners can delete lessons (cascading to affected bookings), address clients by name instead of a raw Telegram ID in 4 owner tools, get a persistent menu button (with retry/re-assertion hedges against known reliability gaps), and can invite new clients via a generated QR/deep-link message. Same-day past-time slots no longer show as bookable; cancel-confirm prompts and booking/cancellation lists show real dates and service names instead of raw IDs; stale callback taps recover to a menu instead of dead-ending. The WhatsApp Cloud API integration was removed from the codebase (v1.6) — the bot is Telegram-only; re-introducing per-business WhatsApp is a deferred future decision (not blocked mid-build like before), tracked in `.planning/todos/pending/2026-07-07-pivot-to-per-business-whatsapp-numbers-post-poc.md`.
 
 **⚠ Documentation gap discovered at v1.4 close:** v1.3 (Studio Session Scheduling & Slotless Bookings) was marked shipped in ROADMAP.md but its `/gsd-complete-milestone` archival step never actually ran — no `.planning/milestones/v1.3-ROADMAP.md` or `v1.3-REQUIREMENTS.md` exists, and v1.3's original requirement IDs were lost when v1.4's REQUIREMENTS.md overwrote the live file without archiving v1.3 first. The Validated section below reconstructs v1.3's shipped scope from ROADMAP.md phase descriptions (reliable) rather than exact REQ-IDs (lost). Not fixed here — flagging for awareness; a full retroactive v1.3 archive would need to be reconstructed from git history if ever needed.
-
-## Current Milestone: v1.7 UX & Trust Polish
-
-**Goal:** Close UX/trust gaps surfaced by a full-bot audit — fix broken/inconsistent owner tooling, make high-frequency actions discoverable, close a real compliance hole, and give clients a genuine opt-in path.
-
-**Target features:**
-- Wire or remove dead "reply to client" escalation button
-- Fix same-day past-time slots showing as bookable
-- Contextual detail in cancel-confirm prompts (show date/service, not raw ID)
-- Remove/fix decorative "Νέο μάθημα (chat)" button
-- Back-to-menu recovery on unknown-callback fallback
-- Admin menu button for record-payment (currently chat-only)
-- Menu entry points for hours/services/prices/class setup
-- Name-based match for chat tools needing raw Telegram ID today
-- Uniform Ναι/Όχι confirmation policy for destructive owner actions
-- Reverse reschedule to require owner approval (like new bookings)
-- Fix GDPR consent-notice gap for /start-first clients
-- Real client registration/opt-in flow
-- Research + fix Telegram persistent menu button reliability
-- Show service/class name in booking/cancel lists
-- Fix/hide decorative booking button for open_slots businesses
 
 ## Core Value
 
@@ -103,6 +82,8 @@ A client can book or cancel an appointment with a Greek business entirely throug
 - Payments/deposits — not requested, adds scope
 - Cancellation cutoff windows — opt-in per business as of v1.3 (CANC); "cancel anytime" is preserved as the default unless the owner explicitly enables a cutoff; hard enforcement (no-show fees, mandatory deposit) remains out of scope
 - English language support — Greek only, revisit if expanding beyond Greece
+- Fuzzy string-matching library (fuse.js) for name-based client lookup — v1.7's existing case-insensitive substring match (already used for service names since v1.4) was sufficient for UX-03; revisit only if real false-negatives surface in use
+- Consolidating two divergent "today's schedule" implementations (menu vs. chat) — cosmetic/maintenance smell from the v1.7 UX audit, not user-facing; low priority
 
 ## Context
 
@@ -119,12 +100,15 @@ A client can book or cancel an appointment with a Greek business entirely throug
 - Single-bot routing (v1.4): platform bot removed; each business's own bot handles admin (Telegram-ID match to owner_telegram_id) and client traffic; `businesses.webhook_id` (UUID) maps webhook path to tenant; AsyncLocalStorage threads RLS context per request
 - DB connection reliability (v1.6, two debug sessions): fixed a pg-pool checked-out-client error-listener gap that could crash the Node process on `idle_in_transaction_session_timeout` (commit 2b70a74), and a drizzle-orm client leak on a failed initial `begin` statement (commit 766ca99, `runInTransaction` helper in `src/database/db.ts`) — both live-verified in production
 - OAuth consent flow (Google Calendar) CLI ready; tokens needed for live calendar sync demo
-- **Test suite health not re-measured at v1.6 close** (last measured at v1.4 close: 247/344 passing, 94 failing across ~32 suites, all pre-existing test-fixture drift unrelated to app code — `npx tsc --noEmit` on `src/` stays clean). v1.6 removed 4 WhatsApp-only test files and added several new ones; recommend a dedicated test-suite health pass early in v1.7 rather than assuming the v1.4 numbers still hold.
+- **Test suite health not re-measured at v1.6 close** (last measured at v1.4 close: 247/344 passing, 94 failing across ~32 suites, all pre-existing test-fixture drift unrelated to app code — `npx tsc --noEmit` on `src/` stays clean). v1.6 removed 4 WhatsApp-only test files and added several new ones; recommend a dedicated test-suite health pass early in v1.8 rather than assuming the v1.4 numbers still hold.
+- v1.7 shipped 2026-07-29: 5 phases (26-30), 14 plans, 34 tasks, +18,077/-764 lines since v1.6 tag, 108 files changed, 30,374 total src/+tests/ LOC, ~1 day (2026-07-28 → 2026-07-29). One known pre-existing test bug surfaced during execution and left unfixed (out of scope both times): `tests/session-booking-flow.test.ts`'s `SBOK-04` "multi-booking partial success" case fails on a duplicate-active-catalog constraint collision in its own test fixture, unrelated to any v1.7 app code — logged in `.planning/phases/29-booking-list-clarity/deferred-items.md`.
+- Local dev environment quirk discovered during v1.7: the test-DB fallback URL in this sandbox points to the wrong Postgres port (5432) — the real `randevuclaw-pg` test container is on 5433. Explicit `SESSION_TEST_DATABASE_URL=postgresql://manolis:password@localhost:5433/randevuclaw_test` is required for real-DB integration tests to pass; without it, tests fail with a misleading SASL auth error rather than a connection-refused error. Not an app bug — environment config only.
+- Every v1.7 phase went through a code-review pass before being marked complete, and every single one found and fixed at least one real cross-tenant/cross-client data-isolation bug the executor's own tests hadn't caught: Phase 28 (pending-reply Map missing businessId scoping), Phase 29 (showCancelConfirm had zero ownership check — enumerable via crafted callback_data), Phase 30 (a permanent disambiguation dead-end for identical-first-name clients, plus a latent ID-leak trap in dead code). Recommend keeping the review-before-close gate as standard practice, not optional.
 
 ## Constraints
 
-- **Budget**: Near-$0 for PoC — AI (Gemini free tier), DB (Neon free tier), WhatsApp (Meta Cloud API free tier). fly.io costs ~$1.94/mo — accepted as negligible.
-- **Tech stack**: Node.js/TypeScript backend, Neon (Postgres) for data, fly.io for hosting, Cloudflare R2 for storage, Google Gemini API for AI, Google Calendar API for owner sync, WhatsApp Cloud API for messaging (Telegram during PoC).
+- **Budget**: Near-$0 for PoC — AI (Gemini free tier), DB (Neon free tier). fly.io costs ~$1.94/mo — accepted as negligible.
+- **Tech stack**: Node.js/TypeScript backend, Neon (Postgres) for data, fly.io for hosting, Cloudflare R2 for storage, Google Gemini API for AI, Google Calendar API for owner sync, Telegram Bot API (Telegraf) for messaging — bot is Telegram-only as of v1.6, WhatsApp Cloud API fully removed from the codebase.
 - **Language**: Bot conversation is Greek-only for the PoC.
 - **Compliance**: GDPR applies; data model keeps phone number + booking history only. Data-deletion flow (COMP-02/03/04) and Gemini rate-limit resilience (RESIL-01) were deferred v1.1→v1.3 but never actually scheduled into a v1.3 phase — still not built as of v1.4. Still Active/deferred, not Out of Scope.
 
@@ -175,6 +159,16 @@ A client can book or cancel an appointment with a Greek business entirely throug
 | sendBusinessInvite is the single call site for both admin-menu and free-chat invite triggers (Phase 25) | Zero duplicated Greek copy or deep-link construction between the two entry points | ✓ Good |
 | pg Pool 'connect'-event listener attached per-client, not just Pool-level 'error' (debug session, v1.6) | Pool-level .on('error') only covers idle clients; a client checked out mid-transaction had zero error listeners, crashing the process on idle_in_transaction_session_timeout | ✓ Good — live-verified, no crash recurrence post-fix |
 | runInTransaction helper wraps a manually-checked-out client instead of using drizzle's db.transaction() (debug session, v1.6) | drizzle-orm's node-postgres session leaks the pool client when the initial begin statement itself rejects (outside its own try/finally) — the helper guarantees client.release() regardless of where the transaction fails | ✓ Good |
+| Reschedule holds the old booking until the new one is approved, rather than cancel-immediately (Phase 26) | A naive fix would leave the client with zero active bookings during the pending-approval window, and permanently if rejected | ✓ Good |
+| Contextual button labels per action type (not generic Ναι/Όχι everywhere) for CONF-01 (Phase 26) | UX research found generic-only confirm buttons on destructive actions cause misclicks/regret; some contextual pairs (Έγκριση/Απόρριψη) were already in production | ✓ Good |
+| Repurposed the existing `consentGiven` column (default flip true→false) instead of adding a new column (Phase 27) | Matches research recommendation; avoids a second consent-adjacent boolean field | ✓ Good |
+| Consent gate is a hard block on both `/start` and free-chat, not a soft/skippable notice (Phase 27) | Closes the actual GDPR gap — a soft notice-after-the-fact doesn't constitute real consent-before-processing | ✓ Good |
+| Admin-menu wiring work (payment button, setup guidance) framed as pure wiring, not new building (Phase 28) | The underlying flows (`showClientSelection`, Gemini NLU tool-calling) already existed and worked — the gap was discoverability, not capability | ✓ Good |
+| `listSessions()` gets an optional `excludePastToday` param (default false), not an unconditional filter (Phase 29) | 8 of 13 call sites are owner-facing tools that must still find/cancel/assign a same-day already-started class via chat; an unconditional filter would have broken those | ✓ Good |
+| Callback-fallback recovery fixed via text+keyboard on existing paths, not a new toast/state mechanism (Phase 29) | Matches the codebase's existing message+keyboard convention; no new Telegram API surface needed | ✓ Good |
+| Name-only client lookup — raw Telegram ID/phone input fully removed, not kept as a fallback (Phase 30) | Deliberate user override of the safer "accept both" recommendation; accepted tradeoff: a client who hasn't messaged yet is unreachable by these 4 tools until they do | ✓ Good — but is the source of WR-01 (identical-name dead end), fixed in the same phase's review pass |
+| Disambiguation is text-based (stateless Gemini re-ask), not a new inline-keyboard picker + tool-call-resumption mechanism (Phase 30) | Fits the existing stateless-agent-per-turn architecture (Phase 21 decision) with zero new state machine | ✓ Good |
+| Telegram menu-button retry+re-assertion hedge added regardless of platform research findings (Phase 30) | The "one API call, one shot, no retry" gap was real and code-addressable independent of whatever the deeper client-side-caching research found | ✓ Good — research confirmed server-side state persists indefinitely; remaining unreliability is a genuine client-side app-cache limitation, documented not "fixed" |
 
 ## Evolution
 
@@ -191,4 +185,4 @@ A client can book or cancel an appointment with a Greek business entirely throug
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-28 after v1.7 Phase 27*
+*Last updated: 2026-07-29 after v1.7 milestone*
