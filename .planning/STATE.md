@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-07-29 after v1.7 milestone close)
 Phase: Milestone v1.7 complete
 Plan: —
 Status: Awaiting next milestone
-Last activity: 2026-07-29 - Completed quick task 260729-rjv: Enumerate admin root menu options in message text; add /book, /mybookings, /cancel, /balance as routed Telegram commands in the client native menu button alongside /start
+Last activity: 2026-07-29 - Completed quick task 260729-s9c: Add owner-side native Telegram menu-button parity: register /settings, /classes, /clients, /agenda, /payment, /invite alongside /menu, each routed directly to its sub-menu
 
 ## Performance Metrics
 
@@ -118,6 +118,7 @@ Last activity: 2026-07-29 - Completed quick task 260729-rjv: Enumerate admin roo
 | Phase quick P260729-mlr | 5min | 3 tasks | 8 files |
 | Phase quick P260729-n05 | 35min | 3 tasks | 4 files |
 | Phase quick P260729-rjv | 8min | 3 tasks | 6 files |
+| Phase quick P260729-s9c | 12min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -246,6 +247,7 @@ Recent decisions affecting current work:
 - [Phase ?]: [Quick 260729-mlr]: CONSENT_PROMPT_GREEK_TEMPLATE signature changed businessName:string -> business:Business to support a per-business policy summary appended before the consent question
 - [Phase ?]: [Quick 260729-n05]: Admin client deletion offers two actions (Πλήρης διαγραφή full-erase across 8 tables vs Αφαίρεση από λίστα unlink-only) rather than one, per explicit user request; both re-verify rel.businessId === business.id at handler AND query layer (defense-in-depth) before any mutation; no message sent to the deleted client (they naturally see the consent/intro flow again next contact since isFirstContact keys off clientBusinessRelationships row presence)
 - [Phase ?]: [Quick 260729-rjv]: Client's native Telegram command menu (☰ button) expanded from 1 command (/start) to 5 (start/book/mybookings/cancel/balance), each independently routed in handleFoundBusiness behind the same consent gate as /start, per explicit user request after clarifying they wanted the native command list itself populated (not just the in-chat menu text, which was already fixed by 260729-mlr)
+- [Phase ?]: [Quick 260729-s9c]: Owner's native Telegram command menu expanded from 1 command (/menu) to 7 (menu/settings/classes/clients/agenda/payment/invite), mirroring 260729-rjv's client-side pattern exactly — each routes directly to its admin sub-menu with no consent gate (ownerTelegramId match already gates entry), skipping the root menu entirely
 
 ### Pending Todos
 
@@ -267,6 +269,7 @@ Recent decisions affecting current work:
 | 260729-mlr | show all 4 menu options in root menu text + surface configured policies on first-contact consent message | 2026-07-29 | 7805eb7 | [260729-mlr-show-all-menu-options-in-root-menu-text-](./quick/260729-mlr-show-all-menu-options-in-root-menu-text-/) |
 | 260729-n05 | admin can view client list and delete clients (full erase or unlink-only) + fix nonsensical Greek settings-menu toggle labels | 2026-07-29 | d7af8db | [260729-n05-admin-can-view-client-list-and-delete-cl](./quick/260729-n05-admin-can-view-client-list-and-delete-cl/) |
 | 260729-rjv | enumerate admin root menu options in message text + add /book /mybookings /cancel /balance as routed client Telegram commands | 2026-07-29 | a725eec | [260729-rjv-enumerate-admin-root-menu-options-in-mes](./quick/260729-rjv-enumerate-admin-root-menu-options-in-mes/) |
+| 260729-s9c | add owner-side native Telegram menu-button parity: register /settings /classes /clients /agenda /payment /invite alongside /menu, each routed directly to its sub-menu | 2026-07-29 | a1464d1 | [260729-s9c-add-owner-side-native-telegram-menu-butt](./quick/260729-s9c-add-owner-side-native-telegram-menu-butt/) |
 
 ### Blockers/Concerns
 
