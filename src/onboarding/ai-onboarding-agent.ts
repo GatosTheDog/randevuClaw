@@ -597,22 +597,41 @@ export async function executeOnboardingTool(
           webhookSecret
         );
 
-        // BOT-06: best-effort menu/command registration. Wrapped in its own
-        // try/catch so a Telegram API hiccup here never blocks activateBusiness
-        // or the onboardingCompleted DB write below (T-24-04).
-        try {
-          await setMyCommands(
-            business.botToken!,
-            [{ command: 'menu', description: 'Εμφάνιση μενού διαχείρισης' }],
-            { type: 'chat', chat_id: ownerTelegramId }
-          );
-          await setMyCommands(business.botToken!, [
-            { command: 'start', description: 'Έναρξη κράτησης ραντεβού' },
-          ], { type: 'all_private_chats' });
-          await setChatMenuButton(business.botToken!, ownerTelegramId);
-          await setChatMenuButton(business.botToken!);
-        } catch (err) {
-          logger.error({ err, businessId: business.id }, 'finish_onboarding: menu/command registration failed');
+        // BOT-06 / D-06.1: best-effort menu/command registration, now with
+        // bounded retry + exponential backoff. This call structurally fires
+        // exactly once in a business's entire lifetime (onboardingCompleted
+        // gates every subsequent owner message away from this agent), so a
+        // single transient Telegram API hiccup here had no second chance
+        // before this retry loop. Never blocks activateBusiness or the
+        // onboardingCompleted DB write below (T-24-04) — on exhaustion we
+        // log and fall through exactly as the original single-attempt swallow did.
+        const MENU_SETUP_MAX_ATTEMPTS = 3;
+        const MENU_SETUP_BASE_BACKOFF_MS = 300;
+
+        for (let attempt = 1; attempt <= MENU_SETUP_MAX_ATTEMPTS; attempt++) {
+          try {
+            await setMyCommands(
+              business.botToken!,
+              [{ command: 'menu', description: 'Εμφάνιση μενού διαχείρισης' }],
+              { type: 'chat', chat_id: ownerTelegramId }
+            );
+            await setMyCommands(business.botToken!, [
+              { command: 'start', description: 'Έναρξη κράτησης ραντεβού' },
+            ], { type: 'all_private_chats' });
+            await setChatMenuButton(business.botToken!, ownerTelegramId);
+            await setChatMenuButton(business.botToken!);
+            break;
+          } catch (err) {
+            if (attempt === MENU_SETUP_MAX_ATTEMPTS) {
+              logger.error(
+                { err, businessId: business.id, attemptsExhausted: MENU_SETUP_MAX_ATTEMPTS },
+                'finish_onboarding: menu/command registration failed after retries'
+              );
+            } else {
+              const delayMs = MENU_SETUP_BASE_BACKOFF_MS * 2 ** (attempt - 1);
+              await new Promise((resolve) => setTimeout(resolve, delayMs));
+            }
+          }
         }
 
         await activateBusiness(business.id, webhookId, webhookSecret);

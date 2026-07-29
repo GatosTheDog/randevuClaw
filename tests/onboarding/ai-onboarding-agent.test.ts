@@ -524,6 +524,39 @@ describe('executeOnboardingTool', () => {
       expect(mockedActivateBusiness).toHaveBeenCalledWith(business.id, expect.any(String), expect.any(String));
       expect(mockedSendTelegramMessage).toHaveBeenCalledWith(OWNER_TELEGRAM_ID, expect.any(String));
     });
+
+    it('D-06.1: retries the full 4-call sequence after one transient setMyCommands rejection and succeeds', async () => {
+      const business = makeBusiness({ name: 'Pilates Athens' });
+      mockedListServicesForBusiness.mockResolvedValue([makeService()]);
+      mockedListBusinessHours.mockResolvedValue(SEVEN_HOUR_ROWS);
+      mockedSetMyCommands.mockRejectedValueOnce(new Error('Telegram API down')).mockResolvedValue(undefined);
+
+      const result = await executeOnboardingTool('finish_onboarding', {}, business, TODAY, OWNER_TELEGRAM_ID);
+
+      expect(result).toBe('');
+      // 1 failed attempt (chat-scoped setMyCommands call) + 2 succeeding calls
+      // in the retry attempt (chat-scoped + all_private_chats-scoped).
+      expect(mockedSetMyCommands).toHaveBeenCalledTimes(3);
+      // setChatMenuButton only ever reached in the successful retry attempt.
+      expect(mockedSetChatMenuButton).toHaveBeenCalledTimes(2);
+      expect(mockedActivateBusiness).toHaveBeenCalledWith(business.id, expect.any(String), expect.any(String));
+    });
+
+    it('D-06.1: exhausts all retry attempts, never reaches setChatMenuButton, and still lets activateBusiness run', async () => {
+      const business = makeBusiness({ name: 'Pilates Athens' });
+      mockedListServicesForBusiness.mockResolvedValue([makeService()]);
+      mockedListBusinessHours.mockResolvedValue(SEVEN_HOUR_ROWS);
+      mockedSetMyCommands.mockRejectedValue(new Error('Telegram API down'));
+
+      const result = await executeOnboardingTool('finish_onboarding', {}, business, TODAY, OWNER_TELEGRAM_ID);
+
+      expect(result).toBe('');
+      // MENU_SETUP_MAX_ATTEMPTS = 3 — always rejects on the first setMyCommands
+      // call of each attempt, so exactly 3 attempts are made.
+      expect(mockedSetMyCommands).toHaveBeenCalledTimes(3);
+      expect(mockedSetChatMenuButton).not.toHaveBeenCalled();
+      expect(mockedActivateBusiness).toHaveBeenCalledWith(business.id, expect.any(String), expect.any(String));
+    });
   });
 
   it('returns a Greek error string for an unknown tool name', async () => {
