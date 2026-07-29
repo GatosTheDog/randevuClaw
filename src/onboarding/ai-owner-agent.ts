@@ -156,10 +156,14 @@ function formatClientDisambiguation(matches: AllTimeClient[]): string {
   // make "give a more specific name" an impossible ask — point the owner at
   // the existing /menu → Πελάτες client-list escape hatch instead.
   const hasDuplicateNames = new Set(allNames).size < allNames.length;
-  const names = allNames.join(', ');
+  // WR-03: cap the rendered list consistent with this file's own
+  // list_sessions convention (caps at 20, appends "...και N ακόμα").
+  const total = allNames.length;
+  const names = allNames.slice(0, 20).join(', ');
+  const suffix = total > 20 ? ` ...και ${total - 20} ακόμα.` : '';
   return hasDuplicateNames
-    ? `Πολλοί πελάτες ταιριάζουν με το ίδιο όνομα: ${names}. Δεν μπορώ να τους ξεχωρίσω — χρησιμοποιήστε τη λίστα πελατών στο μενού (/menu → Πελάτες).`
-    : `Πολλοί πελάτες ταιριάζουν: ${names}. Δώστε ένα πιο συγκεκριμένο όνομα.`;
+    ? `Πολλοί πελάτες ταιριάζουν με το ίδιο όνομα: ${names}${suffix}. Δεν μπορώ να τους ξεχωρίσω — χρησιμοποιήστε τη λίστα πελατών στο μενού (/menu → Πελάτες).`
+    : `Πολλοί πελάτες ταιριάζουν: ${names}${suffix}. Δώστε ένα πιο συγκεκριμένο όνομα.`;
 }
 
 // ---------------------------------------------------------------------------
