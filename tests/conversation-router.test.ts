@@ -119,7 +119,7 @@ describe('routeConversationMessage', () => {
 
     expect(channel.sendMessageWithKeyboard).toHaveBeenCalledWith(
       'tg123',
-      CONSENT_PROMPT_GREEK_TEMPLATE(BUSINESS.name),
+      CONSENT_PROMPT_GREEK_TEMPLATE(BUSINESS),
       CONSENT_KEYBOARD
     );
     expect(mockedAiBookingAgent).not.toHaveBeenCalled();

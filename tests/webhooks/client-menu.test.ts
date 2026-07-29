@@ -1466,7 +1466,7 @@ describe('Suite G: client consent gate', () => {
     expect(res.status).toBe(200);
     expect(mockedSendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
       String(CLIENT_TELEGRAM_ID),
-      CONSENT_PROMPT_GREEK_TEMPLATE(BASE_BUSINESS.name),
+      CONSENT_PROMPT_GREEK_TEMPLATE(BASE_BUSINESS),
       CONSENT_KEYBOARD
     );
     expect(mockedShowClientRootMenu).not.toHaveBeenCalled();

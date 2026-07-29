@@ -223,7 +223,7 @@ async function handleFoundBusiness(
         if (!consentGiven) {
           await sendTelegramMessageWithKeyboard(
             senderTelegramId,
-            CONSENT_PROMPT_GREEK_TEMPLATE(business.name),
+            CONSENT_PROMPT_GREEK_TEMPLATE(business),
             CONSENT_KEYBOARD
           );
         } else {

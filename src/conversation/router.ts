@@ -42,7 +42,7 @@ export async function routeConversationMessage(
     logger.info({ businessId: business.id, senderId }, 'routeConversationMessage: consent gate blocked message');
     await channel.sendMessageWithKeyboard(
       senderId,
-      CONSENT_PROMPT_GREEK_TEMPLATE(business.name),
+      CONSENT_PROMPT_GREEK_TEMPLATE(business),
       CONSENT_KEYBOARD
     );
     return;
