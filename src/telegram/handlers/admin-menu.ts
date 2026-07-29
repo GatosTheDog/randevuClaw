@@ -163,29 +163,29 @@ export async function showSettingsMenu(chatId: string, business: Business): Prom
     ? 'menu:settings:slotless_off'
     : 'menu:settings:slotless_on';
   const slotlessText = business.slotlessRequestsEnabled
-    ? 'Απενεργοποίηση αιτημάτων slot'
-    : 'Ενεργοποίηση αιτημάτων slot';
+    ? 'Απενεργοποίηση αιτημάτων χωρίς slot'
+    : 'Ενεργοποίηση αιτημάτων χωρίς slot';
 
   const cutoffCallbackData = business.cancellationCutoffEnabled
     ? 'menu:settings:cutoff_off'
     : 'menu:settings:cutoff_on';
   const cutoffText = business.cancellationCutoffEnabled
-    ? 'Απενεργοποίηση cutoff'
-    : 'Ενεργοποίηση cutoff';
+    ? 'Απενεργοποίηση πολιτικής ακύρωσης'
+    : 'Ενεργοποίηση πολιτικής ακύρωσης';
 
   const multiCallbackData = business.allowMultiBooking
     ? 'menu:settings:multibooking_off'
     : 'menu:settings:multibooking_on';
   const multiText = business.allowMultiBooking
-    ? 'Απαγόρευση πολλαπλών'
-    : 'Επιτροπή πολλαπλών';
+    ? 'Απαγόρευση πολλαπλών κρατήσεων'
+    : 'Έγκριση πολλαπλών κρατήσεων';
 
   const thresholdCallbackData = business.lastSessionThresholdEnabled
     ? 'menu:settings:threshold_off'
     : 'menu:settings:threshold_on';
   const thresholdText = business.lastSessionThresholdEnabled
-    ? 'Απενεργοποίηση ειδοποίησης'
-    : 'Ενεργοποίηση ειδοποίησης';
+    ? 'Απενεργοποίηση ειδοποίησης τελευταίου μαθήματος'
+    : 'Ενεργοποίηση ειδοποίησης τελευταίου μαθήματος';
 
   const backCallbackData = 'menu:root';
   const hoursExamplesData = 'menu:settings:hours_examples';

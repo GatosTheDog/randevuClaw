@@ -272,6 +272,29 @@ describe('showSettingsMenu — keyboard shape', () => {
     ]);
     expect(keyboard[7]).toEqual([{ text: '« Πίσω στο Μενού', callback_data: 'menu:root' }]);
   });
+
+  test('quick 260729-n05: all 4 toggle buttons read as corrected, complete Greek phrases (default mockBusiness — all flags false)', async () => {
+    const telegramClient = require('../src/telegram/client');
+    await showSettingsMenu('123', mockBusiness);
+
+    const sendCalls = (telegramClient.sendTelegramMessageWithKeyboard as jest.Mock).mock.calls;
+    const keyboard = sendCalls[0][2];
+
+    expect(keyboard[0][0].text).toBe('Ενεργοποίηση αιτημάτων χωρίς slot');
+    expect(keyboard[1][0].text).toBe('Ενεργοποίηση πολιτικής ακύρωσης');
+    expect(keyboard[2][0].text).toBe('Έγκριση πολλαπλών κρατήσεων');
+    expect(keyboard[3][0].text).toBe('Ενεργοποίηση ειδοποίησης τελευταίου μαθήματος');
+  });
+
+  test('quick 260729-n05: multi-booking toggle OFF-direction label reads "prohibition of multiple bookings" phrase', async () => {
+    const telegramClient = require('../src/telegram/client');
+    await showSettingsMenu('123', { ...mockBusiness, allowMultiBooking: true });
+
+    const sendCalls = (telegramClient.sendTelegramMessageWithKeyboard as jest.Mock).mock.calls;
+    const keyboard = sendCalls[0][2];
+
+    expect(keyboard[2][0].text).toBe('Απαγόρευση πολλαπλών κρατήσεων');
+  });
 });
 
 // ---------------------------------------------------------------------------
