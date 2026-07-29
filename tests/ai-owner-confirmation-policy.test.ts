@@ -77,6 +77,7 @@ jest.mock('../src/billing/queries', () => ({
   listPackages: jest.fn().mockResolvedValue([]),
   getClientActiveMembership: jest.fn(),
   getClientName: jest.fn().mockResolvedValue(null),
+  getAllClientsForBusiness: jest.fn(),
 }));
 
 jest.mock('../src/session/manager', () => ({
@@ -120,6 +121,9 @@ const mockListSessions = sessionManager.listSessions as jest.Mock;
 const mockBookSessionInstance = sessionManager.bookSessionInstance as jest.Mock;
 const mockedGetClientName = billingQueries.getClientName as jest.MockedFunction<
   typeof billingQueries.getClientName
+>;
+const mockedGetAllClientsForBusiness = billingQueries.getAllClientsForBusiness as jest.MockedFunction<
+  typeof billingQueries.getAllClientsForBusiness
 >;
 
 // ---------------------------------------------------------------------------
@@ -279,10 +283,12 @@ describe('Task 1 send-confirmation cases (CONF-01)', () => {
         serviceId: 2,
       },
     ]);
-    mockedGetClientName.mockResolvedValueOnce('Μαρία');
+    mockedGetAllClientsForBusiness.mockResolvedValueOnce([
+      { clientBusinessRelationshipId: 1, clientName: 'Μαρία', senderPhone: '123456789' },
+    ]);
     mockCreate.mockResolvedValueOnce(
       makeToolCall('assign_client_to_session', {
-        client_phone: '123456789',
+        client_name: 'Μαρία',
         session_date: '2026-08-01',
         session_time: '10:00',
       })
