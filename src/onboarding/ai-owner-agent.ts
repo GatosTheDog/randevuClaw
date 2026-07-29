@@ -17,7 +17,7 @@ import {
   setBookingMode,
 } from '../database/queries';
 import { logger } from '../utils/logger';
-import { listPackages, getClientActiveMembership, getClientName } from '../billing/queries';
+import { listPackages, getClientActiveMembership, getAllClientsForBusiness, AllTimeClient } from '../billing/queries';
 import { listSlotlessRequestsForClient } from '../session/slotless-requests';
 import {
   handleCreatePackage,
@@ -89,6 +89,70 @@ function setPendingServicePriceChange(
   // is unaffected.
   const timer = setTimeout(() => pendingServicePriceChanges.delete(serviceId), PENDING_PRICE_CHANGE_TTL_MS).unref();
   pendingServicePriceChanges.set(serviceId, { ...value, timer });
+}
+
+// ---------------------------------------------------------------------------
+// Phase 30 (UX-03): name-based client resolution for the 4 previously
+// raw-ID-requiring tools (view_client_membership, assign_client_to_session,
+// send_renewal_reminder, list_slotless_requests). D-02: name-only, no raw
+// Telegram ID/phone fallback. D-03: a single generic "not found" string
+// covers both typos and clients with no clientName on file yet. D-04/D-05:
+// 2+ matches return a names-only text list — never senderPhone — for the
+// already-stateless Gemini agent to narrate and re-ask about; no new
+// callback_data/state-machine flow is introduced.
+// ---------------------------------------------------------------------------
+
+/** D-03: identical generic reply for zero matches, regardless of cause. */
+const CLIENT_NOT_FOUND_MSG = 'Δεν βρέθηκε πελάτης με αυτό το όνομα.';
+
+/**
+ * V5: bounds the Gemini-parsed name string before it reaches any DB query —
+ * rejects empty or oversized input (T-30-02).
+ */
+const ClientNameInputSchema = z.string().trim().min(1).max(100);
+
+type ClientNameResolution =
+  | { kind: 'none' }
+  | { kind: 'ambiguous'; matches: AllTimeClient[] }
+  | { kind: 'single'; match: AllTimeClient };
+
+/**
+ * Resolves an owner-supplied name (free text, already parsed by Gemini) to
+ * exactly one client for `businessId`, using the same case-insensitive
+ * substring match already established for service/package names in this
+ * file (no fuse.js — REQUIREMENTS.md locked decision).
+ *
+ * T-30-01: always queries `getAllClientsForBusiness` scoped to the caller's
+ * own `businessId`, wrapped in `withBusinessContext(businessId, ...)` for RLS
+ * enforcement — a same-named client belonging to a different business can
+ * never resolve here.
+ */
+async function resolveClientByName(
+  businessId: number,
+  nameInput: string
+): Promise<ClientNameResolution> {
+  const parsed = ClientNameInputSchema.safeParse(nameInput);
+  if (!parsed.success) return { kind: 'none' };
+  const needle = parsed.data.toLowerCase();
+
+  const allClients = await withBusinessContext(businessId, () =>
+    getAllClientsForBusiness(businessId)
+  );
+  const matches = allClients.filter((c) => c.clientName?.toLowerCase().includes(needle));
+
+  if (matches.length === 0) return { kind: 'none' };
+  if (matches.length > 1) return { kind: 'ambiguous', matches };
+  return { kind: 'single', match: matches[0] };
+}
+
+/**
+ * D-04/D-05: renders the disambiguation re-ask as plain text, names only —
+ * never `senderPhone` (the internal Telegram ID) — for Gemini to narrate in
+ * Greek and ask the owner to be more specific.
+ */
+function formatClientDisambiguation(matches: AllTimeClient[]): string {
+  const names = matches.map((m) => m.clientName ?? '(χωρίς όνομα)').join(', ');
+  return `Πολλοί πελάτες ταιριάζουν: ${names}. Δώστε ένα πιο συγκεκριμένο όνομα.`;
 }
 
 // ---------------------------------------------------------------------------
@@ -249,12 +313,12 @@ export const OWNER_TOOLS = [
     parameters: {
       type: 'object',
       properties: {
-        client_phone: {
+        client_name: {
           type: 'string',
-          description: 'Τηλέφωνο ή Telegram ID του πελάτη',
+          description: 'Όνομα πελάτη (αρκεί μερικό ταίριασμα)',
         },
       },
-      required: ['client_phone'],
+      required: ['client_name'],
     },
   },
   // ---------------------------------------------------------------------------
@@ -365,9 +429,9 @@ export const OWNER_TOOLS = [
     parameters: {
       type: 'object',
       properties: {
-        client_phone: {
+        client_name: {
           type: 'string',
-          description: 'Τηλέφωνο ή Telegram ID πελάτη',
+          description: 'Όνομα πελάτη (αρκεί μερικό ταίριασμα)',
         },
         session_date: {
           type: 'string',
@@ -378,7 +442,7 @@ export const OWNER_TOOLS = [
           description: 'Ώρα μαθήματος HH:MM',
         },
       },
-      required: ['client_phone', 'session_date', 'session_time'],
+      required: ['client_name', 'session_date', 'session_time'],
     },
   },
   {
@@ -388,12 +452,12 @@ export const OWNER_TOOLS = [
     parameters: {
       type: 'object',
       properties: {
-        client_phone: {
+        client_name: {
           type: 'string',
-          description: 'Telegram ID ή τηλέφωνο πελάτη',
+          description: 'Όνομα πελάτη (αρκεί μερικό ταίριασμα)',
         },
       },
-      required: ['client_phone'],
+      required: ['client_name'],
     },
   },
   {
@@ -416,9 +480,9 @@ export const OWNER_TOOLS = [
     parameters: {
       type: 'object',
       properties: {
-        client_phone: { type: 'string', description: 'Telegram ID ή τηλέφωνο πελάτη' },
+        client_name: { type: 'string', description: 'Όνομα πελάτη (αρκεί μερικό ταίριασμα)' },
       },
-      required: ['client_phone'],
+      required: ['client_name'],
     },
   },
   // ---------------------------------------------------------------------------
@@ -521,7 +585,7 @@ interface ToolArgs {
   valid_days?: number;
   session_count?: number | null;
   package_name?: string;
-  client_phone?: string;
+  client_name?: string;
   // Phase 8: enforcement policy (ENFC-01)
   policy?: string;
   // Phase 10: session catalog fields (CLSS-01 through CLSS-05)
@@ -737,10 +801,15 @@ async function executeOwnerTool(
     }
 
     case 'view_client_membership': {
-      const clientPhone = String(args.client_phone ?? '');
+      const clientName = String(args.client_name ?? '');
+      // Phase 30 (UX-03): resolve the owner-supplied name to exactly one
+      // client before doing any membership lookup (D-01 through D-05).
+      const resolved = await resolveClientByName(business.id, clientName);
+      if (resolved.kind === 'none') return CLIENT_NOT_FOUND_MSG;
+      if (resolved.kind === 'ambiguous') return formatClientDisambiguation(resolved.matches);
       // Wrap in withBusinessContext so RLS enforcement applies (T-07-03)
       return withBusinessContext(business.id, () =>
-        handleViewClientMembership(business.id, clientPhone)
+        handleViewClientMembership(business.id, resolved.match.senderPhone)
       );
     }
 
@@ -847,12 +916,19 @@ async function executeOwnerTool(
     }
 
     case 'assign_client_to_session': {
-      const client_phone = args.client_phone ?? '';
+      const client_name = args.client_name ?? '';
       const session_date = args.session_date ?? '';
       const session_time = args.session_time ?? '';
-      if (!client_phone || !session_date || !session_time) {
-        return 'Μη έγκυρα δεδομένα (απαιτούνται client_phone, session_date, session_time).';
+      if (!client_name || !session_date || !session_time) {
+        return 'Μη έγκυρα δεδομένα (απαιτούνται client_name, session_date, session_time).';
       }
+      // Phase 30 (UX-03): resolve the owner-supplied name to exactly one
+      // client before touching session-instance lookup/keyboard/send.
+      const resolved = await resolveClientByName(business.id, client_name);
+      if (resolved.kind === 'none') return CLIENT_NOT_FOUND_MSG;
+      if (resolved.kind === 'ambiguous') return formatClientDisambiguation(resolved.matches);
+      const clientPhone = resolved.match.senderPhone;
+      const clientDisplayName = resolved.match.clientName ?? clientPhone;
       // Find matching session instance via in-memory filter
       const allSessions = await listSessions(business.id);
       const target = allSessions.find(
@@ -863,17 +939,17 @@ async function executeOwnerTool(
       }
       // Phase 26 (CONF-01/T-26-05): send a confirmation instead of assigning
       // immediately — the bookSessionInstance call itself now lives in
-      // handleOwnerToolConfirmCallback's 'assign' case. Resolve a display
-      // name via getClientName, falling back to client_phone (matching the
-      // existing send_renewal_reminder case's exact convention).
-      const clientName = (await getClientName(business.id, client_phone)) ?? client_phone;
+      // handleOwnerToolConfirmCallback's 'assign' case. The otc:assign:...
+      // callback_data shape is unchanged — it already round-trips a raw
+      // phone/ID internally, which is not owner-facing, so D-02/D-05 don't
+      // apply to it.
       await sendTelegramMessageWithKeyboard(
         ownerTelegramId,
-        `Να οριστεί ο/η ${clientName} στο μάθημα ${session_date} στις ${session_time};`,
+        `Να οριστεί ο/η ${clientDisplayName} στο μάθημα ${session_date} στις ${session_time};`,
         [
           [
-            { text: CONFIRM_LABELS.CONFIRM, callback_data: `otc:assign:${target.instanceId}:${client_phone}:yes` },
-            { text: CONFIRM_LABELS.CANCEL, callback_data: `otc:assign:${target.instanceId}:${client_phone}:no` },
+            { text: CONFIRM_LABELS.CONFIRM, callback_data: `otc:assign:${target.instanceId}:${clientPhone}:yes` },
+            { text: CONFIRM_LABELS.CANCEL, callback_data: `otc:assign:${target.instanceId}:${clientPhone}:no` },
           ],
         ]
       );
@@ -881,10 +957,16 @@ async function executeOwnerTool(
     }
 
     case 'list_slotless_requests': {
-      const clientPhone = String(args.client_phone ?? '').trim();
-      if (!clientPhone) return 'Δεν δόθηκε αναγνωριστικό πελάτη.';
+      const clientName = String(args.client_name ?? '').trim();
+      // Phase 30 (UX-03): resolve the owner-supplied name to exactly one
+      // client before querying slotless requests.
+      const resolved = await resolveClientByName(business.id, clientName);
+      if (resolved.kind === 'none') return CLIENT_NOT_FOUND_MSG;
+      if (resolved.kind === 'ambiguous') return formatClientDisambiguation(resolved.matches);
+      const clientPhone = resolved.match.senderPhone;
+      const clientDisplayName = resolved.match.clientName ?? clientPhone;
       const requests = await listSlotlessRequestsForClient(business.id, clientPhone);
-      if (requests.length === 0) return `Δεν υπάρχουν αιτήματα χωρίς θέση για τον πελάτη ${clientPhone}.`;
+      if (requests.length === 0) return `Δεν υπάρχουν αιτήματα χωρίς θέση για τον πελάτη ${clientDisplayName}.`;
       const lines = requests.map((r, i) =>
         `${i + 1}. ${r.requestedSessionDate} ${r.requestedSessionTime} — ${r.status === 'pending' ? 'Εκκρεμεί' : r.status === 'approved' ? 'Εγκρίθηκε' : 'Απορρίφθηκε'}`
       );
@@ -898,16 +980,21 @@ async function executeOwnerTool(
     }
 
     case 'send_renewal_reminder': {
-      const clientPhone = String(args.client_phone ?? '').trim();
-      if (!clientPhone) return 'Δεν δόθηκε αναγνωριστικό πελάτη.';
+      const clientName = String(args.client_name ?? '').trim();
+      // Phase 30 (UX-03): resolve the owner-supplied name to exactly one
+      // client before checking membership / sending anything.
+      const resolved = await resolveClientByName(business.id, clientName);
+      if (resolved.kind === 'none') return CLIENT_NOT_FOUND_MSG;
+      if (resolved.kind === 'ambiguous') return formatClientDisambiguation(resolved.matches);
+      const clientPhone = resolved.match.senderPhone;
+      const clientDisplayName = resolved.match.clientName ?? clientPhone;
       const membership = await getClientActiveMembership(business.id, clientPhone);
-      if (!membership) return `Ο πελάτης ${clientPhone} δεν έχει ενεργή συνδρομή.`;
-      const clientName = (await getClientName(business.id, clientPhone)) ?? clientPhone;
+      if (!membership) return `Ο πελάτης ${clientDisplayName} δεν έχει ενεργή συνδρομή.`;
       await sendTelegramMessage(
         clientPhone,
         'Υπενθύμιση: Τα μαθήματά σας τελειώνουν σύντομα! Επικοινωνήστε για ανανέωση.'
       );
-      return `Η ειδοποίηση ανανέωσης στάλθηκε στον/στην ${clientName}.`;
+      return `Η ειδοποίηση ανανέωσης στάλθηκε στον/στην ${clientDisplayName}.`;
     }
 
     // -----------------------------------------------------------------------
