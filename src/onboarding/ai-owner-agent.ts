@@ -151,8 +151,15 @@ async function resolveClientByName(
  * Greek and ask the owner to be more specific.
  */
 function formatClientDisambiguation(matches: AllTimeClient[]): string {
-  const names = matches.map((m) => m.clientName ?? '(χωρίς όνομα)').join(', ');
-  return `Πολλοί πελάτες ταιριάζουν: ${names}. Δώστε ένα πιο συγκεκριμένο όνομα.`;
+  const allNames = matches.map((m) => m.clientName ?? '(χωρίς όνομα)');
+  // WR-01: identical stored names (e.g. two clients both named "Γιώργος")
+  // make "give a more specific name" an impossible ask — point the owner at
+  // the existing /menu → Πελάτες client-list escape hatch instead.
+  const hasDuplicateNames = new Set(allNames).size < allNames.length;
+  const names = allNames.join(', ');
+  return hasDuplicateNames
+    ? `Πολλοί πελάτες ταιριάζουν με το ίδιο όνομα: ${names}. Δεν μπορώ να τους ξεχωρίσω — χρησιμοποιήστε τη λίστα πελατών στο μενού (/menu → Πελάτες).`
+    : `Πολλοί πελάτες ταιριάζουν: ${names}. Δώστε ένα πιο συγκεκριμένο όνομα.`;
 }
 
 // ---------------------------------------------------------------------------
