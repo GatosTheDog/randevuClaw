@@ -62,6 +62,12 @@ jest.mock('../../src/telegram/handlers/client-menu', () => {
   return {
     ...actual,
     showClientRootMenu: jest.fn().mockResolvedValue(undefined),
+    // Quick task 260729-rjv: mocked so telegram.ts's new /book, /mybookings,
+    // /cancel, /balance text-command branches can be asserted in isolation.
+    showBookSessionList: jest.fn().mockResolvedValue(undefined),
+    showClientBookings: jest.fn().mockResolvedValue(undefined),
+    showCancelBookingList: jest.fn().mockResolvedValue(undefined),
+    showClientBalance: jest.fn().mockResolvedValue(undefined),
     // handleClientMenuCallback uses the real implementation (not mocked)
   };
 });
@@ -152,6 +158,20 @@ const mockedGetOrCreateBotInstance =
   >;
 const mockedShowClientRootMenu = clientMenuModule.showClientRootMenu as jest.MockedFunction<
   typeof clientMenuModule.showClientRootMenu
+>;
+// Quick task 260729-rjv: mocked so the new /book, /mybookings, /cancel,
+// /balance text-command branches in telegram.ts can be asserted in isolation.
+const mockedShowBookSessionList = clientMenuModule.showBookSessionList as jest.MockedFunction<
+  typeof clientMenuModule.showBookSessionList
+>;
+const mockedShowClientBookings = clientMenuModule.showClientBookings as jest.MockedFunction<
+  typeof clientMenuModule.showClientBookings
+>;
+const mockedShowCancelBookingList = clientMenuModule.showCancelBookingList as jest.MockedFunction<
+  typeof clientMenuModule.showCancelBookingList
+>;
+const mockedShowClientBalance = clientMenuModule.showClientBalance as jest.MockedFunction<
+  typeof clientMenuModule.showClientBalance
 >;
 const mockedCheckEnforcementAndGetMembership =
   enforcement.checkEnforcementAndGetMembership as jest.MockedFunction<
@@ -282,6 +302,11 @@ function setupCommonMocks() {
   );
   // showClientRootMenu — used in Suite B; default resolved
   mockedShowClientRootMenu.mockResolvedValue(undefined);
+  // Quick task 260729-rjv: default-resolve the new routed-command handlers.
+  mockedShowBookSessionList.mockResolvedValue(undefined);
+  mockedShowClientBookings.mockResolvedValue(undefined);
+  mockedShowCancelBookingList.mockResolvedValue(undefined);
+  mockedShowClientBalance.mockResolvedValue(undefined);
   // Phase 27 (COMP-01/COMP-02): default to already-consented so existing
   // Suite B/F /start and callback flows are unaffected by the new gate.
   mockedGetOrCreateClientRelationship.mockResolvedValue({ isFirstContact: false, consentGiven: true });
@@ -397,6 +422,67 @@ describe('Suite B: /start intercept and CMENU-05 free-text routing', () => {
     expect(res.status).toBe(200);
     expect(mockedShowClientRootMenu).toHaveBeenCalledTimes(1);
     expect(mockedRouteConversationMessage).not.toHaveBeenCalled();
+  });
+
+  // Quick task 260729-rjv: /book, /mybookings, /cancel, /balance as real,
+  // routed text-commands — mirrors the /start intercept tests above.
+  it('client sends /book → showBookSessionList called, routeConversationMessage NOT called', async () => {
+    const res = await postToWebhook(makeMessageUpdate(5, CLIENT_TELEGRAM_ID, '/book'));
+
+    expect(res.status).toBe(200);
+    expect(mockedShowBookSessionList).toHaveBeenCalledTimes(1);
+    expect(mockedShowBookSessionList).toHaveBeenCalledWith(
+      String(CLIENT_TELEGRAM_ID),
+      expect.objectContaining({ id: 1 })
+    );
+    expect(mockedRouteConversationMessage).not.toHaveBeenCalled();
+  });
+
+  it('client sends /mybookings → showClientBookings called, routeConversationMessage NOT called', async () => {
+    const res = await postToWebhook(makeMessageUpdate(6, CLIENT_TELEGRAM_ID, '/mybookings'));
+
+    expect(res.status).toBe(200);
+    expect(mockedShowClientBookings).toHaveBeenCalledTimes(1);
+    expect(mockedShowClientBookings).toHaveBeenCalledWith(
+      String(CLIENT_TELEGRAM_ID),
+      expect.objectContaining({ id: 1 })
+    );
+    expect(mockedRouteConversationMessage).not.toHaveBeenCalled();
+  });
+
+  it('client sends /cancel → showCancelBookingList called, routeConversationMessage NOT called', async () => {
+    const res = await postToWebhook(makeMessageUpdate(7, CLIENT_TELEGRAM_ID, '/cancel'));
+
+    expect(res.status).toBe(200);
+    expect(mockedShowCancelBookingList).toHaveBeenCalledTimes(1);
+    expect(mockedShowCancelBookingList).toHaveBeenCalledWith(
+      String(CLIENT_TELEGRAM_ID),
+      expect.objectContaining({ id: 1 }),
+      String(CLIENT_TELEGRAM_ID)
+    );
+    expect(mockedRouteConversationMessage).not.toHaveBeenCalled();
+  });
+
+  it('client sends /balance → showClientBalance called, routeConversationMessage NOT called', async () => {
+    const res = await postToWebhook(makeMessageUpdate(8, CLIENT_TELEGRAM_ID, '/balance'));
+
+    expect(res.status).toBe(200);
+    expect(mockedShowClientBalance).toHaveBeenCalledTimes(1);
+    expect(mockedShowClientBalance).toHaveBeenCalledWith(
+      String(CLIENT_TELEGRAM_ID),
+      expect.objectContaining({ id: 1 })
+    );
+    expect(mockedRouteConversationMessage).not.toHaveBeenCalled();
+  });
+
+  it('owner sends /book → showBookSessionList NOT called (owner branch intercepts first)', async () => {
+    const aiOwnerAgentMock = jest.requireMock('../../src/onboarding/ai-owner-agent');
+    aiOwnerAgentMock.aiOwnerAgent.mockResolvedValue('Γεια σου');
+
+    const res = await postToWebhook(makeMessageUpdate(9, OWNER_TELEGRAM_ID, '/book'));
+
+    expect(res.status).toBe(200);
+    expect(mockedShowBookSessionList).not.toHaveBeenCalled();
   });
 });
 
@@ -1508,5 +1594,21 @@ describe('Suite G: client consent gate', () => {
       String(CLIENT_TELEGRAM_ID),
       expect.stringContaining('Εντάξει')
     );
+  });
+
+  // Quick task 260729-rjv: representative of the shared consent-gate logic
+  // in dispatchClientCommand — /book only, mirroring the /start test above.
+  it('/book with consentGiven=false → consent prompt+keyboard sent, showBookSessionList NOT called', async () => {
+    mockedGetOrCreateClientRelationship.mockResolvedValue({ isFirstContact: true, consentGiven: false });
+
+    const res = await postToWebhook(makeMessageUpdate(24, CLIENT_TELEGRAM_ID, '/book'));
+
+    expect(res.status).toBe(200);
+    expect(mockedSendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
+      String(CLIENT_TELEGRAM_ID),
+      CONSENT_PROMPT_GREEK_TEMPLATE(BASE_BUSINESS),
+      CONSENT_KEYBOARD
+    );
+    expect(mockedShowBookSessionList).not.toHaveBeenCalled();
   });
 });

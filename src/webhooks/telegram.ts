@@ -31,7 +31,15 @@ import {
   showMembershipConfirmation,
 } from '../telegram/handlers/payment-flow';
 import { handleMenuCallback, MenuCallbackResult, showAdminRootMenu } from '../telegram/handlers/admin-menu';
-import { ClientMenuCallbackResult, showClientRootMenu, handleClientMenuCallback } from '../telegram/handlers/client-menu';
+import {
+  ClientMenuCallbackResult,
+  showClientRootMenu,
+  handleClientMenuCallback,
+  showBookSessionList,
+  showClientBookings,
+  showCancelBookingList,
+  showClientBalance,
+} from '../telegram/handlers/client-menu';
 import { stagePendingReply, consumePendingReply, clearPendingReply, hasPendingReply } from '../telegram/handlers/pending-reply';
 import { findMembershipByBooking, restoreCredit } from '../billing/queries';
 import { isoDateInAthens } from '../utils/timezone';
@@ -65,6 +73,40 @@ interface TelegramUpdate {
   update_id: number;
   message?: TelegramMessage;
   callback_query?: TelegramCallbackQuery;
+}
+
+// Quick task 260729-rjv: shared dispatch for the 4 new client text-commands
+// (/book, /mybookings, /cancel, /balance) registered in the Telegram native
+// command menu. Mirrors handleFoundBusiness's own /start branch's exact
+// structure (consent gate -> action or consent prompt -> mark processed),
+// so each new text command behaves identically to tapping the equivalent
+// cmenu: root-menu button, gated by the same consent check /start already has.
+async function dispatchClientCommand(
+  commandLabel: string,
+  updateId: string,
+  business: Business,
+  senderTelegramId: string,
+  startedAt: number,
+  runAction: () => Promise<void>
+): Promise<void> {
+  await withBusinessContext(business.id, async () => {
+    clearPendingReply(business.id, senderTelegramId);
+    const { consentGiven } = await getOrCreateClientRelationship(business.id, senderTelegramId);
+    if (!consentGiven) {
+      await sendTelegramMessageWithKeyboard(
+        senderTelegramId,
+        CONSENT_PROMPT_GREEK_TEMPLATE(business),
+        CONSENT_KEYBOARD
+      );
+    } else {
+      await runAction();
+    }
+    await markTelegramUpdateProcessed(updateId, business.id);
+  });
+  logger.info(
+    { updateId, businessId: business.id, elapsedMs: Date.now() - startedAt },
+    `handleFoundBusiness: exit (${commandLabel} branch)`
+  );
 }
 
 async function handleFoundBusiness(
@@ -234,6 +276,40 @@ async function handleFoundBusiness(
       logger.info(
         { updateId, businessId: business.id, elapsedMs: Date.now() - startedAt },
         'handleFoundBusiness: exit (/start branch)'
+      );
+      return;
+    }
+
+    // Quick task 260729-rjv: /book, /mybookings, /cancel, /balance as real,
+    // routed Telegram text-commands (matching the Telegram native command
+    // menu registered by reassertMenuButtonAndCommands/finish_onboarding).
+    // Placed structurally after the owner branch's unconditional return
+    // above (mirroring /start), so these remain unreachable for owners.
+    if (messageText.trim() === '/book') {
+      await dispatchClientCommand('/book', updateId, business, senderTelegramId, startedAt, () =>
+        showBookSessionList(senderTelegramId, business)
+      );
+      return;
+    }
+
+    if (messageText.trim() === '/mybookings') {
+      await dispatchClientCommand('/mybookings', updateId, business, senderTelegramId, startedAt, () =>
+        showClientBookings(senderTelegramId, business)
+      );
+      return;
+    }
+
+    if (messageText.trim() === '/cancel') {
+      await dispatchClientCommand('/cancel', updateId, business, senderTelegramId, startedAt, () =>
+        // senderTelegramId === chatId for private Telegram chats
+        showCancelBookingList(senderTelegramId, business, senderTelegramId)
+      );
+      return;
+    }
+
+    if (messageText.trim() === '/balance') {
+      await dispatchClientCommand('/balance', updateId, business, senderTelegramId, startedAt, () =>
+        showClientBalance(senderTelegramId, business)
       );
       return;
     }
