@@ -65,7 +65,14 @@ function assertCallbackDataSize(data: string): void {
  * never having a second chance. No retry loop here — a failed re-assertion
  * is cheap to retry naturally the next time the owner taps /menu.
  */
-async function reassertMenuButtonAndCommands(botToken: string, chatId: string): Promise<void> {
+async function reassertMenuButtonAndCommands(
+  botToken: string,
+  chatId: string,
+  business: Business
+): Promise<void> {
+  const bookingButtonText =
+    business.bookingMode === 'fixed_sessions' ? 'Κράτηση μαθήματος' : 'Κράτηση ραντεβού';
+
   await setMyCommands(
     botToken,
     [{ command: 'menu', description: 'Εμφάνιση μενού διαχείρισης' }],
@@ -73,6 +80,10 @@ async function reassertMenuButtonAndCommands(botToken: string, chatId: string): 
   );
   await setMyCommands(botToken, [
     { command: 'start', description: 'Έναρξη κράτησης ραντεβού' },
+    { command: 'book', description: bookingButtonText },
+    { command: 'mybookings', description: 'Οι κρατήσεις μου' },
+    { command: 'cancel', description: 'Ακύρωση κράτησης' },
+    { command: 'balance', description: 'Υπόλοιπο μαθημάτων' },
   ], { type: 'all_private_chats' });
   await setChatMenuButton(botToken, chatId);
   await setChatMenuButton(botToken);
@@ -130,7 +141,7 @@ export async function showAdminRootMenu(chatId: string, business: Business): Pro
   // webhooks/telegram.ts and the menu:root callback branch below), since
   // both call this same function.
   if (business.botToken) {
-    reassertMenuButtonAndCommands(business.botToken, chatId).catch((err) => {
+    reassertMenuButtonAndCommands(business.botToken, chatId, business).catch((err) => {
       logger.warn(
         { err, businessId: business.id },
         'showAdminRootMenu: menu button re-assertion failed (non-blocking)'

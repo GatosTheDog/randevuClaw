@@ -211,7 +211,36 @@ describe('showAdminRootMenu — menu button re-assertion (D-06.2)', () => {
     );
     expect(telegramClient.setMyCommands).toHaveBeenCalledWith(
       mockBusiness.botToken,
-      [{ command: 'start', description: 'Έναρξη κράτησης ραντεβού' }],
+      [
+        { command: 'start', description: 'Έναρξη κράτησης ραντεβού' },
+        { command: 'book', description: 'Κράτηση ραντεβού' },
+        { command: 'mybookings', description: 'Οι κρατήσεις μου' },
+        { command: 'cancel', description: 'Ακύρωση κράτησης' },
+        { command: 'balance', description: 'Υπόλοιπο μαθημάτων' },
+      ],
+      { type: 'all_private_chats' }
+    );
+  });
+
+  test('registers book command with booking-mode-aware description when bookingMode is fixed_sessions', async () => {
+    const telegramClient = require('../src/telegram/client');
+    telegramClient.setMyCommands.mockResolvedValue(undefined);
+    telegramClient.setChatMenuButton.mockResolvedValue(undefined);
+
+    const fixedSessionsBusiness: Business = { ...mockBusiness, bookingMode: 'fixed_sessions' };
+    await showAdminRootMenu('999', fixedSessionsBusiness);
+    // Flush the fire-and-forget chain so its calls have landed before assertions.
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(telegramClient.setMyCommands).toHaveBeenCalledWith(
+      fixedSessionsBusiness.botToken,
+      [
+        { command: 'start', description: 'Έναρξη κράτησης ραντεβού' },
+        { command: 'book', description: 'Κράτηση μαθήματος' },
+        { command: 'mybookings', description: 'Οι κρατήσεις μου' },
+        { command: 'cancel', description: 'Ακύρωση κράτησης' },
+        { command: 'balance', description: 'Υπόλοιπο μαθημάτων' },
+      ],
       { type: 'all_private_chats' }
     );
   });

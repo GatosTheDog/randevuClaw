@@ -494,7 +494,13 @@ describe('executeOnboardingTool', () => {
       );
       expect(mockedSetMyCommands).toHaveBeenCalledWith(
         business.botToken,
-        [{ command: 'start', description: 'Έναρξη κράτησης ραντεβού' }],
+        [
+          { command: 'start', description: 'Έναρξη κράτησης ραντεβού' },
+          { command: 'book', description: 'Κράτηση ραντεβού' },
+          { command: 'mybookings', description: 'Οι κρατήσεις μου' },
+          { command: 'cancel', description: 'Ακύρωση κράτησης' },
+          { command: 'balance', description: 'Υπόλοιπο μαθημάτων' },
+        ],
         { type: 'all_private_chats' }
       );
       expect(mockedSetChatMenuButton).toHaveBeenCalledWith(business.botToken, OWNER_TELEGRAM_ID);

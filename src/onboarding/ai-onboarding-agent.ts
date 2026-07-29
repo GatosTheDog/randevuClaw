@@ -607,6 +607,8 @@ export async function executeOnboardingTool(
         // log and fall through exactly as the original single-attempt swallow did.
         const MENU_SETUP_MAX_ATTEMPTS = 3;
         const MENU_SETUP_BASE_BACKOFF_MS = 300;
+        const bookingButtonText =
+          business.bookingMode === 'fixed_sessions' ? 'Κράτηση μαθήματος' : 'Κράτηση ραντεβού';
 
         for (let attempt = 1; attempt <= MENU_SETUP_MAX_ATTEMPTS; attempt++) {
           try {
@@ -617,6 +619,10 @@ export async function executeOnboardingTool(
             );
             await setMyCommands(business.botToken!, [
               { command: 'start', description: 'Έναρξη κράτησης ραντεβού' },
+              { command: 'book', description: bookingButtonText },
+              { command: 'mybookings', description: 'Οι κρατήσεις μου' },
+              { command: 'cancel', description: 'Ακύρωση κράτησης' },
+              { command: 'balance', description: 'Υπόλοιπο μαθημάτων' },
             ], { type: 'all_private_chats' });
             await setChatMenuButton(business.botToken!, ownerTelegramId);
             await setChatMenuButton(business.botToken!);
