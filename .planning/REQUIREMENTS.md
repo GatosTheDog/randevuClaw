@@ -16,7 +16,7 @@
 - [x] **ADMIN-02**: Decorative inline-keyboard buttons that perform no action (e.g. "Νέο μάθημα (chat)") are removed or wired to a real action
 - [x] **ADMIN-03**: Admin can record a client payment from the `/menu` (currently chat-only, despite being the highest-frequency owner action)
 - [x] **ADMIN-04**: Admin has menu entry points for hours/services/prices/class setup (currently chat-only, despite being high-stakes setup data)
-- [ ] **ADMIN-05**: Telegram persistent menu button reliability is investigated (client-side caching, scope semantics, re-registration needs) and any code-addressable gap is fixed or documented as a client-side limitation
+- [x] **ADMIN-05**: Telegram persistent menu button reliability is investigated (client-side caching, scope semantics, re-registration needs) and any code-addressable gap is fixed or documented as a client-side limitation
 
 ### Booking & List Clarity (UX)
 
@@ -74,7 +74,7 @@ Deferred to future release. Tracked but not in current roadmap.
 | UX-05 | Phase 29 | Complete |
 | UX-06 | Phase 29 | Complete |
 | UX-03 | Phase 30 | Pending |
-| ADMIN-05 | Phase 30 | Pending |
+| ADMIN-05 | Phase 30 | Complete |
 
 **Coverage:**
 
