@@ -5,7 +5,7 @@ milestone_name: UX & Trust Polish
 current_phase: 30
 status: Awaiting next milestone
 stopped_at: Milestone v1.7 completed and archived
-last_updated: "2026-07-29T01:23:14.000Z"
+last_updated: "2026-07-29T13:47:56.172Z"
 last_activity: 2026-07-29
 last_activity_desc: Milestone v1.7 completed and archived
 progress:
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-07-29 after v1.7 milestone close)
 Phase: Milestone v1.7 complete
 Plan: —
 Status: Awaiting next milestone
-Last activity: 2026-07-29 — Milestone v1.7 completed and archived
+Last activity: 2026-07-29 - Completed quick task 260729-n05: Admin can view client list and delete clients (full erase or unlink-only), and fix nonsensical Greek settings-menu toggle labels
 
 ## Performance Metrics
 
@@ -115,6 +115,8 @@ Last activity: 2026-07-29 — Milestone v1.7 completed and archived
 | Phase 26 P02 | 23min | 3 tasks | 7 files |
 | Phase 27 P01 | 8min | 3 tasks | 3 files |
 | Phase 27 P02 | 15min | 3 tasks | 6 files |
+| Phase quick P260729-mlr | 5min | 3 tasks | 8 files |
+| Phase quick P260729-n05 | 35min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -240,6 +242,8 @@ Recent decisions affecting current work:
 - [Phase 27]: CONSENT_LABELS kept separate from CONFIRM_LABELS (Phase 26) -- different audience (client-facing vs owner-facing) and callback_data convention (consent:yes/no vs otc:.../menu:...)
 - [Phase 27]: getOrCreateClientRelationship's hardcoded-true bug fixed to return the real inserted row's consentGiven -- load-bearing, without it the whole gate would be silently defeated
 - [Phase 27]: routeConversationMessage's hard gate checks consentGiven (not isFirstContact) and returns before findLatestConversationTurn/aiBookingAgent/insertConversationTurn -- real behavior change replacing the old soft/prepended notice (D-03)
+- [Phase ?]: [Quick 260729-mlr]: CONSENT_PROMPT_GREEK_TEMPLATE signature changed businessName:string -> business:Business to support a per-business policy summary appended before the consent question
+- [Phase ?]: [Quick 260729-n05]: Admin client deletion offers two actions (Πλήρης διαγραφή full-erase across 8 tables vs Αφαίρεση από λίστα unlink-only) rather than one, per explicit user request; both re-verify rel.businessId === business.id at handler AND query layer (defense-in-depth) before any mutation; no message sent to the deleted client (they naturally see the consent/intro flow again next contact since isFirstContact keys off clientBusinessRelationships row presence)
 
 ### Pending Todos
 
@@ -258,6 +262,8 @@ Recent decisions affecting current work:
 | 260716-oaa | AI-powered owner agent: Gemini NLU replaces keyword matching | 2026-07-16 | 14fe0d1 | [260716-oaa-ai-owner-agent](./quick/260716-oaa-ai-owner-agent/) |
 | 260725-hlh | fix silent-hang bug — add Gemini API request timeout | 2026-07-25 | cbb7310 | [260725-hlh-fix-silent-hang-bug-add-gemini-api-reque](./quick/260725-hlh-fix-silent-hang-bug-add-gemini-api-reque/) |
 | 260726-vfm | show resolved client name (not phone/telegram id) in owner notifications | 2026-07-26 | e82b49f | [260726-vfm-show-resolved-client-name-not-phone-tele](./quick/260726-vfm-show-resolved-client-name-not-phone-tele/) |
+| 260729-mlr | show all 4 menu options in root menu text + surface configured policies on first-contact consent message | 2026-07-29 | 7805eb7 | [260729-mlr-show-all-menu-options-in-root-menu-text-](./quick/260729-mlr-show-all-menu-options-in-root-menu-text-/) |
+| 260729-n05 | admin can view client list and delete clients (full erase or unlink-only) + fix nonsensical Greek settings-menu toggle labels | 2026-07-29 | d7af8db | [260729-n05-admin-can-view-client-list-and-delete-cl](./quick/260729-n05-admin-can-view-client-list-and-delete-cl/) |
 
 ### Blockers/Concerns
 
@@ -347,7 +353,7 @@ Items acknowledged and deferred at v1.7 milestone close on 2026-07-29:
 
 ## Session Continuity
 
-Last session: 2026-07-28T23:36:59.599Z
+Last session: 2026-07-29T13:46:49.698Z
 Stopped at: Phase 30 context gathered
 Resume file: .planning/phases/30-client-identification-menu-reliability/30-CONTEXT.md
 
