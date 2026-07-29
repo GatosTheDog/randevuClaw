@@ -3,7 +3,7 @@
 // through this module. Read functions use getConn() for RLS-enforced connections
 // (T-07-03); write mutations in createMembership use db.transaction() for atomicity.
 
-import { and, desc, eq, gt, gte, lte, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, gte, inArray, lte, sql } from 'drizzle-orm';
 import { db, pool, runInTransaction } from '../database/db';
 import {
   billingPackages,
@@ -846,4 +846,51 @@ export async function insertRenewalNudgeNotification(
     .onConflictDoNothing()
     .returning({ id: renewalNudgeNotifications.id });
   return rows.length > 0;
+}
+
+// ---------------------------------------------------------------------------
+// Quick task 260729-n05: GDPR-style full-erase — billing-table cascade delete
+// ---------------------------------------------------------------------------
+
+/**
+ * Deletes every billing-related row tied to (businessId, clientPhone):
+ * membershipLedger, membershipExpiryNotifications, renewalNudgeNotifications
+ * (all scoped to this client's membership id(s)), then the memberships row(s)
+ * themselves.
+ *
+ * MUST run BEFORE deleteClientBookingData (database/queries.ts) — membershipLedger.bookingId
+ * still references the not-yet-deleted bookings rows at the point this function runs, and
+ * deleting bookings first would leave a dangling reference this function's own DELETE
+ * would not encounter (it deletes by membershipId, not bookingId), but the FK direction still
+ * requires ledger rows gone before bookings are removed downstream.
+ *
+ * Uses getConn() deliberately (not a new transaction) — the caller (handleDeleteFullExecute
+ * in admin-menu.ts) already runs inside the outer withBusinessContext transaction opened by
+ * handleCallbackQuery in telegram.ts. Opening a second transaction here would check out a
+ * redundant DB connection while the outer one sits idle (see isInBusinessContext docstring
+ * in database/queries.ts).
+ */
+export async function deleteClientBillingData(businessId: number, clientPhone: string): Promise<void> {
+  const conn = getConn();
+
+  const membershipRows = await conn
+    .select({ id: memberships.id })
+    .from(memberships)
+    .where(and(eq(memberships.businessId, businessId), eq(memberships.clientPhone, clientPhone)));
+
+  const membershipIds = membershipRows.map((row) => row.id);
+
+  if (membershipIds.length > 0) {
+    await conn.delete(membershipLedger).where(inArray(membershipLedger.membershipId, membershipIds));
+    await conn
+      .delete(membershipExpiryNotifications)
+      .where(inArray(membershipExpiryNotifications.membershipId, membershipIds));
+    await conn
+      .delete(renewalNudgeNotifications)
+      .where(inArray(renewalNudgeNotifications.membershipId, membershipIds));
+  }
+
+  await conn
+    .delete(memberships)
+    .where(and(eq(memberships.businessId, businessId), eq(memberships.clientPhone, clientPhone)));
 }

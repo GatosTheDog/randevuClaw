@@ -10,6 +10,7 @@ import {
   bookings,
   conversationTurns,
   telegramUpdates,
+  slotlessRequests,
 } from './schema';
 
 // Thread the current Drizzle transaction through the call stack transparently.
@@ -805,5 +806,55 @@ export async function claimReminder1hSlot(bookingId: number): Promise<boolean> {
     .set({ reminder1hSentAt: new Date() })
     .where(and(eq(bookings.id, bookingId), isNull(bookings.reminder1hSentAt)))
     .returning({ id: bookings.id });
+  return rows.length > 0;
+}
+
+// ---------------------------------------------------------------------------
+// Quick task 260729-n05: GDPR-style full-erase — booking/conversation cascade
+// ---------------------------------------------------------------------------
+
+/**
+ * Deletes every booking-related row tied to (businessId, clientPhone):
+ * slotlessRequests, then bookings, then conversationTurns, in that order —
+ * slotlessRequests.bookingId references bookings.id, so it must go first.
+ *
+ * MUST run AFTER deleteClientBillingData (billing/queries.ts) in the caller —
+ * membershipLedger.bookingId also references bookings.id, so the ledger rows
+ * must already be gone before bookings are deleted here.
+ *
+ * Uses getConn() deliberately (not a new transaction) — the caller
+ * (handleDeleteFullExecute in admin-menu.ts) already runs inside the outer
+ * withBusinessContext transaction opened by handleCallbackQuery in telegram.ts.
+ */
+export async function deleteClientBookingData(businessId: number, clientPhone: string): Promise<void> {
+  const conn = getConn();
+
+  await conn
+    .delete(slotlessRequests)
+    .where(and(eq(slotlessRequests.businessId, businessId), eq(slotlessRequests.clientPhone, clientPhone)));
+
+  await conn
+    .delete(bookings)
+    .where(and(eq(bookings.businessId, businessId), eq(bookings.clientPhone, clientPhone)));
+
+  await conn
+    .delete(conversationTurns)
+    .where(and(eq(conversationTurns.businessId, businessId), eq(conversationTurns.clientPhone, clientPhone)));
+}
+
+/**
+ * Deletes a single clientBusinessRelationships row, scoped to businessId as an
+ * ownership guard — defense-in-depth even though the caller already checks
+ * ownership before invoking this (T-quick-02). Returns true iff a row was
+ * deleted; false when relId does not exist or belongs to a different business.
+ */
+export async function deleteClientBusinessRelationship(
+  relId: number,
+  businessId: number
+): Promise<boolean> {
+  const rows = await getConn()
+    .delete(clientBusinessRelationships)
+    .where(and(eq(clientBusinessRelationships.id, relId), eq(clientBusinessRelationships.businessId, businessId)))
+    .returning({ id: clientBusinessRelationships.id });
   return rows.length > 0;
 }
