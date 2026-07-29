@@ -103,7 +103,7 @@ See: `.planning/milestones/v1.6-ROADMAP.md`
 - [x] **Phase 27: Client Consent & Registration** - GDPR consent notice shown before any client relationship row is created, with a real opt-in flag distinguishing registered clients (completed 2026-07-28)
 - [x] **Phase 28: Admin Menu Discoverability** - Payment recording, setup editing, and escalation reply are all reachable from `/menu`; dead decorative buttons removed (completed 2026-07-28)
 - [x] **Phase 29: Booking & List Clarity** - Slots, cancel prompts, and booking lists show accurate, contextual information instead of raw IDs or stale bookable slots (completed 2026-07-28)
-- [ ] **Phase 30: Client Identification & Menu Reliability** - Owner tools accept client names instead of raw Telegram IDs; persistent menu button reliability investigated and fixed/documented
+- [x] **Phase 30: Client Identification & Menu Reliability** - Owner tools accept client names instead of raw Telegram IDs; persistent menu button reliability investigated and fixed/documented (completed 2026-07-29)
 
 #### Phase 26: Confirmation & Approval Policy
 
@@ -218,8 +218,8 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 30-01-PLAN.md — Convert the 4 raw-ID owner tools to name-based matching with text disambiguation (UX-03)
-- [ ] 30-02-PLAN.md — Retry + backoff for finish_onboarding's menu setup, plus re-assertion on every /menu tap (ADMIN-05)
+- [x] 30-01-PLAN.md — Convert the 4 raw-ID owner tools to name-based matching with text disambiguation (UX-03)
+- [x] 30-02-PLAN.md — Retry + backoff for finish_onboarding's menu setup, plus re-assertion on every /menu tap (ADMIN-05)
 
 ## Progress
 
@@ -254,7 +254,7 @@ Plans:
 | 27. Client Consent & Registration | v1.7 | 2/2 | Complete    | 2026-07-28 |
 | 28. Admin Menu Discoverability | v1.7 | 2/2 | Complete    | 2026-07-28 |
 | 29. Booking & List Clarity | v1.7 | 6/6 | Complete    | 2026-07-28 |
-| 30. Client Identification & Menu Reliability | v1.7 | 0/2 | Not started | - |
+| 30. Client Identification & Menu Reliability | v1.7 | 2/2 | Complete    | 2026-07-29 |
 
 ## Backlog
 

@@ -22,7 +22,7 @@
 
 - [x] **UX-01**: Same-day session slots whose start time has already passed no longer show as bookable
 - [x] **UX-02**: Cancel-confirmation prompts (admin lesson-cancel, client booking-cancel) show the date and service/class name, not a raw internal ID
-- [ ] **UX-03**: Chat tools that currently require a raw Telegram numeric ID to identify a client (view membership, assign client to session, send renewal reminder) accept a name-based match instead, with disambiguation shown when multiple clients match
+- [x] **UX-03**: Chat tools that currently require a raw Telegram numeric ID to identify a client (view membership, assign client to session, send renewal reminder) accept a name-based match instead, with disambiguation shown when multiple clients match
 - [x] **UX-04**: Booking and cancellation lists show the service/class name alongside date/time, not date/time alone
 - [x] **UX-05**: The client "Κράτηση μαθήματος" booking button is hidden or relabeled for businesses using open-slot (non-fixed-class) booking mode, instead of silently no-op'ing
 - [x] **UX-06**: An unknown/stale callback tap on either the admin or client menu shows a back-to-menu recovery option instead of a dead-end error
@@ -73,7 +73,7 @@ Deferred to future release. Tracked but not in current roadmap.
 | UX-04 | Phase 29 | Complete |
 | UX-05 | Phase 29 | Complete |
 | UX-06 | Phase 29 | Complete |
-| UX-03 | Phase 30 | Pending |
+| UX-03 | Phase 30 | Complete |
 | ADMIN-05 | Phase 30 | Complete |
 
 **Coverage:**
