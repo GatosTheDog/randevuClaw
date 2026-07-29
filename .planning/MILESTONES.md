@@ -1,5 +1,28 @@
 # Milestones
 
+## v1.7 UX & Trust Polish (Shipped: 2026-07-29)
+
+**Phases completed:** 5 phases, 14 plans, 34 tasks
+
+**Key accomplishments:**
+
+- Client session-booking reschedules now route through the same Έγκριση/Απόρριψη owner-approval cascade as new bookings — a rejected reschedule leaves the client's original booking fully intact, via a new rescheduledFromBookingId link consumed by a cascade-cancel added to sbk:approve.
+- 1. [Rule 3 - Blocking] Moved pendingServicePriceChanges Map + setter from Task 2 into Task 1's commit
+- Repurposed `client_business_relationships.consent_given` from implied-consent-by-default (true) to explicit-opt-in-required (false), shipped migration 0013 to the live Neon DB, and added `updateClientConsentGiven` for Plan 27-02's consent gate.
+- Wired the hard Ναι/Όχι consent gate into both client entry points — `/start` and free-form chat — so a client only reaches the menu or an AI reply after explicitly accepting, replacing the old soft/prepended consent notice with a real blocking gate (COMP-01/COMP-02, D-01/D-02/D-03).
+- Wired the existing payment-recording flow and Gemini NLU setup guidance into `/menu` via a new root-level "Καταχώρηση Πληρωμής" button and 3 new Settings-submenu example-phrase buttons, and upgraded the "Νέο μάθημα (chat)" prompt to the same multi-example style.
+- `src/telegram/handlers/pending-reply.ts` (new)
+- Consolidated hoursUntilSession into timezone.ts, gave listSessions() a backward-compatible excludePastToday filter, added a businessId-scoped findSessionInstanceById lookup, and centralized back-menu button labels — the three foundational primitives every other Phase 29 plan imports.
+- All 4 client-facing `listSessions()` calls in `function-executor.ts` (the Gemini tool-call layer) now pass `excludePastToday=true`, and the file's duplicate hours-until-session algorithm is gone in favor of Wave 1's shared `timezone.ts` export — completing UX-01 for every free-chat booking path.
+- Closed both remaining D-05 silent-drop gaps in handleCallbackQuery (unparseable callback_data and the legacy approve_/reject_ "booking not found" branch) with Greek back-menu recovery messages, and swapped escl:approve's ad-hoc unscoped Drizzle join for the businessId-scoped findSessionInstanceById helper.
+- showCancelClassConfirm now renders the real session date/time/service name instead of a raw `#42` id; showClassesMenu and showCancelClassList show the service name via a batched (non-N+1) lookup; an unrecognized admin menu tap gets a working back-to-menu button instead of a dead end; all 12 back-menu button renders in admin-menu.ts now source from one shared BACK_MENU_LABELS.ADMIN constant.
+- client-menu.ts's `/menu` → "Κράτηση μαθήματος" flow now excludes already-started same-day classes, labels its root-menu button and redirect text correctly for open-slot businesses with a working back button, shows service names next to each date/time, and resolves session data through the shared businessId-scoped `findSessionInstanceById` helper instead of an unscoped inline Drizzle join.
+- showClientBookings/showCancelBookingList now show service names via a batched lookup, showCancelConfirm gained a mandatory ownership guard (previously had none) before rendering real date/service context with anti-enumeration on failure, and handleCancelExecute's 3 named early-returns plus the dispatcher's default case all offer a working back-to-menu button — closing out client-menu.ts's Phase 29 work.
+- Converted 4 raw-Telegram-ID owner tools (view_client_membership, assign_client_to_session, send_renewal_reminder, list_slotless_requests) to name-based lookup via a shared `resolveClientByName` helper with text-based disambiguation and RLS-scoped cross-business isolation.
+- Bounded retry-with-backoff for `finish_onboarding`'s one-shot Telegram menu/command setup, plus a fire-and-forget `reassertMenuButtonAndCommands()` re-assertion on every `/menu` tap via `showAdminRootMenu`.
+
+---
+
 ## v1.6 Telegram Bot UX/Ops Improvements (Shipped: 2026-07-27)
 
 **Phases completed:** 4 phases, 4 plans, 11 tasks

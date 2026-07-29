@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: UX & Trust Polish
-current_phase: 999.1
-current_phase_name: ESCL-03 completion
-status: executing
+current_phase: 7
+status: Awaiting next milestone
 stopped_at: Phase 30 context gathered
-last_updated: "2026-07-29T01:11:55.315Z"
+last_updated: "2026-07-29T01:17:47.912Z"
 last_activity: 2026-07-29
-last_activity_desc: Phase 30 complete, transitioned to Phase 999.1
+last_activity_desc: Milestone v1.7 completed and archived
 progress:
   total_phases: 5
   completed_phases: 5
   total_plans: 14
   completed_plans: 14
   percent: 100
+current_phase_name: ESCL-03 completion
 ---
 
 # Project State
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-07-28 after v1.6 milestone close)
 
 ## Current Position
 
-Phase: 999.1 — Follow-up — Admin reply relay to escalating client (ESCL-03 completion)
-Plan: Not started
-Status: Executing Phase 30
-Last activity: 2026-07-29 — Phase 30 complete, transitioned to Phase 999.1
+Phase: Milestone v1.7 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-07-29 — Milestone v1.7 completed and archived
 
 ## Performance Metrics
 
@@ -336,6 +336,15 @@ Items acknowledged and deferred at v1.6 milestone close on 2026-07-28:
 | todo | 2026-07-27-run-full-ux-audit-before-scoping-v1-7.md | planning (done — v1.7 research/requirements/roadmap complete) |
 | known_deferred: 8 (see above) | | |
 
+Items acknowledged and deferred at v1.7 milestone close on 2026-07-29:
+
+| Category | Item | Status |
+|----------|------|--------|
+| debug | knowledge-base | unknown (static reference doc used by gsd-debugger, not a real session — audit-tool false positive, no frontmatter status field by design; recurring since v1.6 close) |
+| todo | 2026-07-07-pivot-to-per-business-whatsapp-numbers-post-poc.md | planning (carry-forward from v1.0/v1.2/v1.4/v1.5/v1.6, still moot under Telegram-first pivot) |
+| todo | 2026-07-09-meta-business-verification-not-submitted.md | phase-1 (carry-forward, blocked on external Meta process) |
+| known_deferred: 3 (see above) | | |
+
 ## Session Continuity
 
 Last session: 2026-07-28T23:36:59.599Z
@@ -374,4 +383,4 @@ Resume file: .planning/phases/30-client-identification-menu-reliability/30-CONTE
 
 ## Operator Next Steps
 
-- Run `/gsd-plan-phase 26` to start planning Phase 26 (Confirmation & Approval Policy), the first phase of v1.7.
+- Start the next milestone with /gsd-new-milestone
