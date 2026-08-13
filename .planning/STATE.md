@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-07-29 after v1.7 milestone close)
 Phase: Milestone v1.7 complete
 Plan: —
 Status: Awaiting next milestone
-Last activity: 2026-07-29 - Completed quick task 260729-s9c: Add owner-side native Telegram menu-button parity: register /settings, /classes, /clients, /agenda, /payment, /invite alongside /menu, each routed directly to its sub-menu
+Last activity: 2026-08-13 - Completed quick task 260813-g86: Fix admin daily agenda push to include pending_owner_approval bookings
 
 ## Performance Metrics
 
@@ -270,6 +270,7 @@ Recent decisions affecting current work:
 | 260729-n05 | admin can view client list and delete clients (full erase or unlink-only) + fix nonsensical Greek settings-menu toggle labels | 2026-07-29 | d7af8db | [260729-n05-admin-can-view-client-list-and-delete-cl](./quick/260729-n05-admin-can-view-client-list-and-delete-cl/) |
 | 260729-rjv | enumerate admin root menu options in message text + add /book /mybookings /cancel /balance as routed client Telegram commands | 2026-07-29 | a725eec | [260729-rjv-enumerate-admin-root-menu-options-in-mes](./quick/260729-rjv-enumerate-admin-root-menu-options-in-mes/) |
 | 260729-s9c | add owner-side native Telegram menu-button parity: register /settings /classes /clients /agenda /payment /invite alongside /menu, each routed directly to its sub-menu | 2026-07-29 | a1464d1 | [260729-s9c-add-owner-side-native-telegram-menu-butt](./quick/260729-s9c-add-owner-side-native-telegram-menu-butt/) |
+| 260813-g86 | Fix admin daily agenda push to include pending_owner_approval bookings | 2026-08-13 | 7a64ccd | [260813-g86-fix-admin-daily-agenda-push-src-schedule](./quick/260813-g86-fix-admin-daily-agenda-push-src-schedule/) |
 
 ### Blockers/Concerns
 
