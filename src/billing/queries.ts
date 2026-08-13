@@ -91,6 +91,7 @@ export type RecentClient = {
   clientName: string | null;
   serviceNameFallback: string;
   lastBookingDateFormatted: string;
+  senderPhone: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -229,6 +230,7 @@ export async function getRecentClientsForBusiness(
       clientName: clientBusinessRelationships.clientName,
       serviceNameFallback: services.name,
       lastBookingDate: bookings.calendarDate,
+      senderPhone: clientBusinessRelationships.senderPhone,
     })
     .from(clientBusinessRelationships)
     .innerJoin(
@@ -258,6 +260,7 @@ export async function getRecentClientsForBusiness(
         clientName: row.clientName,
         serviceNameFallback: row.serviceNameFallback,
         lastBookingDateFormatted: row.lastBookingDate,
+        senderPhone: row.senderPhone,
       });
     }
   }

@@ -26,6 +26,7 @@ jest.mock('../src/billing/queries', () => ({
   createMembership: jest.fn(),
   activatePackage: jest.fn(),
   cancelPendingPackage: jest.fn(),
+  getUnbilledBookingsForClient: jest.fn(),
 }));
 
 jest.mock('../src/database/queries', () => ({
@@ -73,6 +74,7 @@ const mockGetAllClients = billingQueries.getAllClientsForBusiness as jest.Mock;
 const mockListPackages = billingQueries.listPackages as jest.Mock;
 const mockGetPackageById = billingQueries.getPackageById as jest.Mock;
 const mockCreateMembership = billingQueries.createMembership as jest.Mock;
+const mockGetUnbilledBookings = billingQueries.getUnbilledBookingsForClient as jest.Mock;
 const mockFindClientRelById = dbQueries.findClientBusinessRelationshipById as jest.Mock;
 const mockFindBusinessByOwner = onboardingQueries.findBusinessByOwnerTelegramId as jest.Mock;
 
@@ -85,6 +87,9 @@ beforeEach(() => {
   // own mockGetAllClients value override this default per Jest's mock
   // resolution order.
   mockGetAllClients.mockResolvedValue([]);
+  // Quick 260813-ji5: default to no unbilled bookings — jest.clearAllMocks()
+  // resets mock implementations too, so this must be (re)set after that call.
+  mockGetUnbilledBookings.mockResolvedValue([]);
 });
 
 // ---------------------------------------------------------------------------
@@ -100,12 +105,14 @@ describe('payment recording flow', () => {
           clientName: 'Μαρία',
           serviceNameFallback: 'Pilates',
           lastBookingDateFormatted: '2026-07-15',
+          senderPhone: '+306900000001',
         },
         {
           clientBusinessRelationshipId: 102,
           clientName: 'Γιώργης',
           serviceNameFallback: 'Yoga',
           lastBookingDateFormatted: '2026-07-14',
+          senderPhone: '+306900000002',
         },
       ];
       mockGetRecentClients.mockResolvedValue(mockClients);
@@ -127,6 +134,7 @@ describe('payment recording flow', () => {
           clientName: null, // no display name
           serviceNameFallback: 'Pilates',
           lastBookingDateFormatted: '2026-07-10',
+          senderPhone: '+306900000003',
         },
       ];
       mockGetRecentClients.mockResolvedValue(mockClients);
@@ -146,6 +154,7 @@ describe('payment recording flow', () => {
           clientName: 'Test Client',
           serviceNameFallback: 'Service',
           lastBookingDateFormatted: '2026-07-20',
+          senderPhone: '+306900000004',
         },
       ];
       mockGetRecentClients.mockResolvedValue(mockClients);
@@ -202,6 +211,7 @@ describe('payment recording flow', () => {
           clientName: 'Μαρία',
           serviceNameFallback: 'Pilates',
           lastBookingDateFormatted: '2026-07-15',
+          senderPhone: '+306900000001',
         },
       ];
       mockGetRecentClients.mockResolvedValue(mockClients);
@@ -224,6 +234,7 @@ describe('payment recording flow', () => {
           clientName: 'Μαρία',
           serviceNameFallback: 'Pilates',
           lastBookingDateFormatted: '2026-07-15',
+          senderPhone: '+306900000001',
         },
       ];
       mockGetRecentClients.mockResolvedValue(mockClients);
@@ -251,6 +262,48 @@ describe('payment recording flow', () => {
 
       // No other duplication — exactly 2 rows total
       expect(keyboard).toHaveLength(2);
+    });
+
+    it('quick-260813-ji5: annotates a client button label with an unbilled-booking indicator', async () => {
+      const mockClients: RecentClient[] = [
+        {
+          clientBusinessRelationshipId: 101,
+          clientName: 'Μαρία',
+          serviceNameFallback: 'Pilates',
+          lastBookingDateFormatted: '2026-07-15',
+          senderPhone: '+306900000001',
+        },
+      ];
+      mockGetRecentClients.mockResolvedValue(mockClients);
+      mockGetUnbilledBookings.mockResolvedValue([
+        { id: 1, calendarDate: '2026-09-01', calendarTime: '10:00' },
+      ]);
+
+      await showClientSelection(BUSINESS_ID, OWNER_TELEGRAM_ID);
+
+      const keyboard = mockSendKeyboard.mock.calls[0][2];
+      expect(keyboard[0][0].text).toContain('⚠️');
+      expect(keyboard[0][0].text).toContain('1');
+    });
+
+    it('quick-260813-ji5: leaves the label unmodified when the client has no unbilled bookings', async () => {
+      const mockClients: RecentClient[] = [
+        {
+          clientBusinessRelationshipId: 101,
+          clientName: 'Μαρία',
+          serviceNameFallback: 'Pilates',
+          lastBookingDateFormatted: '2026-07-15',
+          senderPhone: '+306900000001',
+        },
+      ];
+      mockGetRecentClients.mockResolvedValue(mockClients);
+      mockGetUnbilledBookings.mockResolvedValue([]);
+
+      await showClientSelection(BUSINESS_ID, OWNER_TELEGRAM_ID);
+
+      const keyboard = mockSendKeyboard.mock.calls[0][2];
+      expect(keyboard[0][0].text).toBe('Μαρία');
+      expect(keyboard[0][0].text).not.toContain('⚠️');
     });
   });
 
@@ -440,6 +493,7 @@ describe('payment recording flow', () => {
         memberId: 99,
         expiresAtDate: '2026-08-20',
         sessionsRemaining: 10,
+        retroactiveSessionsDeducted: 0,
       });
 
       await handleConfirmMembership(BUSINESS_ID, 10, 5, OWNER_TELEGRAM_ID, 'cb-query-id-3');
@@ -458,6 +512,44 @@ describe('payment recording flow', () => {
         OWNER_TELEGRAM_ID,
         expect.stringContaining('✅ Συνδρομή δημιουργήθηκε!')
       );
+      // Quick 260813-ji5: message is byte-identical to before when count is 0
+      expect(mockSendMessage.mock.calls[0][1]).not.toContain('Αναδρομική χρέωση');
+    });
+
+    it('quick-260813-ji5: includes the retroactive-deduction count when greater than 0', async () => {
+      mockFindBusinessByOwner.mockResolvedValue({
+        id: BUSINESS_ID,
+        ownerTelegramId: OWNER_TELEGRAM_ID,
+      });
+      mockFindClientRelById.mockResolvedValue({
+        id: 10,
+        businessId: BUSINESS_ID,
+        senderPhone: '+306900000001',
+        clientName: 'Ελένη',
+        consentGiven: true,
+        consentTimestamp: new Date(),
+        createdAt: new Date(),
+      });
+      mockGetPackageById.mockResolvedValue({
+        id: 5,
+        name: 'Μηνιαία',
+        priceCents: 8000,
+        validDays: 30,
+        sessionCount: 10,
+        isActive: true,
+        businessId: BUSINESS_ID,
+        createdAt: new Date(),
+      });
+      mockCreateMembership.mockResolvedValue({
+        memberId: 99,
+        expiresAtDate: '2026-08-20',
+        sessionsRemaining: 7,
+        retroactiveSessionsDeducted: 1,
+      });
+
+      await handleConfirmMembership(BUSINESS_ID, 10, 5, OWNER_TELEGRAM_ID, 'cb-query-id-4');
+
+      expect(mockSendMessage.mock.calls[0][1]).toContain('Αναδρομική χρέωση: 1');
     });
   });
 

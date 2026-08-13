@@ -24,6 +24,7 @@ import {
   activatePackage,
   cancelPendingPackage,
   getPackageById,
+  getUnbilledBookingsForClient,
 } from '../../billing/queries';
 import {
   sendTelegramMessageWithKeyboard,
@@ -31,6 +32,17 @@ import {
   InlineKeyboard,
 } from '../client';
 import { logger } from '../../utils/logger';
+
+/**
+ * Quick task 260813-ji5: annotates a client button label with an
+ * unbilled-booking indicator when the client has 1+ pre-existing bookings
+ * never charged against any membership. Always-plural Greek phrasing,
+ * matching this file's existing convention of not branching singular/plural
+ * for counts (e.g. `${pkg.sessionCount} συνεδρίες`).
+ */
+function appendUnbilledIndicator(label: string, unbilledCount: number): string {
+  return unbilledCount > 0 ? `${label} ⚠️ ${unbilledCount} ανείσπρακτες κρατήσεις` : label;
+}
 
 // ---------------------------------------------------------------------------
 // Show functions (called from text message context or after answerCallbackQuery)
@@ -88,7 +100,20 @@ export async function showClientSelection(
     return;
   }
 
-  const recentKeyboard: InlineKeyboard = clients.map((client) => {
+  // Quick task 260813-ji5: per-client unbilled-booking indicator, computed
+  // before building either keyboard. Per this file's own WR-02 precedent and
+  // the findMembershipsExpiringIn7Days non-RLS businessId-scoped-read
+  // precedent, no withBusinessContext wrapping here — getUnbilledBookingsForClient's
+  // default getConn() already resolves correctly with or without an ambient
+  // business context, and every WHERE-clause filter is already businessId-scoped.
+  const unbilledCounts = await Promise.all(
+    clients.map((client) => getUnbilledBookingsForClient(businessId, client.senderPhone))
+  );
+  const neverBookedUnbilledCounts = await Promise.all(
+    neverBookedClients.map((client) => getUnbilledBookingsForClient(businessId, client.senderPhone))
+  );
+
+  const recentKeyboard: InlineKeyboard = clients.map((client, index) => {
     const callbackData = `billing:client:${client.clientBusinessRelationshipId}`;
     // IDs in callback_data are always within 64 bytes; guard for safety
     if (Buffer.byteLength(callbackData, 'utf8') > 64) {
@@ -100,10 +125,10 @@ export async function showClientSelection(
     // D-05: use client display name when available; fall back to service+date
     const label =
       client.clientName ?? `${client.serviceNameFallback} — ${client.lastBookingDateFormatted}`;
-    return [{ text: label, callback_data: callbackData }];
+    return [{ text: appendUnbilledIndicator(label, unbilledCounts[index].length), callback_data: callbackData }];
   });
 
-  const neverBookedKeyboard: InlineKeyboard = neverBookedClients.map((client) => {
+  const neverBookedKeyboard: InlineKeyboard = neverBookedClients.map((client, index) => {
     const callbackData = `billing:client:${client.clientBusinessRelationshipId}`;
     if (Buffer.byteLength(callbackData, 'utf8') > 64) {
       logger.warn(
@@ -113,7 +138,12 @@ export async function showClientSelection(
     }
     // senderPhone as label fallback since all-time clients may have no name
     const label = client.clientName ?? client.senderPhone;
-    return [{ text: label, callback_data: callbackData }];
+    return [
+      {
+        text: appendUnbilledIndicator(label, neverBookedUnbilledCounts[index].length),
+        callback_data: callbackData,
+      },
+    ];
   });
 
   const keyboard: InlineKeyboard = [...recentKeyboard, ...neverBookedKeyboard];
@@ -260,7 +290,12 @@ export async function handleConfirmMembership(
   // back the whole renewal) whenever the same client was renewed twice on the same
   // Athens calendar day (WR-05).
   const idempotencyKey = `billing:mem_confirm:${callbackQueryId}`;
-  let result: { memberId: number; expiresAtDate: string; sessionsRemaining: number | null };
+  let result: {
+    memberId: number;
+    expiresAtDate: string;
+    sessionsRemaining: number | null;
+    retroactiveSessionsDeducted: number;
+  };
   try {
     result = await withBusinessContext(businessId, () =>
       createMembership(businessId, clientPhone, packageId, idempotencyKey)
@@ -278,15 +313,20 @@ export async function handleConfirmMembership(
   }
 
   const clientLabel = clientRel.clientName ?? clientPhone;
-  await sendTelegramMessage(
-    senderTelegramId,
-    [
-      `✅ Συνδρομή δημιουργήθηκε!`,
-      `Πελάτης: ${clientLabel}`,
-      `Πακέτο: ${pkg.name}`,
-      `Λήγει: ${result.expiresAtDate}`,
-    ].join('\n')
-  );
+  const messageLines = [
+    `✅ Συνδρομή δημιουργήθηκε!`,
+    `Πελάτης: ${clientLabel}`,
+    `Πακέτο: ${pkg.name}`,
+    `Λήγει: ${result.expiresAtDate}`,
+  ];
+  // Quick task 260813-ji5: only appended when there was something to reconcile —
+  // message stays byte-identical to before this change when the count is 0.
+  if (result.retroactiveSessionsDeducted > 0) {
+    messageLines.push(
+      `Αναδρομική χρέωση: ${result.retroactiveSessionsDeducted} συνεδρίες για προϋπάρχουσες κρατήσεις χωρίς συνδρομή.`
+    );
+  }
+  await sendTelegramMessage(senderTelegramId, messageLines.join('\n'));
 }
 
 /**
