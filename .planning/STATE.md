@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: UX & Trust Polish
-current_phase: 30
+current_phase: 7
 status: Awaiting next milestone
-stopped_at: Milestone v1.7 completed and archived
-last_updated: "2026-07-29T13:47:56.172Z"
-last_activity: 2026-07-29
-last_activity_desc: Milestone v1.7 completed and archived
+stopped_at: Phase 31 context gathered
+last_updated: "2026-08-13T09:45:46.447Z"
+last_activity: 2026-08-13
+last_activity_desc: "Completed quick task 260813-g86: Fix admin daily agenda push to include pending_owner_approval bookings"
 progress:
-  total_phases: 5
+  total_phases: 6
   completed_phases: 5
   total_plans: 14
   completed_plans: 14
-  percent: 100
+  percent: 83
 current_phase_name: v1.7 complete — awaiting next milestone
 ---
 
@@ -364,9 +364,9 @@ Items acknowledged and deferred at v1.7 milestone close on 2026-07-29:
 
 ## Session Continuity
 
-Last session: 2026-07-29T13:46:49.698Z
-Stopped at: Phase 30 context gathered
-Resume file: .planning/phases/30-client-identification-menu-reliability/30-CONTEXT.md
+Last session: 2026-08-13T09:45:46.438Z
+Stopped at: Phase 31 context gathered
+Resume file: .planning/phases/31-google-calendar-self-serve-connect-owner-facing-oauth-flow-t/31-CONTEXT.md
 
 **Phase 12 Plan 01 completed:** a940588, 6c5830e, 7d64f85
 
