@@ -663,7 +663,7 @@ export async function markTelegramUpdateProcessed(
 
 export async function updateBusinessGoogleRefreshToken(
   businessId: number,
-  refreshToken: string
+  refreshToken: string | null
 ): Promise<void> {
   await db
     .update(businesses)

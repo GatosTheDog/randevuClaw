@@ -41,6 +41,7 @@ import {
   showTodaysAgenda,
   handleInviteGeneration,
 } from '../telegram/handlers/admin-menu';
+import { handleCalendarCommand } from '../telegram/handlers/calendar-connect';
 import {
   ClientMenuCallbackResult,
   showClientRootMenu,
@@ -262,6 +263,24 @@ async function handleFoundBusiness(
         logger.info(
           { updateId, businessId: business.id, elapsedMs: Date.now() - startedAt },
           'handleFoundBusiness: exit (/invite branch)'
+        );
+        return;
+      }
+
+      // Phase 31 (D-01, D-02): /calendar mirrors the same
+      // clearPendingReply -> handler -> markTelegramUpdateProcessed shape as
+      // every other owner sub-menu text command above. handleCalendarCommand
+      // is the same single state-aware entry point used by the Settings menu
+      // button (admin-menu.ts) — satisfies D-01's "both trigger the same flow".
+      if (messageText.trim() === '/calendar') {
+        await withBusinessContext(business.id, async () => {
+          clearPendingReply(business.id, senderTelegramId);
+          await handleCalendarCommand(senderTelegramId, business);
+          await markTelegramUpdateProcessed(updateId, business.id);
+        });
+        logger.info(
+          { updateId, businessId: business.id, elapsedMs: Date.now() - startedAt },
+          'handleFoundBusiness: exit (/calendar branch)'
         );
         return;
       }

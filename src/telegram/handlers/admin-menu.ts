@@ -38,6 +38,7 @@ import {
 import { getAllClientsForBusiness, getClientActiveMembership, deleteClientBillingData } from '../../billing/queries';
 import { sendBusinessInvite } from '../../invites/generator';
 import { showClientSelection } from './payment-flow';
+import { handleCalendarCommand, handleCalendarDisconnect } from './calendar-connect';
 import { BACK_MENU_LABELS } from '../../utils/greek-messages';
 
 // Exported so telegram.ts can use it in the parseCallbackData return union.
@@ -84,6 +85,7 @@ async function reassertMenuButtonAndCommands(
       { command: 'agenda', description: 'Ατζέντα Σήμερα' },
       { command: 'payment', description: 'Καταχώρηση Πληρωμής' },
       { command: 'invite', description: 'Πρόσκληση Πελάτη' },
+      { command: 'calendar', description: 'Σύνδεση Google Ημερολογίου' },
     ],
     { type: 'chat', chat_id: chatId }
   );
@@ -174,6 +176,7 @@ export async function showSettingsMenu(chatId: string, business: Business): Prom
   const thresholdStatus = business.lastSessionThresholdEnabled
     ? `✅ Ενεργή (${business.lastSessionThresholdCount} μαθήματα)`
     : '❌ Ανενεργή';
+  const calendarStatus = business.googleRefreshToken ? '✅ Συνδεδεμένο' : '❌ Μη συνδεδεμένο';
 
   const messageText = `Ρυθμίσεις — ${business.name}
 
@@ -185,6 +188,7 @@ export async function showSettingsMenu(chatId: string, business: Business): Prom
 Πολιτική ακύρωσης: ${cutoffStatus}
 Πολλαπλές κρατήσεις: ${multiBookingStatus}
 Ειδοποίηση τελευταίου μαθήματος: ${thresholdStatus}
+Google Calendar: ${calendarStatus}
 
 Για αλλαγή ωρών, υπηρεσιών ή αριθμητικών τιμών: γράψε μου στο chat.`;
 
@@ -216,6 +220,13 @@ export async function showSettingsMenu(chatId: string, business: Business): Prom
     ? 'Απενεργοποίηση ειδοποίησης τελευταίου μαθήματος'
     : 'Ενεργοποίηση ειδοποίησης τελευταίου μαθήματος';
 
+  // Same callback_data for both connection states — handleCalendarCommand
+  // (menu:settings:calendar) branches internally on business.googleRefreshToken.
+  const calendarCallbackData = 'menu:settings:calendar';
+  const calendarText = business.googleRefreshToken
+    ? '📅 Διαχείριση Google Calendar'
+    : '📅 Σύνδεση Google Calendar';
+
   const backCallbackData = 'menu:root';
   const hoursExamplesData = 'menu:settings:hours_examples';
   const servicesExamplesData = 'menu:settings:services_examples';
@@ -225,6 +236,7 @@ export async function showSettingsMenu(chatId: string, business: Business): Prom
   assertCallbackDataSize(cutoffCallbackData);
   assertCallbackDataSize(multiCallbackData);
   assertCallbackDataSize(thresholdCallbackData);
+  assertCallbackDataSize(calendarCallbackData);
   assertCallbackDataSize(backCallbackData);
   assertCallbackDataSize(hoursExamplesData);
   assertCallbackDataSize(servicesExamplesData);
@@ -235,6 +247,7 @@ export async function showSettingsMenu(chatId: string, business: Business): Prom
     [{ text: cutoffText, callback_data: cutoffCallbackData }],
     [{ text: multiText, callback_data: multiCallbackData }],
     [{ text: thresholdText, callback_data: thresholdCallbackData }],
+    [{ text: calendarText, callback_data: calendarCallbackData }],
     [{ text: '📝 Ώρες Λειτουργίας — Παραδείγματα', callback_data: hoursExamplesData }],
     [{ text: '📝 Υπηρεσίες & Τιμές — Παραδείγματα', callback_data: servicesExamplesData }],
     [{ text: '📝 Νέα Μαθήματα — Παραδείγματα', callback_data: classesExamplesData }],
@@ -826,6 +839,14 @@ export async function handleMenuCallback(
 • Yoga κάθε Σάββατο 18:00-19:30 20 θέσεις
 • Zumba Τρίτη Πέμπτη 19:00 25 θέσεις`
       );
+      break;
+
+    case menuAction === 'settings:calendar':
+      await handleCalendarCommand(chatId, business);
+      break;
+
+    case menuAction === 'settings:calendar_disconnect':
+      await handleCalendarDisconnect(chatId, business);
       break;
 
     case menuAction.startsWith('settings:'): {

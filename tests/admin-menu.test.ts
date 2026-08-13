@@ -214,6 +214,7 @@ describe('showAdminRootMenu — menu button re-assertion (D-06.2)', () => {
         { command: 'agenda', description: 'Ατζέντα Σήμερα' },
         { command: 'payment', description: 'Καταχώρηση Πληρωμής' },
         { command: 'invite', description: 'Πρόσκληση Πελάτη' },
+        { command: 'calendar', description: 'Σύνδεση Google Ημερολογίου' },
       ],
       { type: 'chat', chat_id: '999' }
     );
@@ -303,7 +304,7 @@ describe('showSettingsMenu — keyboard shape', () => {
     telegramClient.sendTelegramMessage.mockResolvedValue({ messageId: 2 });
   });
 
-  test('sends an 8-row keyboard with the 3 new example-phrase buttons before the back button', async () => {
+  test('sends a 9-row keyboard with the Google Calendar button before the 3 example-phrase buttons and the back button', async () => {
     const telegramClient = require('../src/telegram/client');
     await showSettingsMenu('123', mockBusiness);
 
@@ -311,17 +312,32 @@ describe('showSettingsMenu — keyboard shape', () => {
     expect(sendCalls.length).toBe(1);
 
     const keyboard = sendCalls[0][2];
-    expect(keyboard.length).toBe(8);
+    expect(keyboard.length).toBe(9);
     expect(keyboard[4]).toEqual([
-      { text: '📝 Ώρες Λειτουργίας — Παραδείγματα', callback_data: 'menu:settings:hours_examples' },
+      { text: '📅 Σύνδεση Google Calendar', callback_data: 'menu:settings:calendar' },
     ]);
     expect(keyboard[5]).toEqual([
-      { text: '📝 Υπηρεσίες & Τιμές — Παραδείγματα', callback_data: 'menu:settings:services_examples' },
+      { text: '📝 Ώρες Λειτουργίας — Παραδείγματα', callback_data: 'menu:settings:hours_examples' },
     ]);
     expect(keyboard[6]).toEqual([
+      { text: '📝 Υπηρεσίες & Τιμές — Παραδείγματα', callback_data: 'menu:settings:services_examples' },
+    ]);
+    expect(keyboard[7]).toEqual([
       { text: '📝 Νέα Μαθήματα — Παραδείγματα', callback_data: 'menu:settings:classes_examples' },
     ]);
-    expect(keyboard[7]).toEqual([{ text: '« Πίσω στο Μενού', callback_data: 'menu:root' }]);
+    expect(keyboard[8]).toEqual([{ text: '« Πίσω στο Μενού', callback_data: 'menu:root' }]);
+  });
+
+  test('Google Calendar button reflects "manage" text and same callback_data when already connected', async () => {
+    const telegramClient = require('../src/telegram/client');
+    await showSettingsMenu('123', { ...mockBusiness, googleRefreshToken: 'rt-1' });
+
+    const sendCalls = (telegramClient.sendTelegramMessageWithKeyboard as jest.Mock).mock.calls;
+    const keyboard = sendCalls[0][2];
+
+    expect(keyboard[4]).toEqual([
+      { text: '📅 Διαχείριση Google Calendar', callback_data: 'menu:settings:calendar' },
+    ]);
   });
 
   test('quick 260729-n05: all 4 toggle buttons read as corrected, complete Greek phrases (default mockBusiness — all flags false)', async () => {
