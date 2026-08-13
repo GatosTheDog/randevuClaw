@@ -5,9 +5,9 @@ milestone_name: UX & Trust Polish
 current_phase: 7
 status: Awaiting next milestone
 stopped_at: Phase 31 context gathered
-last_updated: "2026-08-13T09:45:46.447Z"
+last_updated: "2026-08-13T11:11:43.642Z"
 last_activity: 2026-08-13
-last_activity_desc: "Completed quick task 260813-g86: Fix admin daily agenda push to include pending_owner_approval bookings"
+last_activity_desc: "Completed quick task 260813-jgj: Fix payment client-selection list to always include never-booked clients"
 progress:
   total_phases: 6
   completed_phases: 5
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-07-29 after v1.7 milestone close)
 Phase: Milestone v1.7 complete
 Plan: —
 Status: Awaiting next milestone
-Last activity: 2026-08-13 - Completed quick task 260813-ixq: Resolve client display name in agenda messages
+Last activity: 2026-08-13 - Completed quick task 260813-jgj: Fix payment client-selection list to always include never-booked clients
 
 ## Performance Metrics
 
@@ -119,6 +119,7 @@ Last activity: 2026-08-13 - Completed quick task 260813-ixq: Resolve client disp
 | Phase quick P260729-n05 | 35min | 3 tasks | 4 files |
 | Phase quick P260729-rjv | 8min | 3 tasks | 6 files |
 | Phase quick P260729-s9c | 12min | 2 tasks | 6 files |
+| Phase quick-260813-jgj P01 | 10min | 2 tasks tasks | 2 files files |
 
 ## Accumulated Context
 
@@ -252,6 +253,7 @@ Recent decisions affecting current work:
 - [Phase ?]: [Quick 260729-n05]: Admin client deletion offers two actions (Πλήρης διαγραφή full-erase across 8 tables vs Αφαίρεση από λίστα unlink-only) rather than one, per explicit user request; both re-verify rel.businessId === business.id at handler AND query layer (defense-in-depth) before any mutation; no message sent to the deleted client (they naturally see the consent/intro flow again next contact since isFirstContact keys off clientBusinessRelationships row presence)
 - [Phase ?]: [Quick 260729-rjv]: Client's native Telegram command menu (☰ button) expanded from 1 command (/start) to 5 (start/book/mybookings/cancel/balance), each independently routed in handleFoundBusiness behind the same consent gate as /start, per explicit user request after clarifying they wanted the native command list itself populated (not just the in-chat menu text, which was already fixed by 260729-mlr)
 - [Phase ?]: [Quick 260729-s9c]: Owner's native Telegram command menu expanded from 1 command (/menu) to 7 (menu/settings/classes/clients/agenda/payment/invite), mirroring 260729-rjv's client-side pattern exactly — each routes directly to its admin sub-menu with no consent gate (ownerTelegramId match already gates entry), skipping the root menu entirely
+- [Phase ?]: [Quick 260813-jgj]: showClientSelection always merges never-booked clients (getAllClientsForBusiness) with recent-booking clients (getRecentClientsForBusiness) via a single Promise.all, deduplicated by clientBusinessRelationshipId, instead of gating the all-time fetch behind clients.length === 0
 
 ### Pending Todos
 
@@ -276,6 +278,7 @@ Recent decisions affecting current work:
 | 260729-s9c | add owner-side native Telegram menu-button parity: register /settings /classes /clients /agenda /payment /invite alongside /menu, each routed directly to its sub-menu | 2026-07-29 | a1464d1 | [260729-s9c-add-owner-side-native-telegram-menu-butt](./quick/260729-s9c-add-owner-side-native-telegram-menu-butt/) |
 | 260813-g86 | Fix admin daily agenda push to include pending_owner_approval bookings | 2026-08-13 | 7a64ccd | [260813-g86-fix-admin-daily-agenda-push-src-schedule](./quick/260813-g86-fix-admin-daily-agenda-push-src-schedule/) |
 | 260813-ixq | Resolve client display name in agenda messages instead of raw phone/id | 2026-08-13 | 8b74373 | [260813-ixq-fix-agenda-message-to-show-client-name-i](./quick/260813-ixq-fix-agenda-message-to-show-client-name-i/) |
+| 260813-jgj | Fix payment client-selection list to always include never-booked clients | 2026-08-13 | 2c5bc2e | [260813-jgj-fix-payment-client-selection-list-to-alw](./quick/260813-jgj-fix-payment-client-selection-list-to-alw/) |
 
 ### Blockers/Concerns
 
@@ -365,7 +368,7 @@ Items acknowledged and deferred at v1.7 milestone close on 2026-07-29:
 
 ## Session Continuity
 
-Last session: 2026-08-13T09:45:46.438Z
+Last session: 2026-08-13T11:09:13.219Z
 Stopped at: Phase 31 context gathered
 Resume file: .planning/phases/31-google-calendar-self-serve-connect-owner-facing-oauth-flow-t/31-CONTEXT.md
 
