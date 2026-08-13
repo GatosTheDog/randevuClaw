@@ -206,4 +206,109 @@ describe('runAgendaSweep status filter regression (agenda.ts)', () => {
       'pending_owner_approval',
     ]);
   });
+
+  it('shows resolved client name when a clientBusinessRelationship with clientName exists', async () => {
+    let mockedSendTelegramMessage!: jest.Mock;
+    let isolatedRunAgendaSweep!: () => Promise<number>;
+
+    jest.isolateModules(() => {
+      const claimAgendaSlot = jest.fn().mockResolvedValue(true);
+      const findBusinessById = jest.fn().mockResolvedValue({
+        id: 1,
+        ownerTelegramId: 'owner1',
+        botToken: 'test-bot-token',
+      });
+      const findServiceById = jest.fn().mockResolvedValue({ id: 2, name: 'Reformer Pilates' });
+      const listAllBusinessIds = jest.fn().mockResolvedValue([1]);
+      const listBookingsForDate = jest.fn().mockResolvedValue([
+        { id: 42, businessId: 1, serviceId: 2, calendarTime: '10:00', clientPhone: 'c1' },
+      ]);
+      const findClientBusinessRelationship = jest.fn().mockResolvedValue({
+        id: 1,
+        businessId: 1,
+        senderPhone: 'c1',
+        clientName: 'Μαρία Παπαδοπούλου',
+        consentGiven: true,
+        consentTimestamp: new Date(),
+        createdAt: new Date(),
+      });
+      mockedSendTelegramMessage = jest.fn().mockResolvedValue({ messageId: 1 });
+      const botTokenStoreRun = jest.fn((_token: string, fn: () => Promise<unknown>) => fn());
+
+      jest.doMock('../src/database/queries', () => ({
+        claimAgendaSlot,
+        findBusinessById,
+        findClientBusinessRelationship,
+        findServiceById,
+        listAllBusinessIds,
+        listBookingsForDate,
+      }));
+      jest.doMock('../src/telegram/client', () => ({
+        sendTelegramMessage: mockedSendTelegramMessage,
+        botTokenStore: { run: botTokenStoreRun },
+      }));
+      jest.doMock('../src/utils/logger', () => ({
+        logger: { error: jest.fn(), warn: jest.fn(), info: jest.fn() },
+      }));
+
+      ({ runAgendaSweep: isolatedRunAgendaSweep } = require('../src/scheduler/agenda'));
+    });
+
+    await isolatedRunAgendaSweep();
+
+    expect(mockedSendTelegramMessage).toHaveBeenCalledTimes(1);
+    const message = mockedSendTelegramMessage.mock.calls[0][1] as string;
+    expect(message).toContain('Μαρία Παπαδοπούλου');
+    // Region-scope the negative check to the parenthesized client-name
+    // segment of the line, since other fields in this fixture are not
+    // phone-shaped and could otherwise produce a false positive.
+    const clientSegmentMatch = message.match(/\(([^)]*)\)/);
+    expect(clientSegmentMatch?.[1]).not.toBe('c1');
+  });
+
+  it('falls back to the raw phone when no clientBusinessRelationship exists', async () => {
+    let mockedSendTelegramMessage!: jest.Mock;
+    let isolatedRunAgendaSweep!: () => Promise<number>;
+
+    jest.isolateModules(() => {
+      const claimAgendaSlot = jest.fn().mockResolvedValue(true);
+      const findBusinessById = jest.fn().mockResolvedValue({
+        id: 1,
+        ownerTelegramId: 'owner1',
+        botToken: 'test-bot-token',
+      });
+      const findServiceById = jest.fn().mockResolvedValue({ id: 2, name: 'Reformer Pilates' });
+      const listAllBusinessIds = jest.fn().mockResolvedValue([1]);
+      const listBookingsForDate = jest.fn().mockResolvedValue([
+        { id: 42, businessId: 1, serviceId: 2, calendarTime: '10:00', clientPhone: 'c1' },
+      ]);
+      const findClientBusinessRelationship = jest.fn().mockResolvedValue(null);
+      mockedSendTelegramMessage = jest.fn().mockResolvedValue({ messageId: 1 });
+      const botTokenStoreRun = jest.fn((_token: string, fn: () => Promise<unknown>) => fn());
+
+      jest.doMock('../src/database/queries', () => ({
+        claimAgendaSlot,
+        findBusinessById,
+        findClientBusinessRelationship,
+        findServiceById,
+        listAllBusinessIds,
+        listBookingsForDate,
+      }));
+      jest.doMock('../src/telegram/client', () => ({
+        sendTelegramMessage: mockedSendTelegramMessage,
+        botTokenStore: { run: botTokenStoreRun },
+      }));
+      jest.doMock('../src/utils/logger', () => ({
+        logger: { error: jest.fn(), warn: jest.fn(), info: jest.fn() },
+      }));
+
+      ({ runAgendaSweep: isolatedRunAgendaSweep } = require('../src/scheduler/agenda'));
+    });
+
+    await isolatedRunAgendaSweep();
+
+    expect(mockedSendTelegramMessage).toHaveBeenCalledTimes(1);
+    const message = mockedSendTelegramMessage.mock.calls[0][1] as string;
+    expect(message).toContain('c1');
+  });
 });
