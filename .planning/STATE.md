@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-07-29 after v1.7 milestone close)
 Phase: Milestone v1.7 complete
 Plan: —
 Status: Awaiting next milestone
-Last activity: 2026-08-13 - Completed quick task 260813-g86: Fix admin daily agenda push to include pending_owner_approval bookings
+Last activity: 2026-08-13 - Completed quick task 260813-ixq: Resolve client display name in agenda messages
 
 ## Performance Metrics
 
@@ -275,6 +275,7 @@ Recent decisions affecting current work:
 | 260729-rjv | enumerate admin root menu options in message text + add /book /mybookings /cancel /balance as routed client Telegram commands | 2026-07-29 | a725eec | [260729-rjv-enumerate-admin-root-menu-options-in-mes](./quick/260729-rjv-enumerate-admin-root-menu-options-in-mes/) |
 | 260729-s9c | add owner-side native Telegram menu-button parity: register /settings /classes /clients /agenda /payment /invite alongside /menu, each routed directly to its sub-menu | 2026-07-29 | a1464d1 | [260729-s9c-add-owner-side-native-telegram-menu-butt](./quick/260729-s9c-add-owner-side-native-telegram-menu-butt/) |
 | 260813-g86 | Fix admin daily agenda push to include pending_owner_approval bookings | 2026-08-13 | 7a64ccd | [260813-g86-fix-admin-daily-agenda-push-src-schedule](./quick/260813-g86-fix-admin-daily-agenda-push-src-schedule/) |
+| 260813-ixq | Resolve client display name in agenda messages instead of raw phone/id | 2026-08-13 | 8b74373 | [260813-ixq-fix-agenda-message-to-show-client-name-i](./quick/260813-ixq-fix-agenda-message-to-show-client-name-i/) |
 
 ### Blockers/Concerns
 
