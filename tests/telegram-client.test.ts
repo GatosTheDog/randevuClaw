@@ -2,6 +2,7 @@ import {
   sendTelegramMessage,
   sendTelegramMessageWithKeyboard,
   sendTelegramPhoto,
+  sendTelegramDocument,
   answerCallbackQuery,
   editTelegramMessageReplyMarkup,
   botTokenStore,
@@ -260,5 +261,67 @@ describe('Telegram Bot API client', () => {
 
   it('Test 14: sendTelegramPhoto throws a clear error when called outside botTokenStore context', async () => {
     await expect(sendTelegramPhoto('12345', Buffer.from('x'))).rejects.toThrow(/botTokenStore/);
+  });
+
+  it('Test 15: sendTelegramDocument POSTs to sendDocument with a FormData body containing chat_id, document (filename), and caption', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ ok: true, result: { message_id: 57 } }),
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const fileBuffer = Buffer.from('BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n');
+
+    await botTokenStore.run('test-bot-token', async () => {
+      const result = await sendTelegramDocument('12345', fileBuffer, 'booking.ics', 'Το ραντεβού σας');
+
+      expect(result).toEqual({ messageId: 57 });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [url, options] = fetchMock.mock.calls[0];
+      expect(url).toMatch(/\/sendDocument$/);
+      expect(options.method).toBe('POST');
+      expect(options.headers).toBeUndefined();
+
+      const formData = options.body as FormData;
+      expect(formData.get('chat_id')).toBe('12345');
+      expect(formData.get('document')).toBeTruthy();
+      expect(formData.get('caption')).toBe('Το ραντεβού σας');
+    });
+  });
+
+  it('Test 16: sendTelegramDocument with no caption argument omits the caption field from FormData entirely', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ ok: true, result: { message_id: 58 } }),
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    await botTokenStore.run('test-bot-token', async () => {
+      await sendTelegramDocument('12345', Buffer.from('fake-ics-bytes'), 'booking.ics');
+
+      const [, options] = fetchMock.mock.calls[0];
+      const formData = options.body as FormData;
+      expect(formData.get('caption')).toBeNull();
+    });
+  });
+
+  it('Test 17: sendTelegramDocument throws the Telegram description string when the JSON envelope has ok: false', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ ok: false, description: 'Bad Request: file too large' }),
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    await botTokenStore.run('test-bot-token', async () => {
+      await expect(sendTelegramDocument('12345', Buffer.from('x'), 'booking.ics')).rejects.toThrow(
+        'Bad Request: file too large'
+      );
+    });
+  });
+
+  it('Test 18: sendTelegramDocument throws a clear error when called outside botTokenStore context', async () => {
+    await expect(sendTelegramDocument('12345', Buffer.from('x'), 'booking.ics')).rejects.toThrow(
+      /botTokenStore/
+    );
   });
 });

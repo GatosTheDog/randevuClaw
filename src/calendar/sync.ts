@@ -31,7 +31,7 @@ function pad2(n: number): string {
 // Rare midnight-crossing case (a service that runs past 23:59 local time)
 // reuses the existing DST-safe addCalendarDays helper rather than
 // duplicating date-rollover logic.
-function addMinutesToLocalTime(
+export function addMinutesToLocalTime(
   calendarDate: string,
   calendarTime: string,
   minutes: number

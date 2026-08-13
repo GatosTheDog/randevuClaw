@@ -155,6 +155,68 @@ export async function sendTelegramPhoto(
   return { messageId: data.result?.message_id ?? 0 };
 }
 
+/**
+ * Sends a document message (Telegram sendDocument) using a multipart/form-data
+ * body. Mirrors sendTelegramPhoto's exact structure (botTokenStore guard,
+ * FormData, AbortSignal.timeout, ok-double-check, logging) — the only
+ * differences are the endpoint name, the 'document' form field (no hardcoded
+ * MIME type), and using the caller-supplied filename instead of a fixed one.
+ */
+export async function sendTelegramDocument(
+  chatId: string,
+  fileBuffer: Buffer,
+  filename: string,
+  caption?: string
+): Promise<SendMessageResult> {
+  const botToken = botTokenStore.getStore();
+  if (!botToken) {
+    throw new Error(
+      'sendTelegramDocument called without botTokenStore context — wrap the call in botTokenStore.run(business.botToken, ...)'
+    );
+  }
+  const url = `https://api.telegram.org/bot${botToken}/sendDocument`;
+
+  const formData = new FormData();
+  formData.append('chat_id', chatId);
+  formData.append('document', new Blob([fileBuffer]), filename);
+  if (caption !== undefined) formData.append('caption', caption);
+
+  const startedAt = Date.now();
+  logger.debug({ method: 'sendDocument', filename }, 'Calling Telegram API');
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      body: formData,
+      signal: AbortSignal.timeout(TELEGRAM_API_TIMEOUT_MS),
+    });
+  } catch (err) {
+    const elapsedMs = Date.now() - startedAt;
+    logger.error(
+      { err, method: 'sendDocument', filename, elapsedMs, timeoutMs: TELEGRAM_API_TIMEOUT_MS },
+      'Telegram API fetch failed or timed out'
+    );
+    throw err;
+  }
+
+  const data = (await response.json()) as TelegramApiResponse<{ message_id: number }>;
+  const elapsedMs = Date.now() - startedAt;
+
+  if (!response.ok || !data.ok) {
+    const description = data.description ?? `Telegram API error: ${response.status}`;
+    logger.error(
+      { method: 'sendDocument', status: response.status, description, elapsedMs },
+      'Telegram API call failed'
+    );
+    throw new Error(description);
+  }
+
+  logger.debug({ method: 'sendDocument', elapsedMs }, 'Telegram API call succeeded');
+  logger.info({ chatId, messageId: data.result?.message_id }, 'Telegram document sent');
+  return { messageId: data.result?.message_id ?? 0 };
+}
+
 export async function answerCallbackQuery(callbackQueryId: string, text?: string): Promise<void> {
   const body: Record<string, unknown> = {
     callback_query_id: callbackQueryId,
