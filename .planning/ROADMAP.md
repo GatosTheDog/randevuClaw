@@ -184,10 +184,11 @@ See: `.planning/milestones/v1.7-ROADMAP.md`
 ### Phase 31: Google Calendar Self-Serve Connect
 
 **Goal:** Owner-facing OAuth flow to connect Google Calendar without a dev manually running `scripts/setup-google-calendar.ts`; scope also covers whether client-side gets an `.ics` invite link (no OAuth) or is deferred entirely.
-**Requirements**: TBD
+**Requirements**: D-01 through D-07 (31-CONTEXT.md decisions — no formal REQUIREMENTS.md IDs tracked for this phase)
 **Depends on:** Phase 30
-**Plans:** 0 plans
+**Plans:** 2 plans
 
 Plans:
 
-- [ ] TBD (run /gsd-plan-phase 31 to break down)
+- [ ] 31-01-PLAN.md — Owner-facing Google Calendar OAuth connect/disconnect: /calendar command, Settings menu button, live /oauth/callback route (D-01, D-02, D-03, D-04, D-06, D-07)
+- [ ] 31-02-PLAN.md — Client-side .ics calendar invite sent on booking confirmation (D-05)
