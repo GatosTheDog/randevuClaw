@@ -1,6 +1,7 @@
 import {
   claimAgendaSlot,
   findBusinessById,
+  findClientBusinessRelationship,
   findServiceById,
   listAllBusinessIds,
   listBookingsForDate,
@@ -40,10 +41,15 @@ function athensWallClockTime(date: Date): string {
 // calendarTime (Plan 03-01's listBookingsForDate), so no re-sort here.
 // Exported so admin-menu.ts can call it directly for on-demand agenda
 // (Plan 17-02 AMENU-05) without going through claimAgendaSlot.
-export function formatAgendaMessage(bookings: Booking[], serviceNamesById: Map<number, string>): string {
+export function formatAgendaMessage(
+  bookings: Booking[],
+  serviceNamesById: Map<number, string>,
+  clientNamesByPhone: Map<string, string>
+): string {
   const lines = bookings.map((booking) => {
     const serviceName = serviceNamesById.get(booking.serviceId) ?? 'Άγνωστη υπηρεσία';
-    return `${booking.calendarTime} - ${serviceName} (${booking.clientPhone})`;
+    const clientName = clientNamesByPhone.get(booking.clientPhone) ?? booking.clientPhone;
+    return `${booking.calendarTime} - ${serviceName} (${clientName})`;
   });
   return ['Η ατζέντα σας για σήμερα:', ...lines].join('\n');
 }
@@ -94,7 +100,15 @@ export async function runAgendaSweep(): Promise<number> {
         }
       }
 
-      const message = formatAgendaMessage(bookings, serviceNamesById);
+      const clientNamesByPhone = new Map<string, string>();
+      for (const booking of bookings) {
+        if (!clientNamesByPhone.has(booking.clientPhone)) {
+          const rel = await findClientBusinessRelationship(businessId, booking.clientPhone);
+          clientNamesByPhone.set(booking.clientPhone, rel?.clientName ?? booking.clientPhone);
+        }
+      }
+
+      const message = formatAgendaMessage(bookings, serviceNamesById, clientNamesByPhone);
       const ownerTelegramId = business.ownerTelegramId;
       // botTokenStore.run ensures callTelegramApi picks up the correct
       // per-business bot token (CR-03: pollers have no inherited context).

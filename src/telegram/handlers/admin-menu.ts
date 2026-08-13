@@ -16,6 +16,7 @@ import {
   Business,
   findServiceById,
   listBookingsForDate,
+  findClientBusinessRelationship,
   findClientBusinessRelationshipById,
   deleteClientBookingData,
   deleteClientBusinessRelationship,
@@ -317,9 +318,17 @@ export async function showTodaysAgenda(chatId: string, business: Business): Prom
     }
   }
 
+  const clientNamesByPhone = new Map<string, string>();
+  for (const booking of bookingList) {
+    if (!clientNamesByPhone.has(booking.clientPhone)) {
+      const rel = await findClientBusinessRelationship(business.id, booking.clientPhone);
+      clientNamesByPhone.set(booking.clientPhone, rel?.clientName ?? booking.clientPhone);
+    }
+  }
+
   const message =
     bookingList.length > 0
-      ? formatAgendaMessage(bookingList, serviceNamesById)
+      ? formatAgendaMessage(bookingList, serviceNamesById, clientNamesByPhone)
       : 'Δεν υπάρχουν ραντεβού για σήμερα.';
 
   await sendTelegramMessage(chatId, message);
