@@ -4,7 +4,12 @@
 
 import { and, eq, gte, inArray, sql } from 'drizzle-orm';
 import { sessionCatalog, sessionInstances, bookings } from '../database/schema';
-import { getConn, withBusinessContext, findActiveBookingsForSessionInstance } from '../database/queries';
+import {
+  getConn,
+  withBusinessContext,
+  isInBusinessContext,
+  findActiveBookingsForSessionInstance,
+} from '../database/queries';
 import type { Business } from '../database/queries';
 import {
   getActiveMembershipForDeduction,
@@ -101,7 +106,13 @@ export async function createSessionCatalogWithExpansion(
     throw new Error('Μη έγκυρο rrule pattern: ' + rruleString);
   }
 
-  return withBusinessContext(businessId, async () => {
+  // Debug (book-session-deadlock-with-membership): WR-02 guard — reuse an
+  // already-open ambient transaction (via getConn(), threaded through
+  // AsyncLocalStorage) instead of unconditionally nesting a second one on a
+  // different pooled connection. Mirrors payment-flow.ts's showClientSelection
+  // guard exactly. See bookSessionInstance below for the confirmed-by-
+  // live-reproduction incident this guard class prevents.
+  const run = async () => {
     // Upsert catalog row — onConflictDoUpdate on (businessId, serviceId) WHERE is_active=true
     // so replaying create_recurring_session updates the rrule/time/capacity in-place.
     const catalogRows = await getConn()
@@ -167,7 +178,9 @@ export async function createSessionCatalogWithExpansion(
     );
 
     return { catalogId, instanceCount: instances.length };
-  });
+  };
+
+  return isInBusinessContext() ? run() : withBusinessContext(businessId, run);
 }
 
 // ---------------------------------------------------------------------------
@@ -213,7 +226,27 @@ export async function bookSessionInstance(
   initialStatus: 'pending_owner_approval' | 'confirmed' = 'pending_owner_approval',
   rescheduledFromBookingId?: number | null
 ): Promise<BookSessionResult> {
-  return withBusinessContext(businessId, async () => {
+  // Debug (book-session-deadlock-with-membership, confirmed via live DB
+  // reproduction): this function used to unconditionally open a NEW
+  // withBusinessContext transaction here, with no isInBusinessContext()
+  // guard — unlike the WR-02-guarded pattern in
+  // src/telegram/handlers/payment-flow.ts's showClientSelection. When called
+  // from handleBookSessionExecute (client-menu.ts), which itself runs inside
+  // telegram.ts's outer withBusinessContext wrap AND has already taken a
+  // SELECT ... FOR UPDATE lock on the client's memberships row (via
+  // checkEnforcementAndGetMembership -> getActiveMembershipForDeduction,
+  // billing/queries.ts, .for('update')), opening a SECOND transaction here
+  // checks out a DIFFERENT pooled connection whose deductSession write
+  // (billing/queries.ts) contends for a lock the FIRST (outer) connection is
+  // already holding — while that outer connection is itself blocked
+  // awaiting THIS call's promise to resolve. Self-deadlock: two connections
+  // from the same Node process blocked on each other, invisible to
+  // Postgres's own deadlock detector, resolved only by the ~10s client-side
+  // statement_timeout (src/database/db.ts). Reusing the ambient transaction
+  // via getConn() when one is already open closes this — the membership
+  // deduction below then runs in the SAME transaction as the lock-holding
+  // read, no second connection, no contention.
+  const run = async (): Promise<BookSessionResult> => {
     // SELECT FOR UPDATE: serialize concurrent bookings on the same instance.
     // Ownership guard via subquery: catalogId IN (SELECT id FROM session_catalog WHERE business_id = businessId).
     // T-10-02: prevents cross-tenant booking even if RLS is misconfigured.
@@ -324,7 +357,9 @@ export async function bookSessionInstance(
     }
 
     return { status: 'success', bookingId };
-  });
+  };
+
+  return isInBusinessContext() ? run() : withBusinessContext(businessId, run);
 }
 
 // ---------------------------------------------------------------------------
@@ -368,7 +403,11 @@ export async function cancelSession(
   businessId: number,
   sessionInstanceId: number
 ): Promise<boolean> {
-  return withBusinessContext(businessId, async () => {
+  // Debug (book-session-deadlock-with-membership): WR-02 guard, same rationale
+  // as bookSessionInstance above — reuse an already-open ambient transaction
+  // instead of unconditionally nesting a second one on a different pooled
+  // connection.
+  const run = async () => {
     const rows = await getConn()
       .update(sessionInstances)
       .set({ isCancelled: true })
@@ -388,7 +427,9 @@ export async function cancelSession(
       .returning({ id: sessionInstances.id });
 
     return rows.length > 0;
-  });
+  };
+
+  return isInBusinessContext() ? run() : withBusinessContext(businessId, run);
 }
 
 // ---------------------------------------------------------------------------
@@ -425,7 +466,11 @@ export async function cascadeCancelSessionBookings(
   business: Business,
   sessionInstanceId: number
 ): Promise<number> {
-  return withBusinessContext(business.id, async () => {
+  // Debug (book-session-deadlock-with-membership): WR-02 guard, same rationale
+  // as bookSessionInstance above — reuse an already-open ambient transaction
+  // instead of unconditionally nesting a second one on a different pooled
+  // connection.
+  const run = async () => {
     const candidates = await findActiveBookingsForSessionInstance(business.id, sessionInstanceId);
 
     let processedCount = 0;
@@ -477,7 +522,9 @@ export async function cascadeCancelSessionBookings(
     }
 
     return processedCount;
-  });
+  };
+
+  return isInBusinessContext() ? run() : withBusinessContext(business.id, run);
 }
 
 // ---------------------------------------------------------------------------
