@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-07-29 after v1.7 milestone close)
 Phase: Milestone v1.7 complete
 Plan: —
 Status: Awaiting next milestone
-Last activity: 2026-08-13 - Completed quick task 260813-jgj: Fix payment client-selection list to always include never-booked clients
+Last activity: 2026-08-13 - Completed quick task 260813-ji5: Reconcile unbilled bookings into new memberships + always-on owner alert for no-subscription bookings
 
 ## Performance Metrics
 
@@ -279,6 +279,7 @@ Recent decisions affecting current work:
 | 260813-g86 | Fix admin daily agenda push to include pending_owner_approval bookings | 2026-08-13 | 7a64ccd | [260813-g86-fix-admin-daily-agenda-push-src-schedule](./quick/260813-g86-fix-admin-daily-agenda-push-src-schedule/) |
 | 260813-ixq | Resolve client display name in agenda messages instead of raw phone/id | 2026-08-13 | 8b74373 | [260813-ixq-fix-agenda-message-to-show-client-name-i](./quick/260813-ixq-fix-agenda-message-to-show-client-name-i/) |
 | 260813-jgj | Fix payment client-selection list to always include never-booked clients | 2026-08-13 | 2c5bc2e | [260813-jgj-fix-payment-client-selection-list-to-alw](./quick/260813-jgj-fix-payment-client-selection-list-to-alw/) |
+| 260813-ji5 | Reconcile unbilled bookings into new memberships + always-on owner alert for no-subscription bookings | 2026-08-13 | 99a762a | [260813-ji5-implement-unbilled-booking-reconciliatio](./quick/260813-ji5-implement-unbilled-booking-reconciliatio/) |
 
 ### Blockers/Concerns
 
