@@ -385,13 +385,29 @@ export async function getUnbilledBookingsForClient(
  * callback_query.id, which is unique per tap and stable across webhook-redelivery
  * retries of that same tap) so that replay-of-the-same-tap is still blocked while
  * two distinct renewals on the same day both succeed.
+ *
+ * Quick task 260813-ji5 (unbilled-booking reconciliation): for finite-session
+ * packages only, the client's fresh unbilled bookings (via
+ * getUnbilledBookingsForClient, read inside this same transaction) are
+ * retroactively deducted from the new membership's starting sessionsRemaining
+ * (floored at 0), and one idempotent session_deducted ledger row is inserted
+ * per reconciled booking — reusing deductSession's exact
+ * `booking:{id}:deduction` idempotencyKey convention so a booking already
+ * charged (live deduction or a prior reconciliation) can never be
+ * double-deducted across repeated/renewed createMembership calls. Unlimited
+ * packages (sessionCount === null) never run this reconciliation.
  */
 export async function createMembership(
   businessId: number,
   clientPhone: string,
   packageId: number,
   idempotencyKey: string
-): Promise<{ memberId: number; expiresAtDate: string; sessionsRemaining: number | null }> {
+): Promise<{
+  memberId: number;
+  expiresAtDate: string;
+  sessionsRemaining: number | null;
+  retroactiveSessionsDeducted: number;
+}> {
   // Debug (query-read-timeout-storm): uses runInTransaction(pool, ...)
   // instead of db.transaction(...) directly — drizzle-orm's own transaction()
   // leaks the checked-out client if the initial 'begin' statement itself
@@ -415,6 +431,16 @@ export async function createMembership(
     // WR-06: DST-aware end-of-day in Europe/Athens (replaces hardcoded +02:00).
     const expiresAt = athensEndOfDay(expiresAtDate);
 
+    // Quick task 260813-ji5: reconciliation only applies to finite-session
+    // packages — unlimited (sessionCount === null) packages must never run
+    // this query or math.
+    const unbilledBookings =
+      pkg.sessionCount === null
+        ? []
+        : await getUnbilledBookingsForClient(businessId, clientPhone, tx);
+    const initialSessions =
+      pkg.sessionCount === null ? null : Math.max(0, pkg.sessionCount - unbilledBookings.length);
+
     // Upsert membership — onConflictDoUpdate targets the partial unique index
     // unique_active_membership (business_id, client_phone) WHERE is_active = true (D-10)
     const membershipRows = await tx
@@ -425,7 +451,7 @@ export async function createMembership(
         packageId,
         purchaseDate,
         expiresAt,
-        sessionsRemaining: pkg.sessionCount,
+        sessionsRemaining: initialSessions,
         isActive: true,
       })
       .onConflictDoUpdate({
@@ -435,7 +461,7 @@ export async function createMembership(
           packageId,
           purchaseDate,
           expiresAt,
-          sessionsRemaining: pkg.sessionCount,
+          sessionsRemaining: initialSessions,
           isActive: true,
         },
       })
@@ -454,12 +480,46 @@ export async function createMembership(
       idempotencyKey,
     });
 
+    // Quick task 260813-ji5: retroactively reconcile each pre-existing unbilled
+    // booking against the fresh membership. onConflictDoNothing (never a plain
+    // throwing insert) — mirrors deductSession's idempotency guard and the
+    // renewed-sub-cant-book lesson: a throwing insert here would roll back the
+    // legitimate membership upsert too. Reusing deductSession's exact
+    // `booking:{id}:deduction` key format means a booking already deducted via
+    // either path can never be double-counted.
+    for (const unbilledBooking of unbilledBookings) {
+      await tx
+        .insert(membershipLedger)
+        .values({
+          membershipId: memberId,
+          operationType: 'session_deducted',
+          sessionsDeducted: 1,
+          bookingId: unbilledBooking.id,
+          idempotencyKey: `booking:${unbilledBooking.id}:deduction`,
+          reason:
+            'Retroactive reconciliation — pre-existing unbilled booking, no membership at time of booking',
+        })
+        .onConflictDoNothing();
+    }
+
     logger.info(
-      { businessId, clientPhone, packageId, memberId, expiresAtDate },
+      {
+        businessId,
+        clientPhone,
+        packageId,
+        memberId,
+        expiresAtDate,
+        retroactiveSessionsDeducted: unbilledBookings.length,
+      },
       'Membership created'
     );
 
-    return { memberId, expiresAtDate, sessionsRemaining: pkg.sessionCount };
+    return {
+      memberId,
+      expiresAtDate,
+      sessionsRemaining: initialSessions,
+      retroactiveSessionsDeducted: unbilledBookings.length,
+    };
   });
 }
 

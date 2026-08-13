@@ -18,13 +18,14 @@ jest.resetModules();
 
 /* eslint-disable @typescript-eslint/no-var-requires */
 const { db } = require('../src/database/db');
-const { eq } = require('drizzle-orm');
-const { membershipLedger, memberships } = require('../src/database/schema');
+const { eq, and } = require('drizzle-orm');
+const { membershipLedger, memberships, bookings, services } = require('../src/database/schema');
 const { withBusinessContext } = require('../src/database/queries');
 const { createMembership } = require('../src/billing/queries');
 const { insertTestBusiness } = require('./helpers/test-business');
 const { insertTestPackage } = require('./helpers/billing-fixtures');
 const { isoDateInAthens, addCalendarDays } = require('../src/utils/timezone');
+const nodeCrypto = require('crypto');
 /* eslint-enable @typescript-eslint/no-var-requires */
 
 afterAll(() => {
@@ -208,5 +209,110 @@ describe('membership creation with rolling expiry', () => {
     const active = rows.find((r: { isActive: boolean }) => r.isActive);
     expect(active).toBeDefined();
     expect(active.packageId).toBe(shortPackage.id);
+  });
+});
+
+describe('unbilled-booking reconciliation (quick 260813-ji5)', () => {
+  let businessId: number;
+  let serviceId: number;
+
+  beforeAll(async () => {
+    const business = await insertTestBusiness();
+    businessId = business.id;
+
+    const serviceRows = await db
+      .select({ id: services.id })
+      .from(services)
+      .where(eq(services.businessId, businessId))
+      .limit(1);
+    serviceId = serviceRows[0].id;
+  });
+
+  it('retroactively deducts one unbilled booking, is idempotent across renewal, and never double-deducts', async () => {
+    const clientPhone = `recon-${nodeCrypto.randomUUID().slice(0, 12)}`;
+
+    const [booking] = await db
+      .insert(bookings)
+      .values({
+        businessId,
+        clientPhone,
+        serviceId,
+        calendarDate: '2026-09-10',
+        calendarTime: '11:00',
+        bookingStatus: 'confirmed',
+        requestId: `req-${clientPhone}-1`,
+      })
+      .returning();
+
+    const pkg = await insertTestPackage(businessId, {
+      name: `Reconciliation Test Package ${clientPhone}`,
+      validDays: 30,
+      sessionCount: 8,
+    });
+
+    const first = await withBusinessContext(businessId, () =>
+      createMembership(businessId, clientPhone, pkg.id, `key-${clientPhone}-1`)
+    );
+
+    expect(first.sessionsRemaining).toBe(7);
+    expect(first.retroactiveSessionsDeducted).toBe(1);
+
+    const ledgerAfterFirst = await db
+      .select()
+      .from(membershipLedger)
+      .where(
+        and(
+          eq(membershipLedger.bookingId, booking.id),
+          eq(membershipLedger.operationType, 'session_deducted')
+        )
+      );
+    expect(ledgerAfterFirst).toHaveLength(1);
+
+    // Simulate a renewal (e.g. same client buys the same package again) —
+    // must NOT re-deduct the already-reconciled booking.
+    const second = await withBusinessContext(businessId, () =>
+      createMembership(businessId, clientPhone, pkg.id, `key-${clientPhone}-2`)
+    );
+
+    expect(second.sessionsRemaining).toBe(8);
+    expect(second.retroactiveSessionsDeducted).toBe(0);
+
+    const ledgerAfterSecond = await db
+      .select()
+      .from(membershipLedger)
+      .where(
+        and(
+          eq(membershipLedger.bookingId, booking.id),
+          eq(membershipLedger.operationType, 'session_deducted')
+        )
+      );
+    expect(ledgerAfterSecond).toHaveLength(1);
+  });
+
+  it('never runs reconciliation for unlimited (sessionCount: null) packages', async () => {
+    const clientPhone = `recon-unlimited-${nodeCrypto.randomUUID().slice(0, 12)}`;
+
+    await db.insert(bookings).values({
+      businessId,
+      clientPhone,
+      serviceId,
+      calendarDate: '2026-09-11',
+      calendarTime: '11:00',
+      bookingStatus: 'confirmed',
+      requestId: `req-${clientPhone}-1`,
+    });
+
+    const unlimitedPkg = await insertTestPackage(businessId, {
+      name: `Unlimited Reconciliation Test Package ${clientPhone}`,
+      validDays: 30,
+      sessionCount: null,
+    });
+
+    const result = await withBusinessContext(businessId, () =>
+      createMembership(businessId, clientPhone, unlimitedPkg.id, `key-${clientPhone}-1`)
+    );
+
+    expect(result.sessionsRemaining).toBeNull();
+    expect(result.retroactiveSessionsDeducted).toBe(0);
   });
 });
