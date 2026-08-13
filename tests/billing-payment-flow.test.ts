@@ -78,6 +78,13 @@ const mockFindBusinessByOwner = onboardingQueries.findBusinessByOwnerTelegramId 
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // Quick 260813-jgj: getAllClientsForBusiness is now always invoked by
+  // showClientSelection (no longer gated behind clients.length === 0). Default
+  // to an empty never-booked list so existing tests that only set up
+  // mockGetRecentClients don't need individual changes. Tests that set their
+  // own mockGetAllClients value override this default per Jest's mock
+  // resolution order.
+  mockGetAllClients.mockResolvedValue([]);
 });
 
 // ---------------------------------------------------------------------------
@@ -208,6 +215,42 @@ describe('payment recording flow', () => {
       // already active — this is the nesting WR-02 flags as unsafe.
       const mockWithBusinessContext = dbQueries.withBusinessContext as jest.Mock;
       expect(mockWithBusinessContext).not.toHaveBeenCalled();
+    });
+
+    it('always includes never-booked clients alongside recent-booking clients (regression for the reported bug)', async () => {
+      const mockClients: RecentClient[] = [
+        {
+          clientBusinessRelationshipId: 101,
+          clientName: 'Μαρία',
+          serviceNameFallback: 'Pilates',
+          lastBookingDateFormatted: '2026-07-15',
+        },
+      ];
+      mockGetRecentClients.mockResolvedValue(mockClients);
+
+      const allTimeClients: AllTimeClient[] = [
+        { clientBusinessRelationshipId: 101, clientName: 'Μαρία', senderPhone: '+306900000001' },
+        { clientBusinessRelationshipId: 500, clientName: null, senderPhone: '+306900000099' },
+      ];
+      mockGetAllClients.mockResolvedValue(allTimeClients);
+
+      await showClientSelection(BUSINESS_ID, OWNER_TELEGRAM_ID);
+
+      expect(mockSendKeyboard).toHaveBeenCalledTimes(1);
+      const keyboard = mockSendKeyboard.mock.calls[0][2];
+      const buttons = keyboard.flat() as Array<{ text: string; callback_data: string }>;
+
+      // Exactly one button for the recent-booking client — not duplicated by the merge
+      const client101Buttons = buttons.filter((b) => b.callback_data === 'billing:client:101');
+      expect(client101Buttons).toHaveLength(1);
+
+      // The never-booked client (id 500) is present — this is the exact bug that was reported
+      const client500Button = buttons.find((b) => b.callback_data === 'billing:client:500');
+      expect(client500Button).toBeDefined();
+      expect(client500Button!.text).toBe('+306900000099');
+
+      // No other duplication — exactly 2 rows total
+      expect(keyboard).toHaveLength(2);
     });
   });
 

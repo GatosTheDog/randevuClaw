@@ -37,12 +37,20 @@ import { logger } from '../../utils/logger';
 // ---------------------------------------------------------------------------
 
 /**
- * Presents recent clients (last 30 days) as an inline keyboard for payment
- * recording. Each button callback_data is "billing:client:{clientRelId}" and
- * is strictly <= 64 bytes since it contains only numeric IDs (T-07-05).
+ * Presents recent clients (last 30 days) merged with never-booked clients as
+ * an inline keyboard for payment recording. Each button callback_data is
+ * "billing:client:{clientRelId}" and is strictly <= 64 bytes since it
+ * contains only numeric IDs (T-07-05).
  *
  * D-05: Falls back to "serviceNameFallback — lastBookingDateFormatted" button
- * label when clientName is null (client has no display name captured yet).
+ * label when clientName is null for recent clients, or to senderPhone for
+ * never-booked clients (client has no display name captured yet).
+ *
+ * Quick 260813-jgj fix: getAllClientsForBusiness is now ALWAYS fetched
+ * (never gated behind `clients.length === 0`) so that a never-booked client
+ * is never hidden just because some other client in the same business has a
+ * recent booking. The two lists are merged and deduplicated by
+ * clientBusinessRelationshipId, with recent-booking clients listed first.
  */
 export async function showClientSelection(
   businessId: number,
@@ -56,42 +64,31 @@ export async function showClientSelection(
   // a second DB connection while the outer transaction sits idle. When
   // already inside an active business context, reuse it via getConn()
   // (threaded transparently through the AsyncLocalStorage-backed queries
-  // below) instead of nesting a second one.
-  const clients = isInBusinessContext()
-    ? await getRecentClientsForBusiness(businessId, 30)
-    : await withBusinessContext(businessId, () => getRecentClientsForBusiness(businessId, 30));
+  // below) instead of nesting a second one. isInBusinessContext() is called
+  // exactly once and its result reused for both queries below.
+  const alreadyInBusinessContext = isInBusinessContext();
+  const [clients, allClients] = alreadyInBusinessContext
+    ? await Promise.all([
+        getRecentClientsForBusiness(businessId, 30),
+        getAllClientsForBusiness(businessId),
+      ])
+    : await withBusinessContext(businessId, () =>
+        Promise.all([getRecentClientsForBusiness(businessId, 30), getAllClientsForBusiness(businessId)])
+      );
 
-  if (clients.length === 0) {
-    // G-07-6 fallback: try all-time clients from clientBusinessRelationships
-    // when no bookings exist in the last 30 days.
-    const allClients = isInBusinessContext()
-      ? await getAllClientsForBusiness(businessId)
-      : await withBusinessContext(businessId, () => getAllClientsForBusiness(businessId));
-    if (allClients.length === 0) {
-      await sendTelegramMessage(ownerTelegramId, 'Δεν υπάρχουν εγγεγραμμένοι πελάτες.');
-      return;
-    }
-    const fallbackKeyboard: InlineKeyboard = allClients.map((client) => {
-      const callbackData = `billing:client:${client.clientBusinessRelationshipId}`;
-      if (Buffer.byteLength(callbackData, 'utf8') > 64) {
-        logger.warn(
-          { callbackData, id: client.clientBusinessRelationshipId },
-          'billing:client callback_data exceeds 64 bytes — ID too long'
-        );
-      }
-      // senderPhone as label fallback since all-time clients may have no name
-      const label = client.clientName ?? client.senderPhone;
-      return [{ text: label, callback_data: callbackData }];
-    });
-    await sendTelegramMessageWithKeyboard(
-      ownerTelegramId,
-      '👤 Ποιος πελάτης έκανε πληρωμή;',
-      fallbackKeyboard
-    );
+  // Never-booked clients: present in the all-time list but not in the
+  // recent-bookings list. Deduplicated by clientBusinessRelationshipId.
+  const recentIds = new Set(clients.map((client) => client.clientBusinessRelationshipId));
+  const neverBookedClients = allClients.filter(
+    (client) => !recentIds.has(client.clientBusinessRelationshipId)
+  );
+
+  if (clients.length === 0 && neverBookedClients.length === 0) {
+    await sendTelegramMessage(ownerTelegramId, 'Δεν υπάρχουν εγγεγραμμένοι πελάτες.');
     return;
   }
 
-  const keyboard: InlineKeyboard = clients.map((client) => {
+  const recentKeyboard: InlineKeyboard = clients.map((client) => {
     const callbackData = `billing:client:${client.clientBusinessRelationshipId}`;
     // IDs in callback_data are always within 64 bytes; guard for safety
     if (Buffer.byteLength(callbackData, 'utf8') > 64) {
@@ -105,6 +102,21 @@ export async function showClientSelection(
       client.clientName ?? `${client.serviceNameFallback} — ${client.lastBookingDateFormatted}`;
     return [{ text: label, callback_data: callbackData }];
   });
+
+  const neverBookedKeyboard: InlineKeyboard = neverBookedClients.map((client) => {
+    const callbackData = `billing:client:${client.clientBusinessRelationshipId}`;
+    if (Buffer.byteLength(callbackData, 'utf8') > 64) {
+      logger.warn(
+        { callbackData, id: client.clientBusinessRelationshipId },
+        'billing:client callback_data exceeds 64 bytes — ID too long'
+      );
+    }
+    // senderPhone as label fallback since all-time clients may have no name
+    const label = client.clientName ?? client.senderPhone;
+    return [{ text: label, callback_data: callbackData }];
+  });
+
+  const keyboard: InlineKeyboard = [...recentKeyboard, ...neverBookedKeyboard];
 
   await sendTelegramMessageWithKeyboard(ownerTelegramId, '👤 Ποιος πελάτης έκανε πληρωμή;', keyboard);
 }
