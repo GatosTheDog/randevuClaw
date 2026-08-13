@@ -137,3 +137,73 @@ describe('findBookingsNeedingReminder', () => {
     expect(result).toEqual(fakeRows);
   });
 });
+
+// Regression coverage for a silent scope bug: runAgendaSweep's call to
+// listBookingsForDate previously omitted the third `statuses` argument,
+// silently falling back to listBookingsForDate's own ['confirmed'] default
+// and excluding pending_owner_approval bookings from the 08:00 auto-push
+// agenda -- unlike admin-menu.ts's showTodaysAgenda and ai-owner-agent.ts's
+// view_todays_schedule case, which both pass ['confirmed',
+// 'pending_owner_approval'] explicitly. This describe block mocks
+// '../src/database/queries' and '../src/telegram/client' via
+// jest.isolateModules + jest.doMock, scoped to this one test only, so it
+// does not disturb this file's other describes (which deliberately mock
+// only '../src/database/db' and exercise queries.ts's real implementations).
+describe('runAgendaSweep status filter regression (agenda.ts)', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    // 2026-07-09T12:00:00Z = 15:00 Athens (UTC+3) -- well past the 08:00
+    // AGENDA_HOUR_THRESHOLD bail-out gate, so the sweep proceeds to the
+    // listBookingsForDate call under test.
+    jest.setSystemTime(new Date('2026-07-09T12:00:00Z'));
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it("Test 8: runAgendaSweep calls listBookingsForDate with ['confirmed', 'pending_owner_approval'] as the third argument", async () => {
+    let mockedListBookingsForDate!: jest.Mock;
+    let isolatedRunAgendaSweep!: () => Promise<number>;
+
+    jest.isolateModules(() => {
+      const claimAgendaSlot = jest.fn().mockResolvedValue(true);
+      const findBusinessById = jest.fn().mockResolvedValue({
+        id: 1,
+        ownerTelegramId: 'owner1',
+        botToken: 'test-bot-token',
+      });
+      const findServiceById = jest.fn().mockResolvedValue({ id: 2, name: 'Reformer Pilates' });
+      const listAllBusinessIds = jest.fn().mockResolvedValue([1]);
+      mockedListBookingsForDate = jest.fn().mockResolvedValue([
+        { id: 42, businessId: 1, serviceId: 2, calendarTime: '10:00', clientPhone: 'c1' },
+      ]);
+      const sendTelegramMessage = jest.fn().mockResolvedValue({ messageId: 1 });
+      const botTokenStoreRun = jest.fn((_token: string, fn: () => Promise<unknown>) => fn());
+
+      jest.doMock('../src/database/queries', () => ({
+        claimAgendaSlot,
+        findBusinessById,
+        findServiceById,
+        listAllBusinessIds,
+        listBookingsForDate: mockedListBookingsForDate,
+      }));
+      jest.doMock('../src/telegram/client', () => ({
+        sendTelegramMessage,
+        botTokenStore: { run: botTokenStoreRun },
+      }));
+      jest.doMock('../src/utils/logger', () => ({
+        logger: { error: jest.fn(), warn: jest.fn(), info: jest.fn() },
+      }));
+
+      ({ runAgendaSweep: isolatedRunAgendaSweep } = require('../src/scheduler/agenda'));
+    });
+
+    await isolatedRunAgendaSweep();
+
+    expect(mockedListBookingsForDate).toHaveBeenCalledWith(expect.anything(), expect.anything(), [
+      'confirmed',
+      'pending_owner_approval',
+    ]);
+  });
+});

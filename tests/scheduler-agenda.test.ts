@@ -122,7 +122,10 @@ describe('runAgendaSweep', () => {
     await runAgendaSweep();
 
     const todayIso = isoDateInAthens(new Date());
-    expect(mockedListBookingsForDate).toHaveBeenCalledWith(1, todayIso);
+    expect(mockedListBookingsForDate).toHaveBeenCalledWith(1, todayIso, [
+      'confirmed',
+      'pending_owner_approval',
+    ]);
     expect(mockedClaimAgendaSlot).not.toHaveBeenCalled();
     expect(mockedSendTelegramMessage).not.toHaveBeenCalled();
   });
@@ -170,7 +173,10 @@ describe('runAgendaSweep', () => {
     });
 
     await expect(runAgendaSweep()).resolves.toBe(0);
-    expect(mockedListBookingsForDate).toHaveBeenCalledWith(2, expect.any(String));
+    expect(mockedListBookingsForDate).toHaveBeenCalledWith(2, expect.any(String), [
+      'confirmed',
+      'pending_owner_approval',
+    ]);
     expect(logger.error).toHaveBeenCalled();
   });
 

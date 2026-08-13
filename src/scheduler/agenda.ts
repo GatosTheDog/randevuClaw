@@ -73,7 +73,10 @@ export async function runAgendaSweep(): Promise<number> {
         continue;
       }
 
-      const bookings = await listBookingsForDate(businessId, todayIso);
+      const bookings = await listBookingsForDate(businessId, todayIso, [
+        'confirmed',
+        'pending_owner_approval',
+      ]);
       if (bookings.length === 0) continue;
 
       // Atomic claim happens AFTER confirming there is something to send but
