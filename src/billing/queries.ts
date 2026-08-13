@@ -3,7 +3,7 @@
 // through this module. Read functions use getConn() for RLS-enforced connections
 // (T-07-03); write mutations in createMembership use db.transaction() for atomicity.
 
-import { and, desc, eq, gt, gte, inArray, lte, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, gte, inArray, isNull, lte, sql } from 'drizzle-orm';
 import { db, pool, runInTransaction } from '../database/db';
 import {
   billingPackages,
@@ -294,6 +294,65 @@ export async function getAllClientsForBusiness(
     .orderBy(desc(clientBusinessRelationships.createdAt));
 
   return rows;
+}
+
+// ---------------------------------------------------------------------------
+// Quick task 260813-ji5: Unbilled-booking reconciliation
+// ---------------------------------------------------------------------------
+
+/** Result type for getUnbilledBookingsForClient. */
+export interface UnbilledBooking {
+  id: number;
+  calendarDate: string;
+  calendarTime: string;
+}
+
+/**
+ * Returns confirmed/pending_owner_approval bookings for a client that have no
+ * matching 'session_deducted' membershipLedger row — i.e. bookings that were
+ * never charged against any membership. Used by createMembership (Part B) to
+ * retroactively reconcile pre-existing unbilled bookings against a freshly
+ * created finite-session package, and by the payment-recording UI to surface
+ * a per-client unbilled indicator before client selection.
+ *
+ * The LEFT JOIN's operationType='session_deducted' condition lives in the
+ * join's ON clause (not the outer WHERE) so a booking with only an unrelated
+ * ledger row (e.g. a future credit_restored entry) is still correctly treated
+ * as unbilled — moving that condition into WHERE would silently turn this
+ * into an INNER JOIN and exclude such bookings entirely.
+ *
+ * Accepts an optional query executor (`conn`, defaults to getConn()) so
+ * createMembership can pass its own transaction client (`tx`) explicitly to
+ * keep the read atomic with the membership upsert and ledger inserts that
+ * follow it in the same transaction.
+ */
+export async function getUnbilledBookingsForClient(
+  businessId: number,
+  clientPhone: string,
+  conn: Pick<typeof db, 'select'> = getConn()
+): Promise<UnbilledBooking[]> {
+  return conn
+    .select({
+      id: bookings.id,
+      calendarDate: bookings.calendarDate,
+      calendarTime: bookings.calendarTime,
+    })
+    .from(bookings)
+    .leftJoin(
+      membershipLedger,
+      and(
+        eq(membershipLedger.bookingId, bookings.id),
+        eq(membershipLedger.operationType, 'session_deducted')
+      )
+    )
+    .where(
+      and(
+        eq(bookings.businessId, businessId),
+        eq(bookings.clientPhone, clientPhone),
+        inArray(bookings.bookingStatus, ['confirmed', 'pending_owner_approval']),
+        isNull(membershipLedger.id)
+      )
+    );
 }
 
 // ---------------------------------------------------------------------------
