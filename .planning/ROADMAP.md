@@ -180,3 +180,14 @@ See: `.planning/milestones/v1.7-ROADMAP.md`
 - [ ] Decide the real v1.4+ story: does a new business owner talk to *some* bot to register their own bot token (bringing back a minimal platform-bot-like intake), or does the platform operator always bootstrap manually for a single-operator PoC?
 - Low urgency while there's one operator onboarding a handful of pilot businesses by hand; blocking if this needs to scale to self-serve signups
 - Low urgency: requires a single Telegram account to own multiple businesses, an edge case not yet supported by onboarding
+
+### Phase 31: Google Calendar Self-Serve Connect
+
+**Goal:** Owner-facing OAuth flow to connect Google Calendar without a dev manually running `scripts/setup-google-calendar.ts`; scope also covers whether client-side gets an `.ics` invite link (no OAuth) or is deferred entirely.
+**Requirements**: TBD
+**Depends on:** Phase 30
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 31 to break down)

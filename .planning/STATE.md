@@ -122,6 +122,10 @@ Last activity: 2026-08-13 - Completed quick task 260813-g86: Fix admin daily age
 
 ## Accumulated Context
 
+### Roadmap Evolution
+
+- Phase 31 added: Google Calendar Self-Serve Connect — owner-facing OAuth flow to connect Google Calendar without a dev manually running `scripts/setup-google-calendar.ts`; scope also covers whether client-side gets an `.ics` invite link (no OAuth) or is deferred entirely.
+
 ### Decisions
 
 Decisions are logged in PROJECT.md Key Decisions table.
