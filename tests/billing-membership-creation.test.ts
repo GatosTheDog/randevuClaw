@@ -52,7 +52,7 @@ describe('membership creation with rolling expiry', () => {
     // Use unique client per test to avoid idempotencyKey collisions on same day
     const client = `expires-test-${Date.now()}`;
     const result = await withBusinessContext(businessId, () =>
-      createMembership(businessId, client, packageId)
+      createMembership(businessId, client, packageId, `key-${client}-1`)
     );
 
     const expectedPurchaseDate = isoDateInAthens(new Date());
@@ -67,7 +67,7 @@ describe('membership creation with rolling expiry', () => {
     // Fetch the actual membership row to verify expiresAt is stored as a Date
     const client = `timestamp-test-${Date.now()}`;
     const result = await withBusinessContext(businessId, () =>
-      createMembership(businessId, client, packageId)
+      createMembership(businessId, client, packageId, `key-${client}-1`)
     );
 
     const rows = await db
@@ -81,8 +81,9 @@ describe('membership creation with rolling expiry', () => {
 
   it('writes initial membership_ledger row with operation_type payment_recorded', async () => {
     const client = `ledger-test-${Date.now()}`;
+    const idempotencyKey = `key-${client}-1`;
     const result = await withBusinessContext(businessId, () =>
-      createMembership(businessId, client, packageId)
+      createMembership(businessId, client, packageId, idempotencyKey)
     );
 
     // Fetch ledger rows for this membership
@@ -95,40 +96,88 @@ describe('membership creation with rolling expiry', () => {
     expect(ledgerRows[0].operationType).toBe('payment_recorded');
     expect(ledgerRows[0].sessionsDeducted).toBe(0);
     expect(ledgerRows[0].reason).toBe('Payment recorded by owner');
-
-    const expectedPurchaseDate = isoDateInAthens(new Date());
-    // WR-05: idempotency key now includes memberId to allow same-day renewals
-    // that produce a new membership row (different memberId = different key).
-    const expectedIdempotencyKey = `${businessId}:${client}:payment_recorded:${expectedPurchaseDate}:${result.memberId}`;
-    expect(ledgerRows[0].idempotencyKey).toBe(expectedIdempotencyKey);
+    // Debug (renewed-sub-cant-book): idempotencyKey is now caller-supplied verbatim
+    // rather than derived from business/date/memberId.
+    expect(ledgerRows[0].idempotencyKey).toBe(idempotencyKey);
   });
 
-  it('idempotency_key prevents duplicate membership_ledger rows on replay', async () => {
+  it('idempotency_key prevents duplicate membership_ledger rows on exact replay (same key)', async () => {
     const uniqueClient = `idempotency-test-${Date.now()}`;
+    const replayKey = `key-${uniqueClient}-replay`;
 
-    // First call succeeds — capture memberId for key lookup below
+    // First call succeeds.
     const firstResult = await withBusinessContext(businessId, () =>
-      createMembership(businessId, uniqueClient, packageId)
+      createMembership(businessId, uniqueClient, packageId, replayKey)
     );
 
-    // Second call on the same day hits the UNIQUE constraint on idempotencyKey.
-    // onConflictDoUpdate returns the SAME memberId (row is updated in-place),
-    // so the key `...:${purchaseDate}:${memberId}` is identical and the ledger
-    // INSERT fails — the entire transaction rolls back (T-07-04, WR-05).
+    // Second call reuses the SAME idempotencyKey (simulating a webhook redelivery
+    // of the same Telegram tap) — hits the UNIQUE constraint on idempotencyKey,
+    // the ledger INSERT fails, and the entire transaction rolls back (T-07-04).
     await expect(
       withBusinessContext(businessId, () =>
-        createMembership(businessId, uniqueClient, packageId)
+        createMembership(businessId, uniqueClient, packageId, replayKey)
       )
     ).rejects.toThrow();
 
     // Verify only one ledger row exists (the first call's row).
-    // WR-05: key now includes memberId; use firstResult.memberId for the lookup.
-    const expectedKey = `${businessId}:${uniqueClient}:payment_recorded:${isoDateInAthens(new Date())}:${firstResult.memberId}`;
     const ledgerRows = await db
       .select()
       .from(membershipLedger)
-      .where(eq(membershipLedger.idempotencyKey, expectedKey));
+      .where(eq(membershipLedger.idempotencyKey, replayKey));
     expect(ledgerRows).toHaveLength(1);
+    expect(ledgerRows[0].membershipId).toBe(firstResult.memberId);
+  });
+
+  // Debug (renewed-sub-cant-book) regression test: a same-day SECOND renewal for
+  // the same client — using a DIFFERENT idempotencyKey (as a distinct Telegram tap
+  // would produce) — must succeed and correctly overwrite expiresAt/sessionsRemaining,
+  // instead of colliding with the first renewal's ledger row and rolling back.
+  it('two same-day renewals with different idempotency keys both succeed and the second overwrites membership fields', async () => {
+    const uniqueClient = `same-day-renewal-test-${Date.now()}`;
+
+    const shortPackage = await insertTestPackage(businessId, {
+      name: `Same Day Short Package ${Date.now()}`,
+      validDays: 10,
+      sessionCount: 1,
+    });
+    const longPackage = await insertTestPackage(businessId, {
+      name: `Same Day Long Package ${Date.now()}`,
+      validDays: 30,
+      sessionCount: 10,
+    });
+
+    // First renewal (e.g. client buys a 1-session pack in the morning).
+    const first = await withBusinessContext(businessId, () =>
+      createMembership(businessId, uniqueClient, shortPackage.id, `key-${uniqueClient}-1`)
+    );
+    expect(first.sessionsRemaining).toBe(1);
+
+    // Second renewal, same client, same calendar day, DIFFERENT idempotencyKey
+    // (e.g. client exhausts the 1-session pack and owner records a fresh payment
+    // the same afternoon). Prior to the fix this collided with the first call's
+    // derived key and rolled back silently.
+    const second = await withBusinessContext(businessId, () =>
+      createMembership(businessId, uniqueClient, longPackage.id, `key-${uniqueClient}-2`)
+    );
+    expect(second.sessionsRemaining).toBe(10);
+    // Same row updated in place (onConflictDoUpdate) — same memberId both times.
+    expect(second.memberId).toBe(first.memberId);
+
+    // Verify the DB row now reflects the SECOND renewal's values, not the first's.
+    const rows = await db
+      .select()
+      .from(memberships)
+      .where(eq(memberships.id, first.memberId));
+    expect(rows[0].packageId).toBe(longPackage.id);
+    expect(rows[0].sessionsRemaining).toBe(10);
+    expect(rows[0].isActive).toBe(true);
+
+    // Both ledger rows exist (no row was rolled back).
+    const ledgerRows = await db
+      .select()
+      .from(membershipLedger)
+      .where(eq(membershipLedger.membershipId, first.memberId));
+    expect(ledgerRows).toHaveLength(2);
   });
 
   it('on conflict for same (business_id, client_phone) replaces existing active membership', async () => {
@@ -143,7 +192,7 @@ describe('membership creation with rolling expiry', () => {
 
     // Create first membership with 10-day package
     const first = await withBusinessContext(businessId, () =>
-      createMembership(businessId, uniqueClient, shortPackage.id)
+      createMembership(businessId, uniqueClient, shortPackage.id, `key-${uniqueClient}-1`)
     );
 
     expect(first.sessionsRemaining).toBe(5);

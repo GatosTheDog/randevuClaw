@@ -239,12 +239,19 @@ export async function handleConfirmMembership(
 
   // T-07-03: Wrap createMembership in withBusinessContext for RLS enforcement.
   // CR-03: catch errors from createMembership (e.g. idempotency key conflict on
-  // same-day replay or double-tap) and send an error message to the owner so
+  // exact-replay of this same tap) and send an error message to the owner so
   // they receive feedback instead of a silent spinner disappearance.
+  //
+  // Debug (renewed-sub-cant-book): idempotencyKey is derived from callbackQueryId
+  // — unique per Telegram tap and stable across webhook-redelivery retries of that
+  // same tap — instead of a business/date/memberId key that collided (and rolled
+  // back the whole renewal) whenever the same client was renewed twice on the same
+  // Athens calendar day (WR-05).
+  const idempotencyKey = `billing:mem_confirm:${callbackQueryId}`;
   let result: { memberId: number; expiresAtDate: string; sessionsRemaining: number | null };
   try {
     result = await withBusinessContext(businessId, () =>
-      createMembership(businessId, clientPhone, packageId)
+      createMembership(businessId, clientPhone, packageId, idempotencyKey)
     );
   } catch (err) {
     logger.error(

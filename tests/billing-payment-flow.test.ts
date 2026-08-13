@@ -403,7 +403,14 @@ describe('payment recording flow', () => {
 
       // WR-02: answerCallbackQuery is called by the outer dispatcher, not here.
       expect(mockAnswerCallback).not.toHaveBeenCalled();
-      expect(mockCreateMembership).toHaveBeenCalledWith(BUSINESS_ID, '+306900000001', 5);
+      // Debug (renewed-sub-cant-book): idempotencyKey is now derived from
+      // callbackQueryId ('cb-query-id-3') instead of business/date/memberId.
+      expect(mockCreateMembership).toHaveBeenCalledWith(
+        BUSINESS_ID,
+        '+306900000001',
+        5,
+        'billing:mem_confirm:cb-query-id-3'
+      );
       expect(mockSendMessage).toHaveBeenCalledWith(
         OWNER_TELEGRAM_ID,
         expect.stringContaining('✅ Συνδρομή δημιουργήθηκε!')

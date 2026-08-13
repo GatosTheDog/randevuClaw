@@ -312,15 +312,26 @@ export async function getAllClientsForBusiness(
  * addCalendarDays adds validDays to get the expiry date. The resulting
  * expiresAt timestamp is end-of-day in Athens (+02:00 winter offset).
  *
- * The idempotencyKey `${businessId}:${clientPhone}:payment_recorded:${purchaseDate}:${memberId}`
- * prevents double-tap replay (same active membership row → same memberId → same key).
- * A legitimate renewal after the previous membership was deactivated produces a new
- * memberId, which generates a distinct key and succeeds (WR-05).
+ * Debug (renewed-sub-cant-book): `idempotencyKey` is now a REQUIRED caller-supplied
+ * parameter instead of being derived here from
+ * `${businessId}:${clientPhone}:payment_recorded:${purchaseDate}:${memberId}`. That
+ * derived key was identical for any two renewals of the same client on the same
+ * Athens calendar day, because memberId never changes across renewals (nothing in
+ * this codebase ever sets memberships.isActive = false, so onConflictDoUpdate always
+ * targets the same row). A same-day second renewal therefore hit the ledger's UNIQUE
+ * idempotency_key constraint and threw, rolling back the whole transaction —
+ * including the legitimate membership upsert — and silently discarding the renewal
+ * (WR-05, only partially fixed in the original Phase 7 review). The caller should
+ * pass a key tied to a true per-action identifier (e.g. the Telegram
+ * callback_query.id, which is unique per tap and stable across webhook-redelivery
+ * retries of that same tap) so that replay-of-the-same-tap is still blocked while
+ * two distinct renewals on the same day both succeed.
  */
 export async function createMembership(
   businessId: number,
   clientPhone: string,
-  packageId: number
+  packageId: number,
+  idempotencyKey: string
 ): Promise<{ memberId: number; expiresAtDate: string; sessionsRemaining: number | null }> {
   // Debug (query-read-timeout-storm): uses runInTransaction(pool, ...)
   // instead of db.transaction(...) directly — drizzle-orm's own transaction()
@@ -372,14 +383,10 @@ export async function createMembership(
       .returning({ id: memberships.id });
 
     const memberId = membershipRows[0].id;
-    // WR-05: include memberId in the idempotency key so that a legitimate
-    // renewal that produces a new membership row (e.g. previous membership
-    // was deactivated before the second payment) gets a different key and
-    // succeeds. Double-tap on the SAME active membership row is still blocked
-    // because onConflictDoUpdate returns the same memberId for both taps.
-    const idempotencyKey = `${businessId}:${clientPhone}:payment_recorded:${purchaseDate}:${memberId}`;
 
-    // Insert immutable ledger row (append-only — D-11 / T-07-04)
+    // Insert immutable ledger row (append-only — D-11 / T-07-04). idempotencyKey
+    // is caller-supplied (see JSDoc above) — tied to a true per-action identifier
+    // rather than derived from business/date/memberId.
     await tx.insert(membershipLedger).values({
       membershipId: memberId,
       operationType: 'payment_recorded',
