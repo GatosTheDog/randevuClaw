@@ -97,4 +97,31 @@ describe('booking enforcement policy integration', () => {
     expect(result.membership).not.toBeNull();
     expect(result.shouldAlert).toBe(false);
   });
+
+  it("'allow' policy + no membership allows booking and sets shouldAlert:true (always-on unbilled-booking alert)", async () => {
+    mockedGetActiveMembership.mockResolvedValue(null);
+    mockedGetPolicy.mockResolvedValue('allow');
+
+    const result = await checkEnforcementAndGetMembership(1, 'clientPhone');
+
+    expect(result.allowed).toBe(true);
+    expect(result.shouldAlert).toBe(true);
+    expect(result.membership).toBeNull();
+  });
+
+  it("'allow' policy + exhausted membership (sessionsRemaining: 0) also sets shouldAlert:true", async () => {
+    const exhaustedMembership: ActiveMembershipForDeduction = {
+      id: 2,
+      sessionsRemaining: 0,
+      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+    };
+    mockedGetActiveMembership.mockResolvedValue(exhaustedMembership);
+    mockedGetPolicy.mockResolvedValue('allow');
+
+    const result = await checkEnforcementAndGetMembership(1, 'clientPhone');
+
+    expect(result.allowed).toBe(true);
+    expect(result.shouldAlert).toBe(true);
+    expect(result.membership).toBeNull();
+  });
 });

@@ -5,8 +5,10 @@
 // It calls the billing query layer (getActiveMembershipForDeduction and
 // getBusinessEnforcementPolicy) and returns a discriminated result:
 //   - allowed: false  → booking must be refused (block policy, no membership)
-//   - allowed: true, shouldAlert: true  → flag policy, owner should be notified
-//   - allowed: true, shouldAlert: false → allow policy or valid membership found
+//   - allowed: true, shouldAlert: true  → 'flag' or 'allow' policy with no valid/capacity
+//     membership — owner should be notified (quick 260813-ji5: always-on unbilled-booking alert)
+//   - allowed: true, shouldAlert: false → valid membership found (or block, which never
+//     reaches shouldAlert:true since the booking is refused outright)
 //
 // Must be called INSIDE a withBusinessContext transaction so that
 // getActiveMembershipForDeduction's SELECT FOR UPDATE lock is held until the
@@ -22,7 +24,11 @@ export interface EnforcementResult {
   allowed: boolean;
   /** Greek refusal message — only set when allowed === false (ENFC-02) */
   message?: string;
-  /** true when flag policy fires and owner should be alerted (ENFC-03) */
+  /**
+   * true whenever the booking is allowed to proceed WITHOUT a valid/capacity
+   * membership (i.e. any non-'block' policy short of a real membership) —
+   * covers both 'flag' (ENFC-03) and 'allow' (quick 260813-ji5).
+   */
   shouldAlert: boolean;
   /** null when no valid membership or exhausted pack */
   membership: ActiveMembershipForDeduction | null;
@@ -34,6 +40,11 @@ export interface EnforcementResult {
  *
  * Capacity rule (CR-04): sessionsRemaining === 0 is treated as no valid membership
  * (exhausted pack triggers the same enforcement path as absent membership).
+ *
+ * shouldAlert contract (quick 260813-ji5): once !hasCapacity and the 'block' policy
+ * has been ruled out (which refuses the booking outright), any remaining policy —
+ * 'flag' or 'allow' — always sets shouldAlert:true so the owner is notified whenever
+ * a booking proceeds with no valid/capacity membership, not just under 'flag'.
  *
  * Sequential (not Promise.all) to keep both queries in the same DB transaction
  * slot — critical for the SELECT FOR UPDATE isolation guarantee (T-08-01).
@@ -59,11 +70,11 @@ export async function checkEnforcementAndGetMembership(
         membership: null,
       };
     }
-    if (policy === 'flag') {
-      return { allowed: true, shouldAlert: true, membership: null };
-    }
+    // Any non-'block' policy ('flag' or 'allow') reaching this point means the
+    // booking proceeds with no valid/capacity membership — always alert the owner.
+    return { allowed: true, shouldAlert: true, membership: null };
   }
 
-  // 'allow' policy or client has a valid membership with remaining capacity
+  // Client has a valid membership with remaining capacity
   return { allowed: true, shouldAlert: false, membership };
 }
