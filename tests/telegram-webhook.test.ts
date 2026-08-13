@@ -4,6 +4,7 @@ import * as queries from '../src/database/queries';
 import * as telegramClient from '../src/telegram/client';
 import * as router from '../src/conversation/router';
 import * as calendarSync from '../src/calendar/sync';
+import * as calendarIcs from '../src/calendar/ics';
 import * as registryModule from '../src/telegram/registry';
 import * as billingQueries from '../src/billing/queries';
 import * as aiOwnerAgentModule from '../src/onboarding/ai-owner-agent';
@@ -16,6 +17,7 @@ jest.mock('../src/database/queries');
 jest.mock('../src/telegram/client');
 jest.mock('../src/conversation/router');
 jest.mock('../src/calendar/sync');
+jest.mock('../src/calendar/ics');
 // Phase 4: mock registry to prevent real Telegraf bot from making network calls
 // (bot.handleUpdate calls getMe on the Telegram API which fails in test env)
 jest.mock('../src/telegram/registry');
@@ -125,6 +127,9 @@ const mockedSyncBookingToCalendar = calendarSync.syncBookingToCalendar as jest.M
 >;
 const mockedDeleteBookingFromCalendar = calendarSync.deleteBookingFromCalendar as jest.MockedFunction<
   typeof calendarSync.deleteBookingFromCalendar
+>;
+const mockedSendBookingConfirmationIcs = calendarIcs.sendBookingConfirmationIcs as jest.MockedFunction<
+  typeof calendarIcs.sendBookingConfirmationIcs
 >;
 // Phase 4: per-bot routing mocks (D-04, BOT-02)
 const mockedFindBusinessByWebhookId = queries.findBusinessByWebhookId as jest.MockedFunction<
@@ -525,6 +530,7 @@ describe('POST /webhooks/telegram/:webhookId — callback_query owner approval (
     mockedFindServiceById.mockResolvedValue(SERVICE);
     mockedSyncBookingToCalendar.mockResolvedValue(true);
     mockedDeleteBookingFromCalendar.mockResolvedValue(true);
+    mockedSendBookingConfirmationIcs.mockResolvedValue(undefined);
     // Phase 4: per-bot routing defaults (all callback_query tests use KNOWN_BUSINESS as the webhook-level business)
     mockedFindBusinessByWebhookId.mockResolvedValue(KNOWN_BUSINESS);
     mockedGetOrCreateBotInstance.mockReturnValue(mockBot as any);
@@ -770,6 +776,60 @@ describe('POST /webhooks/telegram/:webhookId — callback_query owner approval (
     const [clientId, clientText] = mockedSendTelegramMessageWithKeyboard.mock.calls[0];
     expect(clientId).toBe('c1');
     expect(clientText.length).toBeGreaterThan(0);
+  });
+
+  it('Test 17 (Plan 31-02): approving a plain (non-reschedule) booking calls sendBookingConfirmationIcs exactly once, after the text confirmation, with the confirmed booking, business, and service', async () => {
+    mockedFindBookingByIdUnscoped.mockResolvedValue(PENDING_BOOKING);
+    mockedFindBusinessById.mockResolvedValue(OWNER_BUSINESS);
+    mockedUpdateBookingStatusIfPending.mockResolvedValue({
+      ...PENDING_BOOKING,
+      bookingStatus: 'confirmed',
+    });
+
+    const res = await postWebhook('test-webhook-id-1', makeCallbackQueryUpdate(303, 'owner1', 'approve_42'));
+
+    expect(res.status).toBe(200);
+    expect(mockedSendBookingConfirmationIcs).toHaveBeenCalledTimes(1);
+    expect(mockedSendBookingConfirmationIcs).toHaveBeenCalledWith(
+      PENDING_BOOKING.clientPhone,
+      expect.objectContaining({ id: 42, bookingStatus: 'confirmed' }),
+      OWNER_BUSINESS,
+      SERVICE
+    );
+    const textConfirmationOrder = mockedSendTelegramMessageWithKeyboard.mock.invocationCallOrder[0];
+    const icsOrder = mockedSendBookingConfirmationIcs.mock.invocationCallOrder[0];
+    expect(textConfirmationOrder).toBeLessThan(icsOrder);
+  });
+
+  it('Test 18 (Plan 31-02): a rejecting/throwing sendBookingConfirmationIcs mock does not prevent the 200 response or the text confirmation message', async () => {
+    mockedFindBookingByIdUnscoped.mockResolvedValue(PENDING_BOOKING);
+    mockedFindBusinessById.mockResolvedValue(OWNER_BUSINESS);
+    mockedUpdateBookingStatusIfPending.mockResolvedValue({
+      ...PENDING_BOOKING,
+      bookingStatus: 'confirmed',
+    });
+    mockedSendBookingConfirmationIcs.mockRejectedValueOnce(new Error('unexpected bug'));
+
+    const res = await postWebhook('test-webhook-id-1', makeCallbackQueryUpdate(304, 'owner1', 'approve_42'));
+
+    expect(res.status).toBe(200);
+    const [clientId, clientText] = mockedSendTelegramMessageWithKeyboard.mock.calls[0];
+    expect(clientId).toBe('c1');
+    expect(clientText.length).toBeGreaterThan(0);
+  });
+
+  it('Test 19 (Plan 31-02): the reject branch (parsed.action !== "approve") never calls sendBookingConfirmationIcs', async () => {
+    mockedFindBookingByIdUnscoped.mockResolvedValue(PENDING_BOOKING);
+    mockedFindBusinessById.mockResolvedValue(OWNER_BUSINESS);
+    mockedUpdateBookingStatusIfPending.mockResolvedValue({
+      ...PENDING_BOOKING,
+      bookingStatus: 'rejected',
+    });
+
+    const res = await postWebhook('test-webhook-id-1', makeCallbackQueryUpdate(305, 'owner1', 'reject_42'));
+
+    expect(res.status).toBe(200);
+    expect(mockedSendBookingConfirmationIcs).not.toHaveBeenCalled();
   });
 });
 

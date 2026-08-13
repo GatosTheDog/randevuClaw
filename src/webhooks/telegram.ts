@@ -20,6 +20,7 @@ import { answerCallbackQuery, editTelegramMessageReplyMarkup, sendTelegramMessag
 import { getOrCreateBotInstance } from '../telegram/registry';
 import { routeConversationMessage } from '../conversation/router';
 import { deleteBookingFromCalendar, syncBookingToCalendar } from '../calendar/sync';
+import { sendBookingConfirmationIcs } from '../calendar/ics';
 import { aiOwnerAgent, handleOwnerToolConfirmCallback, OwnerToolConfirmParams } from '../onboarding/ai-owner-agent';
 import { aiOnboardingAgent } from '../onboarding/ai-onboarding-agent';
 import { findBusinessByOwnerTelegramId } from '../onboarding/queries';
@@ -1311,6 +1312,12 @@ async function handleCallbackQuery(
       `Το ραντεβού σας επιβεβαιώθηκε! ${service?.name ?? ''}, ${updated.calendarDate} στις ${updated.calendarTime}.`,
       [[{ text: '🚫 Ακύρωση κράτησης', callback_data: `client_cancel_${updated.id}` }]]
     );
+    // D-05: best-effort .ics calendar invite alongside the text confirmation
+    // above. sendBookingConfirmationIcs's own contract never throws (Task 1),
+    // so no additional try/catch wrapper is needed here.
+    if (service) {
+      await sendBookingConfirmationIcs(updated.clientPhone, updated, bookingBusiness, service);
+    }
   } else {
     // No cascade on reject: the original booking (if any) is left untouched.
     // Phase 8: credit restore (SESS-02/D-03) — after updateBookingStatusIfPending, before client notification
