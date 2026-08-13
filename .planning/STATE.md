@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: UX & Trust Polish
-current_phase: 7
-status: Awaiting next milestone
+current_phase: 31
+current_phase_name: google-calendar-self-serve-connect-owner-facing-oauth-flow-t
+status: executing
 stopped_at: Phase 31 context gathered
-last_updated: "2026-08-13T11:11:43.642Z"
+last_updated: "2026-08-13T15:18:54.195Z"
 last_activity: 2026-08-13
-last_activity_desc: "Completed quick task 260813-jgj: Fix payment client-selection list to always include never-booked clients"
+last_activity_desc: Phase 31 execution started
 progress:
   total_phases: 6
   completed_phases: 5
-  total_plans: 14
+  total_plans: 16
   completed_plans: 14
   percent: 83
-current_phase_name: v1.7 complete — awaiting next milestone
 ---
 
 # Project State
@@ -24,14 +24,14 @@ current_phase_name: v1.7 complete — awaiting next milestone
 See: .planning/PROJECT.md (updated 2026-07-29 after v1.7 milestone close)
 
 **Core value:** A client can book or cancel an appointment with a Greek business entirely through a chat conversation, in Greek, with zero friction — and the owner's calendar updates automatically.
-**Current focus:** Planning next milestone
+**Current focus:** Phase 31 — google-calendar-self-serve-connect-owner-facing-oauth-flow-t
 
 ## Current Position
 
-Phase: Milestone v1.7 complete
-Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-08-13 - Completed quick task 260813-ji5: Reconcile unbilled bookings into new memberships + always-on owner alert for no-subscription bookings
+Phase: 31 (google-calendar-self-serve-connect-owner-facing-oauth-flow-t) — EXECUTING
+Plan: 1 of 2
+Status: Executing Phase 31
+Last activity: 2026-08-13 — Phase 31 execution started
 
 ## Performance Metrics
 
