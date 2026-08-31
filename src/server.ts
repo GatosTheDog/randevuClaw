@@ -7,6 +7,7 @@ import { startAgendaPoller } from './scheduler/agenda';
 import { startReminderPoller } from './scheduler/reminders';
 import { startMembershipExpiryPoller } from './scheduler/membership-expiry';
 import { startSessionCancellationPoller } from './scheduler/session-cancellation';
+import { startKeepAlivePoller } from './database/keepalive';
 import { findBusinessById } from './database/queries';
 import { exchangeAuthCodeForTokens, storeGoogleRefreshToken, verifyOAuthState } from './google/oauth';
 
@@ -89,6 +90,7 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 // collapses it to 'development'), so JEST_WORKER_ID — which Jest always sets
 // — is the only real signal here.
 if (!process.env.JEST_WORKER_ID) {
+  startKeepAlivePoller();
   startExpiryPoller();
   startCalendarSyncPoller();
   startAgendaPoller();
