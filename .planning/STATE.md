@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-07-29 after v1.7 milestone close)
 Phase: 31 (google-calendar-self-serve-connect-owner-facing-oauth-flow-t) — EXECUTING
 Plan: 1 of 2
 Status: Executing Phase 31
-Last activity: 2026-08-13 — Phase 31 execution started
+Last activity: 2026-08-31 — Completed quick task 260831-e0z: Add Neon cold-start resilience (keep-alive poller + connection retry)
 
 ## Performance Metrics
 
@@ -280,6 +280,7 @@ Recent decisions affecting current work:
 | 260813-ixq | Resolve client display name in agenda messages instead of raw phone/id | 2026-08-13 | 8b74373 | [260813-ixq-fix-agenda-message-to-show-client-name-i](./quick/260813-ixq-fix-agenda-message-to-show-client-name-i/) |
 | 260813-jgj | Fix payment client-selection list to always include never-booked clients | 2026-08-13 | 2c5bc2e | [260813-jgj-fix-payment-client-selection-list-to-alw](./quick/260813-jgj-fix-payment-client-selection-list-to-alw/) |
 | 260813-ji5 | Reconcile unbilled bookings into new memberships + always-on owner alert for no-subscription bookings | 2026-08-13 | 99a762a | [260813-ji5-implement-unbilled-booking-reconciliatio](./quick/260813-ji5-implement-unbilled-booking-reconciliatio/) |
+| 260831-e0z | Add Neon cold-start resilience: keep-alive poller + narrowly-scoped connection retry | 2026-08-31 | b05fe45 | [260831-e0z-add-neon-cold-start-resilience-1-lightwe](./quick/260831-e0z-add-neon-cold-start-resilience-1-lightwe/) |
 
 ### Blockers/Concerns
 
