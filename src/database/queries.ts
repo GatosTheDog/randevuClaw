@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'async_hooks';
 import { and, desc, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm';
-import { db, appPool, runInTransaction } from './db';
+import { db, appPool, runInTransaction, withConnectionRetry } from './db';
 import { logger } from '../utils/logger';
 import {
   businesses,
@@ -99,11 +99,9 @@ export async function findBusinessBySlug(slug: string): Promise<Business | null>
  * before withBusinessContext is entered.
  */
 export async function findBusinessByWebhookId(webhookId: string): Promise<Business | null> {
-  const rows = await db
-    .select()
-    .from(businesses)
-    .where(eq(businesses.webhookId, webhookId))
-    .limit(1);
+  const rows = await withConnectionRetry(() =>
+    db.select().from(businesses).where(eq(businesses.webhookId, webhookId)).limit(1)
+  );
   return rows[0] ?? null;
 }
 
@@ -528,7 +526,7 @@ export async function setBookingMode(businessId: number, mode: string): Promise<
 }
 
 export async function listAllBusinessIds(): Promise<number[]> {
-  const rows = await db.select({ id: businesses.id }).from(businesses);
+  const rows = await withConnectionRetry(() => db.select({ id: businesses.id }).from(businesses));
   return rows.map((row) => row.id);
 }
 

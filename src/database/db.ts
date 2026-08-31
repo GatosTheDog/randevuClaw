@@ -78,6 +78,59 @@ appPool.on('connect', (client) => {
 
 export const appDb = drizzle(appPool, { schema });
 
+// Debug (neon-cold-start-connection-failures, quick task 260831-e0z): a
+// production incident hit recurring "Connection terminated due to connection
+// timeout: Connection terminated unexpectedly" errors on findBusinessByWebhookId
+// and listAllBusinessIds (via the plain `db`/admin pool, called from 4
+// pollers), and on runInTransaction's initial `pool.connect()` (via `appPool`,
+// inside withBusinessContext). This is consistent with Neon free-tier compute
+// auto-suspend: the first connection attempt during a resume window can fail
+// transiently before the compute is fully back online.
+//
+// withConnectionRetry below retries ONLY this narrow transient-error class,
+// and ONLY at safe boundaries: a bare pool.connect() call (before any client
+// is checked out) and pure, side-effect-free SELECT reads. It intentionally
+// never wraps a transaction callback — see runInTransaction below, and the
+// query-read-timeout-storm incident this must not reintroduce a variant of.
+const TRANSIENT_CONNECTION_ERROR_SUBSTRING = 'Connection terminated';
+
+export function isTransientConnectionError(err: unknown): boolean {
+  const visited = new Set<unknown>();
+  let current: unknown = err;
+
+  while (current !== null && typeof current === 'object' && !visited.has(current)) {
+    visited.add(current);
+    const message = (current as { message?: unknown }).message;
+    if (typeof message === 'string' && message.includes(TRANSIENT_CONNECTION_ERROR_SUBSTRING)) {
+      return true;
+    }
+    current = (current as { cause?: unknown }).cause;
+  }
+
+  return false;
+}
+
+export async function withConnectionRetry<T>(
+  fn: () => Promise<T>,
+  maxRetries = 2,
+  retryDelaysMs: number[] = [300, 800]
+): Promise<T> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (!isTransientConnectionError(err) || attempt === maxRetries) {
+        throw err;
+      }
+      logger.warn({ err, attempt: attempt + 1, maxRetries }, 'Transient DB connection error, retrying');
+      const delayMs = retryDelaysMs[attempt] ?? retryDelaysMs[retryDelaysMs.length - 1] ?? 0;
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  // Unreachable: the loop above always either returns or throws.
+  throw new Error('withConnectionRetry: exhausted retries without returning or throwing');
+}
+
 // Debug (query-read-timeout-storm): drizzle-orm's NodePgSession.transaction()
 // (node_modules/drizzle-orm/node-postgres/session.js) checks out a client via
 // `pool.connect()`, then runs `await tx.execute(sql`begin...`)` BEFORE its own
@@ -106,7 +159,7 @@ export async function runInTransaction<T>(
   pool: Pool,
   callback: TransactionCallback<typeof db, T>
 ): Promise<T> {
-  const client = await pool.connect();
+  const client = await withConnectionRetry(() => pool.connect());
   const clientDb = drizzle(client, { schema });
   let txError: unknown;
   try {
