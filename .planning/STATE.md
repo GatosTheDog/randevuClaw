@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-07-29 after v1.7 milestone close)
 Phase: 31 (google-calendar-self-serve-connect-owner-facing-oauth-flow-t) — EXECUTING
 Plan: 1 of 2
 Status: Executing Phase 31
-Last activity: 2026-09-08 — Completed quick task 260908-dwj: Status-aware booking-approval CAS-miss messaging (expired/already-approved/already-rejected)
+Last activity: 2026-09-08 — Completed quick task 260908-dxa: Add deterministic view_schedule_for_date owner tool (fixes hallucinated weekday on date queries)
 
 ## Performance Metrics
 
@@ -282,6 +282,7 @@ Recent decisions affecting current work:
 | 260813-ji5 | Reconcile unbilled bookings into new memberships + always-on owner alert for no-subscription bookings | 2026-08-13 | 99a762a | [260813-ji5-implement-unbilled-booking-reconciliatio](./quick/260813-ji5-implement-unbilled-booking-reconciliatio/) |
 | 260831-e0z | Add Neon cold-start resilience: keep-alive poller + narrowly-scoped connection retry | 2026-08-31 | b05fe45 | [260831-e0z-add-neon-cold-start-resilience-1-lightwe](./quick/260831-e0z-add-neon-cold-start-resilience-1-lightwe/) |
 | 260908-dwj | Status-aware booking-approval CAS-miss messaging (expired/already-approved/already-rejected) | 2026-09-08 | 1055502 | [260908-dwj-fix-generic-booking-approval-failure-mes](./quick/260908-dwj-fix-generic-booking-approval-failure-mes/) |
+| 260908-dxa | Add deterministic view_schedule_for_date owner tool (fixes hallucinated weekday on date queries) | 2026-09-08 | d5ea543 | [260908-dxa-add-a-deterministic-date-query-tool-for-](./quick/260908-dxa-add-a-deterministic-date-query-tool-for-/) |
 
 ### Blockers/Concerns
 
