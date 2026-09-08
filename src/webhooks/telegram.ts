@@ -925,6 +925,28 @@ async function handleCallbackQuery(
   }
 
   // ---------------------------------------------------------------------------
+  // Quick task 260908-dwj: status-aware sbk: approve/reject CAS-miss messaging.
+  // currentStatus MUST come from a FRESH findBookingByIdUnscoped lookup taken
+  // AFTER an updateBookingStatusIfPending CAS miss — never from the pre-CAS
+  // `targetBooking` snapshot read earlier in the sbkAction block (used for the
+  // T-22-02 cross-tenant guard), since a race could change the booking's
+  // status between those two reads.
+  // ---------------------------------------------------------------------------
+  function resolveSbkCasFailureMessage(currentStatus: string | null | undefined): string {
+    switch (currentStatus) {
+      case 'expired':
+        return 'Η κράτηση έληξε αυτόματα (πέρασαν 2 ώρες χωρίς απάντηση). Ζητήστε από τον πελάτη να κάνει νέα κράτηση.';
+      case 'confirmed':
+        return 'Η κράτηση έχει ήδη εγκριθεί.';
+      case 'cancelled':
+      case 'rejected':
+        return 'Η κράτηση έχει ήδη απορριφθεί.';
+      default:
+        return 'Η κράτηση δεν βρέθηκε ή έχει ήδη επεξεργαστεί.';
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Phase 22: Session booking owner approve/reject routing (OWNR-05/06/07)
   // Discriminant: 'sbkAction' in result → SessionBookingCallbackResult
   // T-22-01/T-22-02/T-22-03: owner-only + same-business + idempotent-CAS
@@ -961,7 +983,8 @@ async function handleCallbackQuery(
       // safe no-op (identical pattern to the existing plain-booking flow).
       const updated = await updateBookingStatusIfPending(sbk.bookingId, 'confirmed');
       if (!updated) {
-        await sendTelegramMessage(senderTelegramId, 'Η κράτηση δεν βρέθηκε ή έχει ήδη επεξεργαστεί.');
+        const currentBooking = await findBookingByIdUnscoped(sbk.bookingId);
+        await sendTelegramMessage(senderTelegramId, resolveSbkCasFailureMessage(currentBooking?.bookingStatus));
         return;
       }
 
@@ -1000,7 +1023,8 @@ async function handleCallbackQuery(
       // sbk.sbkAction === 'reject'
       const updated = await updateBookingStatusIfPending(sbk.bookingId, 'rejected');
       if (!updated) {
-        await sendTelegramMessage(senderTelegramId, 'Η κράτηση δεν βρέθηκε ή έχει ήδη επεξεργαστεί.');
+        const currentBooking = await findBookingByIdUnscoped(sbk.bookingId);
+        await sendTelegramMessage(senderTelegramId, resolveSbkCasFailureMessage(currentBooking?.bookingStatus));
         return;
       }
 
