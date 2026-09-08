@@ -1530,6 +1530,125 @@ describe('Suite F: sbk: session booking approval routing', () => {
     expect(mockedRestoreCredit).not.toHaveBeenCalled();
   });
 
+  // Quick task 260908-dwj: status-aware CAS-miss messaging — 4 status
+  // branches x 2 actions (approve/reject), covering the fresh post-CAS-miss
+  // findBookingByIdUnscoped re-read that drives resolveSbkCasFailureMessage.
+  describe('260908-dwj: status-aware CAS-miss messaging', () => {
+    it('approve — CAS miss, current status "expired" → expired-specific message', async () => {
+      mockedUpdateBookingStatusIfPending.mockResolvedValue(null);
+      mockedFindBookingByIdUnscoped.mockResolvedValue({ ...SESSION_BOOKING, bookingStatus: 'expired' } as any);
+
+      const res = await postToWebhook(
+        makeCallbackQueryUpdate(20, OWNER_TELEGRAM_ID, 'sbk:approve:5')
+      );
+
+      expect(res.status).toBe(200);
+      expect(mockedSendTelegramMessage).toHaveBeenCalledWith(
+        OWNER_TELEGRAM_ID,
+        'Η κράτηση έληξε αυτόματα (πέρασαν 2 ώρες χωρίς απάντηση). Ζητήστε από τον πελάτη να κάνει νέα κράτηση.'
+      );
+      expect(mockedUpdateBookingStatus).not.toHaveBeenCalled();
+      expect(mockedReleaseSessionCapacity).not.toHaveBeenCalled();
+    });
+
+    it('approve — CAS miss, current status "confirmed" → already-approved message', async () => {
+      mockedUpdateBookingStatusIfPending.mockResolvedValue(null);
+      mockedFindBookingByIdUnscoped.mockResolvedValue({ ...SESSION_BOOKING, bookingStatus: 'confirmed' } as any);
+
+      const res = await postToWebhook(
+        makeCallbackQueryUpdate(21, OWNER_TELEGRAM_ID, 'sbk:approve:5')
+      );
+
+      expect(res.status).toBe(200);
+      expect(mockedSendTelegramMessage).toHaveBeenCalledWith(OWNER_TELEGRAM_ID, 'Η κράτηση έχει ήδη εγκριθεί.');
+    });
+
+    it('approve — CAS miss, current status "cancelled" → already-rejected message', async () => {
+      mockedUpdateBookingStatusIfPending.mockResolvedValue(null);
+      mockedFindBookingByIdUnscoped.mockResolvedValue({ ...SESSION_BOOKING, bookingStatus: 'cancelled' } as any);
+
+      const res = await postToWebhook(
+        makeCallbackQueryUpdate(22, OWNER_TELEGRAM_ID, 'sbk:approve:5')
+      );
+
+      expect(res.status).toBe(200);
+      expect(mockedSendTelegramMessage).toHaveBeenCalledWith(OWNER_TELEGRAM_ID, 'Η κράτηση έχει ήδη απορριφθεί.');
+    });
+
+    it('approve — CAS miss, post-CAS re-read resolves null (row gone) → generic not-found message', async () => {
+      mockedUpdateBookingStatusIfPending.mockResolvedValue(null);
+      mockedFindBookingByIdUnscoped
+        .mockResolvedValueOnce({ ...SESSION_BOOKING } as any)
+        .mockResolvedValueOnce(null);
+
+      const res = await postToWebhook(
+        makeCallbackQueryUpdate(23, OWNER_TELEGRAM_ID, 'sbk:approve:5')
+      );
+
+      expect(res.status).toBe(200);
+      expect(mockedSendTelegramMessage).toHaveBeenCalledWith(
+        OWNER_TELEGRAM_ID,
+        'Η κράτηση δεν βρέθηκε ή έχει ήδη επεξεργαστεί.'
+      );
+    });
+
+    it('reject — CAS miss, current status "expired" → expired-specific message', async () => {
+      mockedUpdateBookingStatusIfPending.mockResolvedValue(null);
+      mockedFindBookingByIdUnscoped.mockResolvedValue({ ...SESSION_BOOKING, bookingStatus: 'expired' } as any);
+
+      const res = await postToWebhook(
+        makeCallbackQueryUpdate(24, OWNER_TELEGRAM_ID, 'sbk:reject:5')
+      );
+
+      expect(res.status).toBe(200);
+      expect(mockedSendTelegramMessage).toHaveBeenCalledWith(
+        OWNER_TELEGRAM_ID,
+        'Η κράτηση έληξε αυτόματα (πέρασαν 2 ώρες χωρίς απάντηση). Ζητήστε από τον πελάτη να κάνει νέα κράτηση.'
+      );
+    });
+
+    it('reject — CAS miss, current status "confirmed" → already-approved message', async () => {
+      mockedUpdateBookingStatusIfPending.mockResolvedValue(null);
+      mockedFindBookingByIdUnscoped.mockResolvedValue({ ...SESSION_BOOKING, bookingStatus: 'confirmed' } as any);
+
+      const res = await postToWebhook(
+        makeCallbackQueryUpdate(25, OWNER_TELEGRAM_ID, 'sbk:reject:5')
+      );
+
+      expect(res.status).toBe(200);
+      expect(mockedSendTelegramMessage).toHaveBeenCalledWith(OWNER_TELEGRAM_ID, 'Η κράτηση έχει ήδη εγκριθεί.');
+    });
+
+    it('reject — CAS miss, current status "rejected" → already-rejected message', async () => {
+      mockedUpdateBookingStatusIfPending.mockResolvedValue(null);
+      mockedFindBookingByIdUnscoped.mockResolvedValue({ ...SESSION_BOOKING, bookingStatus: 'rejected' } as any);
+
+      const res = await postToWebhook(
+        makeCallbackQueryUpdate(26, OWNER_TELEGRAM_ID, 'sbk:reject:5')
+      );
+
+      expect(res.status).toBe(200);
+      expect(mockedSendTelegramMessage).toHaveBeenCalledWith(OWNER_TELEGRAM_ID, 'Η κράτηση έχει ήδη απορριφθεί.');
+    });
+
+    it('reject — CAS miss, post-CAS re-read resolves null (row gone) → generic not-found message', async () => {
+      mockedUpdateBookingStatusIfPending.mockResolvedValue(null);
+      mockedFindBookingByIdUnscoped
+        .mockResolvedValueOnce({ ...SESSION_BOOKING } as any)
+        .mockResolvedValueOnce(null);
+
+      const res = await postToWebhook(
+        makeCallbackQueryUpdate(27, OWNER_TELEGRAM_ID, 'sbk:reject:5')
+      );
+
+      expect(res.status).toBe(200);
+      expect(mockedSendTelegramMessage).toHaveBeenCalledWith(
+        OWNER_TELEGRAM_ID,
+        'Η κράτηση δεν βρέθηκε ή έχει ήδη επεξεργαστεί.'
+      );
+    });
+  });
+
   // Phase 26 (CONF-02/D-03): sbk:approve cascade-cancels the superseded
   // (rescheduledFromBookingId) booking.
   it('owner taps Έγκριση on a rescheduled booking → cascade-cancels the old booking and best-effort deletes its calendar event', async () => {
