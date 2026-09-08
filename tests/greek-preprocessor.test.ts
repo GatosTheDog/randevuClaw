@@ -1,4 +1,4 @@
-import { resolveGreekTemporalExpressions } from '../src/conversation/greek-preprocessor';
+import { resolveGreekTemporalExpressions, resolveOwnerDateQuery } from '../src/conversation/greek-preprocessor';
 
 // Fixed reference instant for the entire corpus: a Wednesday
 // (weekdayOfIsoDate('2026-07-08') === 3), Athens local time is midday at
@@ -165,5 +165,39 @@ describe('resolveGreekTemporalExpressions — annotation and robustness', () => 
 
   it('never throws on a string with no Greek content', () => {
     expect(() => resolveGreekTemporalExpressions('hello world 123', REFERENCE_DATE)).not.toThrow();
+  });
+});
+
+describe('resolveOwnerDateQuery — owner free-text date resolution (deterministic, no Gemini date arithmetic)', () => {
+  it('"7/9" -> resolves to 2026-09-07 (no year-rollover, hasn\'t occurred yet this year)', () => {
+    expect(resolveOwnerDateQuery('7/9', REFERENCE_DATE)).toBe('2026-09-07');
+  });
+
+  it('"07/09" -> identical result to "7/9" (zero-padded digits parse identically)', () => {
+    expect(resolveOwnerDateQuery('07/09', REFERENCE_DATE)).toBe('2026-09-07');
+  });
+
+  it('"7-9" -> identical result to "7/9" (dash separator variant)', () => {
+    expect(resolveOwnerDateQuery('7-9', REFERENCE_DATE)).toBe('2026-09-07');
+  });
+
+  it('"1/1" -> resolves to 2027-01-01 (already passed this year -> rolls to next year)', () => {
+    expect(resolveOwnerDateQuery('1/1', REFERENCE_DATE)).toBe('2027-01-01');
+  });
+
+  it('"Δευτέρα" -> identical to resolveDate\'s own weekday-stem output (proves reuse is wired correctly)', () => {
+    expect(resolveOwnerDateQuery('Δευτέρα', REFERENCE_DATE)).toBe('2026-07-13');
+  });
+
+  it('"αύριο" -> relative-day fallback still works', () => {
+    expect(resolveOwnerDateQuery('αύριο', REFERENCE_DATE)).toBe('2026-07-09');
+  });
+
+  it('"31/2" -> null (calendar-impossible in any year, no weekday/relative-day fallback either)', () => {
+    expect(resolveOwnerDateQuery('31/2', REFERENCE_DATE)).toBeNull();
+  });
+
+  it('"ένα τυχαίο μήνυμα χωρίς ημερομηνία" -> null (no numeric date, no weekday stem, no relative-day word)', () => {
+    expect(resolveOwnerDateQuery('ένα τυχαίο μήνυμα χωρίς ημερομηνία', REFERENCE_DATE)).toBeNull();
   });
 });
