@@ -17,6 +17,8 @@ import {
   setBookingMode,
 } from '../database/queries';
 import { logger } from '../utils/logger';
+import { resolveOwnerDateQuery } from '../conversation/greek-preprocessor';
+import { weekdayOfIsoDate } from '../utils/timezone';
 import { listPackages, getClientActiveMembership, getAllClientsForBusiness, AllTimeClient } from '../billing/queries';
 import { listSlotlessRequestsForClient } from '../session/slotless-requests';
 import {
@@ -244,6 +246,25 @@ export const OWNER_TOOLS = [
       type: 'object',
       properties: {},
       required: [],
+    },
+  },
+  // quick-260908-dxa: deterministic date-query tool — for any date OTHER
+  // than today (view_todays_schedule stays "today only", untouched).
+  {
+    type: 'function' as const,
+    name: 'view_schedule_for_date',
+    description:
+      'Εμφανίζει το πρόγραμμα ραντεβού για μια συγκεκριμένη ημερομηνία που αναφέρει ο ιδιοκτήτης — διαφορετικό από το view_todays_schedule που δείχνει μόνο τη σημερινή ημέρα.',
+    parameters: {
+      type: 'object',
+      properties: {
+        date_query: {
+          type: 'string',
+          description:
+            'Η ημερομηνία ΑΚΡΙΒΩΣ όπως την είπε ο ιδιοκτήτης, π.χ. "7/9", "Δευτέρα", "αύριο". ΜΗΝ τη μετατρέψεις σε ISO μορφή και ΜΗΝ υπολογίσεις μόνος σου την ημερομηνία ή την ημέρα της εβδομάδας — ο server την επιλύει ντετερμινιστικά.',
+        },
+      },
+      required: ['date_query'],
     },
   },
   // ---------------------------------------------------------------------------
@@ -575,6 +596,7 @@ function buildOwnerSystemPrompt(
     '- Αν δεν καταλαβαίνεις τι θέλει ο ιδιοκτήτης, ρώτησέ τον συνοπτικά.',
     '- Μην κάνεις ενέργειες εκτός των παραπάνω εργαλείων.',
     '- Για αλλαγή τιμής ή διαγραφή υπηρεσίας, αν δεν βρίσκεις ακριβές match ονόματος, κάνε partial match (case-insensitive).',
+    '- Για ερωτήσεις σχετικά με άλλη ημερομηνία εκτός της σημερινής, χρησιμοποίησε το view_schedule_for_date με τα ίδια λόγια του ιδιοκτήτη στο date_query — μην υπολογίζεις ή δηλώνεις μόνος σου ημερομηνία/ημέρα, το αποτέλεσμα του εργαλείου την περιέχει ήδη.',
   ].join('\n');
 }
 
@@ -605,6 +627,8 @@ interface ToolArgs {
   capacity?: number;
   session_date?: string;
   session_time?: string;
+  // quick-260908-dxa: raw owner-words date query for view_schedule_for_date
+  date_query?: string;
   // Phase 12: cancellation cutoff fields (CANC-01, CANC-02)
   enabled?: boolean;
   hours?: number;
@@ -750,6 +774,46 @@ async function executeOwnerTool(
         })
       );
       return lines.join('\n');
+    }
+
+    // quick-260908-dxa: deterministic date-query tool case. date_query is
+    // the owner's raw words — resolveOwnerDateQuery (never Gemini) resolves
+    // it, and the resolved weekday name is stated explicitly in the reply
+    // so Gemini has no room to restate a different one.
+    case 'view_schedule_for_date': {
+      const dateQuery = String(args.date_query ?? '').trim();
+      if (!dateQuery) return 'Δεν δόθηκε ημερομηνία.';
+
+      // Anchor at noon UTC on the already-computed Athens `today` — this
+      // reproduces the exact same Athens calendar date isoDateInAthens()
+      // would derive internally, with no second real-clock read.
+      const referenceDate = new Date(`${today}T12:00:00Z`);
+      const resolvedDate = resolveOwnerDateQuery(dateQuery, referenceDate);
+      if (resolvedDate === null) {
+        return 'Δεν κατάλαβα ποια ημερομηνία εννοείτε. Δώστε μια συγκεκριμένη ημερομηνία (π.χ. 7/9) ή το όνομα μιας ημέρας.';
+      }
+
+      const weekdayName = GREEK_WEEKDAYS[weekdayOfIsoDate(resolvedDate)];
+      const [year, month, day] = resolvedDate.split('-');
+      const displayDate = `${day}/${month}/${year}`;
+
+      const bookingsForDate = await listBookingsForDate(
+        business.id,
+        resolvedDate,
+        ['pending_owner_approval', 'confirmed']
+      );
+      if (bookingsForDate.length === 0) {
+        return `${weekdayName} ${displayDate}\nΔεν υπάρχουν ραντεβού.`;
+      }
+      const lines = await Promise.all(
+        bookingsForDate.map(async (b) => {
+          const svc = await findServiceById(business.id, b.serviceId).catch(() => null);
+          const svcName = svc?.name ?? `υπηρεσία #${b.serviceId}`;
+          const statusLabel = b.bookingStatus === 'confirmed' ? '✅' : '⏳';
+          return `${statusLabel} ${b.calendarTime} — ${svcName} (${b.clientPhone})`;
+        })
+      );
+      return `${weekdayName} ${displayDate}\n${lines.join('\n')}`;
     }
 
     // -----------------------------------------------------------------------
