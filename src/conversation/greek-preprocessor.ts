@@ -45,6 +45,50 @@ const TIME_PATTERNS: RegExp[] = [
   /^(\d{1,2})(?::(\d{2}))?\s*(π\.?\s?μ\.?|μ\.?\s?μ\.?)?/,
 ];
 
+// Matches an explicit DD/MM (or DD-MM) numeric date anywhere in the text —
+// this codebase's DD/MM/YYYY convention (see formatExpiryDateGreek). Not
+// anchored, so a phrase like "τι έχω στις 7/9" still matches.
+const EXPLICIT_NUMERIC_DATE_PATTERN = /\b(\d{1,2})[/-](\d{1,2})\b/;
+
+/**
+ * Resolves an explicit numeric DD/MM (or DD-MM) date to an ISO
+ * (YYYY-MM-DD) string, rolling over to next year when the day/month has
+ * already passed this year relative to `referenceDate`. Returns null when
+ * no numeric date is present, or when the day/month combination is not a
+ * real calendar date in either the current or the next year.
+ */
+function resolveExplicitNumericDate(normalizedText: string, referenceDate: Date): string | null {
+  const match = normalizedText.match(EXPLICIT_NUMERIC_DATE_PATTERN);
+  if (!match) return null;
+
+  const day = parseInt(match[1], 10);
+  const month = parseInt(match[2], 10);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+
+  const todayIso = isoDateInAthens(referenceDate);
+  const currentYear = parseInt(todayIso.slice(0, 4), 10);
+
+  const buildCandidate = (year: number): string | null => {
+    const candidate = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const roundTrip = new Date(`${candidate}T12:00:00Z`);
+    if (
+      roundTrip.getUTCFullYear() !== year ||
+      roundTrip.getUTCMonth() + 1 !== month ||
+      roundTrip.getUTCDate() !== day
+    ) {
+      return null;
+    }
+    return candidate;
+  };
+
+  const currentYearCandidate = buildCandidate(currentYear);
+  if (currentYearCandidate !== null && currentYearCandidate >= todayIso) {
+    return currentYearCandidate;
+  }
+
+  return buildCandidate(currentYear + 1);
+}
+
 function resolveDate(normalizedText: string, referenceDate: Date): string | null {
   const todayIso = isoDateInAthens(referenceDate);
 
@@ -67,6 +111,20 @@ function resolveDate(normalizedText: string, referenceDate: Date): string | null
   }
 
   return null;
+}
+
+/**
+ * Deterministically resolves an owner's raw free-text date phrase (e.g.
+ * "7/9", "Δευτέρα", "αύριο") to an ISO (YYYY-MM-DD) date — never trusting
+ * Gemini to compute the date/weekday itself. Explicit numeric DD/MM dates
+ * take priority (unambiguous); otherwise falls back to the same
+ * relative-day-word/Greek-weekday-stem resolution `resolveDate` already
+ * uses for the client-facing booking flow. Returns null when nothing
+ * resolves, so the caller can ask the owner to clarify.
+ */
+export function resolveOwnerDateQuery(dateQuery: string, referenceDate: Date): string | null {
+  const normalizedText = stripGreekDiacritics(dateQuery).toLowerCase();
+  return resolveExplicitNumericDate(normalizedText, referenceDate) ?? resolveDate(normalizedText, referenceDate);
 }
 
 function formatHour(hour: number, minutes: string): string {
