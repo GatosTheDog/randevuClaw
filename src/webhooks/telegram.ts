@@ -47,7 +47,7 @@ import {
   ClientMenuCallbackResult,
   showClientRootMenu,
   handleClientMenuCallback,
-  showBookSessionList,
+  showBookDateList,
   showClientBookings,
   showCancelBookingList,
   showClientBalance,
@@ -400,7 +400,7 @@ async function handleFoundBusiness(
     // above (mirroring /start), so these remain unreachable for owners.
     if (messageText.trim() === '/book') {
       await dispatchClientCommand('/book', updateId, business, senderTelegramId, startedAt, () =>
-        showBookSessionList(senderTelegramId, business)
+        showBookDateList(senderTelegramId, business)
       );
       return;
     }

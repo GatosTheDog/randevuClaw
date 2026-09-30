@@ -21,6 +21,7 @@ import {
   showCancelClassConfirm,
   showClassesMenu,
   showCancelClassList,
+  showCancelClassListForDate,
   showClientBalance,
   showDeleteFullConfirm,
   handleDeleteFullExecute,
@@ -755,7 +756,7 @@ describe('showClassesMenu — service names via batched lookup (D-10)', () => {
   });
 });
 
-describe('showCancelClassList — service names via batched lookup (D-10)', () => {
+describe('showCancelClassList — date-first picker, step 1 (Phase 30)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
 
@@ -764,11 +765,60 @@ describe('showCancelClassList — service names via batched lookup (D-10)', () =
     telegramClient.sendTelegramMessageWithKeyboard.mockResolvedValue({ messageId: 2 });
   });
 
-  test('calls findServiceById exactly once for 2 sessions sharing the same serviceId, and button labels include the service name', async () => {
+  test('renders one date button per distinct scheduled date, deduped, without calling findServiceById', async () => {
     const sessionManager = require('../src/session/manager');
     sessionManager.listSessions.mockResolvedValue([
       { instanceId: 1, catalogId: 1, sessionDate: '2026-08-01', sessionTime: '10:00', bookedCount: 3, capacity: 15, serviceId: 7 },
-      { instanceId: 2, catalogId: 1, sessionDate: '2026-08-03', sessionTime: '10:00', bookedCount: 5, capacity: 15, serviceId: 7 },
+      { instanceId: 2, catalogId: 1, sessionDate: '2026-08-01', sessionTime: '18:00', bookedCount: 5, capacity: 15, serviceId: 7 },
+      { instanceId: 3, catalogId: 2, sessionDate: '2026-08-03', sessionTime: '10:00', bookedCount: 0, capacity: 15, serviceId: 8 },
+    ]);
+
+    const queries = require('../src/database/queries');
+    const telegramClient = require('../src/telegram/client');
+
+    await showCancelClassList('123', mockBusiness);
+
+    expect(queries.findServiceById).not.toHaveBeenCalled();
+    expect(sessionManager.listSessions).toHaveBeenCalledWith(mockBusiness.id, 30);
+
+    const kbCalls = (telegramClient.sendTelegramMessageWithKeyboard as jest.Mock).mock.calls;
+    expect(kbCalls.length).toBe(1);
+    const keyboard = kbCalls[0][2];
+    expect(keyboard[0][0]).toEqual({ text: 'Σαβ 01/08/2026', callback_data: 'menu:classes:cancel_date:20260801' });
+    expect(keyboard[1][0]).toEqual({ text: 'Δευ 03/08/2026', callback_data: 'menu:classes:cancel_date:20260803' });
+  });
+
+  test('no scheduled classes → informational message + back button', async () => {
+    const sessionManager = require('../src/session/manager');
+    sessionManager.listSessions.mockResolvedValue([]);
+
+    const telegramClient = require('../src/telegram/client');
+
+    await showCancelClassList('123', mockBusiness);
+
+    expect(telegramClient.sendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
+      '123',
+      'Δεν υπάρχουν επερχόμενα μαθήματα.',
+      [[{ text: '« Πίσω στο Μενού', callback_data: 'menu:root' }]]
+    );
+  });
+});
+
+describe('showCancelClassListForDate — date-first picker, step 2, service names via batched lookup (D-10, Phase 30)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+
+    const telegramClient = require('../src/telegram/client');
+    telegramClient.sendTelegramMessage.mockResolvedValue({ messageId: 1 });
+    telegramClient.sendTelegramMessageWithKeyboard.mockResolvedValue({ messageId: 2 });
+  });
+
+  test('calls findServiceById exactly once for 2 sessions on the chosen date sharing the same serviceId, and button labels include the service name', async () => {
+    const sessionManager = require('../src/session/manager');
+    sessionManager.listSessions.mockResolvedValue([
+      { instanceId: 1, catalogId: 1, sessionDate: '2026-08-01', sessionTime: '10:00', bookedCount: 3, capacity: 15, serviceId: 7 },
+      { instanceId: 2, catalogId: 1, sessionDate: '2026-08-01', sessionTime: '18:00', bookedCount: 5, capacity: 15, serviceId: 7 },
+      { instanceId: 3, catalogId: 1, sessionDate: '2026-08-03', sessionTime: '10:00', bookedCount: 0, capacity: 15, serviceId: 7 },
     ]);
 
     const queries = require('../src/database/queries');
@@ -783,7 +833,7 @@ describe('showCancelClassList — service names via batched lookup (D-10)', () =
 
     const telegramClient = require('../src/telegram/client');
 
-    await showCancelClassList('123', mockBusiness);
+    await showCancelClassListForDate('123', mockBusiness, 20260801);
 
     expect(queries.findServiceById).toHaveBeenCalledTimes(1);
     expect(queries.findServiceById).toHaveBeenCalledWith(mockBusiness.id, 7);
@@ -791,8 +841,8 @@ describe('showCancelClassList — service names via batched lookup (D-10)', () =
     const kbCalls = (telegramClient.sendTelegramMessageWithKeyboard as jest.Mock).mock.calls;
     expect(kbCalls.length).toBe(1);
     const keyboard = kbCalls[0][2];
-    expect(keyboard[0][0].text).toBe('Pilates - 2026-08-01 10:00');
-    expect(keyboard[1][0].text).toBe('Pilates - 2026-08-03 10:00');
+    expect(keyboard[0][0].text).toBe('Pilates - 10:00');
+    expect(keyboard[1][0].text).toBe('Pilates - 18:00');
   });
 
   test('falls back to "(άγνωστη υπηρεσία)" when findServiceById resolves to null', async () => {
@@ -806,11 +856,28 @@ describe('showCancelClassList — service names via batched lookup (D-10)', () =
 
     const telegramClient = require('../src/telegram/client');
 
-    await showCancelClassList('123', mockBusiness);
+    await showCancelClassListForDate('123', mockBusiness, 20260801);
 
     const kbCalls = (telegramClient.sendTelegramMessageWithKeyboard as jest.Mock).mock.calls;
     const keyboard = kbCalls[0][2];
-    expect(keyboard[0][0].text).toBe('(άγνωστη υπηρεσία) - 2026-08-01 10:00');
+    expect(keyboard[0][0].text).toBe('(άγνωστη υπηρεσία) - 10:00');
+  });
+
+  test('sessions on other dates are filtered out', async () => {
+    const sessionManager = require('../src/session/manager');
+    sessionManager.listSessions.mockResolvedValue([
+      { instanceId: 1, catalogId: 1, sessionDate: '2026-08-03', sessionTime: '10:00', bookedCount: 3, capacity: 15, serviceId: 7 },
+    ]);
+
+    const telegramClient = require('../src/telegram/client');
+
+    await showCancelClassListForDate('123', mockBusiness, 20260801);
+
+    expect(telegramClient.sendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
+      '123',
+      'Δεν υπάρχουν πλέον προγραμματισμένα μαθήματα για αυτή την ημερομηνία.',
+      [[{ text: '« Πίσω στο Μενού', callback_data: 'menu:classes:cancel_list' }]]
+    );
   });
 });
 

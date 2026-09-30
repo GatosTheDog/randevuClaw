@@ -27,6 +27,7 @@ import { isoDateInAthens } from '../../utils/timezone';
 import { logger } from '../../utils/logger';
 import { findBusinessByOwnerTelegramId } from '../../onboarding/queries';
 import { listSessions, cancelSession, cascadeCancelSessionBookings, findSessionInstanceById } from '../../session/manager';
+import { formatDateButtonLabel, dateToCallbackId, callbackIdToDate } from '../../utils/date-picker';
 import {
   InlineKeyboard,
   sendTelegramMessage,
@@ -418,6 +419,10 @@ export async function showClassesMenu(chatId: string, business: Business): Promi
   await sendTelegramMessageWithKeyboard(chatId, messageText, keyboard);
 }
 
+/**
+ * Step 1 of class cancellation: shows one button per date (next 30 days)
+ * that has at least one scheduled class.
+ */
 export async function showCancelClassList(chatId: string, business: Business): Promise<void> {
   const sessions = await listSessions(business.id, 30);
   const backButton = { text: BACK_MENU_LABELS.ADMIN, callback_data: 'menu:root' };
@@ -427,28 +432,58 @@ export async function showCancelClassList(chatId: string, business: Business): P
     return;
   }
 
-  const capped = sessions.slice(0, 10);
+  // listSessions returns rows ordered by sessionDate, so dedup preserves order.
+  const dates = [...new Set(sessions.map((s) => s.sessionDate))];
 
-  const serviceIds = [...new Set(capped.map((s) => s.serviceId))];
+  const keyboard: InlineKeyboard = dates.map((date) => {
+    const cbData = `menu:classes:cancel_date:${dateToCallbackId(date)}`;
+    assertCallbackDataSize(cbData);
+    return [{ text: formatDateButtonLabel(date), callback_data: cbData }];
+  });
+  keyboard.push([backButton]);
+
+  await sendTelegramMessageWithKeyboard(chatId, 'Επίλεξε ημερομηνία:', keyboard);
+}
+
+/**
+ * Step 2 of class cancellation: shows up to 10 scheduled classes for the
+ * chosen date.
+ */
+export async function showCancelClassListForDate(
+  chatId: string,
+  business: Business,
+  dateId: number
+): Promise<void> {
+  const date = callbackIdToDate(dateId);
+  const sessions = await listSessions(business.id, 30);
+  const backButton = { text: BACK_MENU_LABELS.ADMIN, callback_data: 'menu:classes:cancel_list' };
+
+  const forDate = sessions.filter((s) => s.sessionDate === date).slice(0, 10);
+
+  if (forDate.length === 0) {
+    await sendTelegramMessageWithKeyboard(
+      chatId,
+      'Δεν υπάρχουν πλέον προγραμματισμένα μαθήματα για αυτή την ημερομηνία.',
+      [[backButton]]
+    );
+    return;
+  }
+
+  const serviceIds = [...new Set(forDate.map((s) => s.serviceId))];
   const serviceNamesById = new Map<number, string>();
   for (const serviceId of serviceIds) {
     const service = await findServiceById(business.id, serviceId);
     serviceNamesById.set(serviceId, service?.name ?? '(άγνωστη υπηρεσία)');
   }
 
-  const keyboard: InlineKeyboard = capped.map((s) => {
+  const keyboard: InlineKeyboard = forDate.map((s) => {
     const cbData = `menu:classes:cancel_confirm_req:${s.instanceId}`;
     assertCallbackDataSize(cbData);
-    return [{ text: `${serviceNamesById.get(s.serviceId)} - ${s.sessionDate} ${s.sessionTime}`, callback_data: cbData }];
+    return [{ text: `${serviceNamesById.get(s.serviceId)} - ${s.sessionTime}`, callback_data: cbData }];
   });
-
   keyboard.push([backButton]);
-  const prompt =
-    sessions.length > 10
-      ? `Επίλεξε μάθημα για ακύρωση: (εμφανίζονται τα πρώτα 10 από ${sessions.length})`
-      : 'Επίλεξε μάθημα για ακύρωση:';
 
-  await sendTelegramMessageWithKeyboard(chatId, prompt, keyboard);
+  await sendTelegramMessageWithKeyboard(chatId, 'Επίλεξε μάθημα για ακύρωση:', keyboard);
 }
 
 export async function showCancelClassConfirm(
@@ -874,6 +909,15 @@ export async function handleMenuCallback(
     case menuAction === 'classes:cancel_list':
       await showCancelClassList(chatId, business);
       break;
+
+    case menuAction === 'classes:cancel_date': {
+      if (result.id === undefined) {
+        await sendTelegramMessage(chatId, 'Σφάλμα: λείπει η ημερομηνία.');
+        return;
+      }
+      await showCancelClassListForDate(chatId, business, result.id);
+      break;
+    }
 
     case menuAction === 'classes:create':
       await sendTelegramMessage(

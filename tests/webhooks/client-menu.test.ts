@@ -66,7 +66,7 @@ jest.mock('../../src/telegram/handlers/client-menu', () => {
     showClientRootMenu: jest.fn().mockResolvedValue(undefined),
     // Quick task 260729-rjv: mocked so telegram.ts's new /book, /mybookings,
     // /cancel, /balance text-command branches can be asserted in isolation.
-    showBookSessionList: jest.fn().mockResolvedValue(undefined),
+    showBookDateList: jest.fn().mockResolvedValue(undefined),
     showClientBookings: jest.fn().mockResolvedValue(undefined),
     showCancelBookingList: jest.fn().mockResolvedValue(undefined),
     showClientBalance: jest.fn().mockResolvedValue(undefined),
@@ -184,8 +184,8 @@ const mockedShowClientRootMenu = clientMenuModule.showClientRootMenu as jest.Moc
 >;
 // Quick task 260729-rjv: mocked so the new /book, /mybookings, /cancel,
 // /balance text-command branches in telegram.ts can be asserted in isolation.
-const mockedShowBookSessionList = clientMenuModule.showBookSessionList as jest.MockedFunction<
-  typeof clientMenuModule.showBookSessionList
+const mockedShowBookDateList = clientMenuModule.showBookDateList as jest.MockedFunction<
+  typeof clientMenuModule.showBookDateList
 >;
 const mockedShowClientBookings = clientMenuModule.showClientBookings as jest.MockedFunction<
   typeof clientMenuModule.showClientBookings
@@ -270,7 +270,7 @@ const mockedGetOrCreateClientRelationship =
 const mockedUpdateClientConsentGiven = queries.updateClientConsentGiven as jest.MockedFunction<
   typeof queries.updateClientConsentGiven
 >;
-// Phase 29 (D-10): showBookSessionList service-name enrichment.
+// Phase 29 (D-10) / Phase 30 (date-first): showBookSessionList service-name enrichment.
 const mockedFindServiceById = queries.findServiceById as jest.MockedFunction<
   typeof queries.findServiceById
 >;
@@ -347,7 +347,7 @@ function setupCommonMocks() {
   // showClientRootMenu — used in Suite B; default resolved
   mockedShowClientRootMenu.mockResolvedValue(undefined);
   // Quick task 260729-rjv: default-resolve the new routed-command handlers.
-  mockedShowBookSessionList.mockResolvedValue(undefined);
+  mockedShowBookDateList.mockResolvedValue(undefined);
   mockedShowClientBookings.mockResolvedValue(undefined);
   mockedShowCancelBookingList.mockResolvedValue(undefined);
   mockedShowClientBalance.mockResolvedValue(undefined);
@@ -477,12 +477,12 @@ describe('Suite B: /start intercept and CMENU-05 free-text routing', () => {
 
   // Quick task 260729-rjv: /book, /mybookings, /cancel, /balance as real,
   // routed text-commands — mirrors the /start intercept tests above.
-  it('client sends /book → showBookSessionList called, routeConversationMessage NOT called', async () => {
+  it('client sends /book → showBookDateList called, routeConversationMessage NOT called', async () => {
     const res = await postToWebhook(makeMessageUpdate(5, CLIENT_TELEGRAM_ID, '/book'));
 
     expect(res.status).toBe(200);
-    expect(mockedShowBookSessionList).toHaveBeenCalledTimes(1);
-    expect(mockedShowBookSessionList).toHaveBeenCalledWith(
+    expect(mockedShowBookDateList).toHaveBeenCalledTimes(1);
+    expect(mockedShowBookDateList).toHaveBeenCalledWith(
       String(CLIENT_TELEGRAM_ID),
       expect.objectContaining({ id: 1 })
     );
@@ -526,14 +526,14 @@ describe('Suite B: /start intercept and CMENU-05 free-text routing', () => {
     expect(mockedRouteConversationMessage).not.toHaveBeenCalled();
   });
 
-  it('owner sends /book → showBookSessionList NOT called (owner branch intercepts first)', async () => {
+  it('owner sends /book → showBookDateList NOT called (owner branch intercepts first)', async () => {
     const aiOwnerAgentMock = jest.requireMock('../../src/onboarding/ai-owner-agent');
     aiOwnerAgentMock.aiOwnerAgent.mockResolvedValue('Γεια σου');
 
     const res = await postToWebhook(makeMessageUpdate(9, OWNER_TELEGRAM_ID, '/book'));
 
     expect(res.status).toBe(200);
-    expect(mockedShowBookSessionList).not.toHaveBeenCalled();
+    expect(mockedShowBookDateList).not.toHaveBeenCalled();
   });
 });
 
@@ -795,16 +795,87 @@ describe('Suite C: booking flow via handleClientMenuCallback', () => {
     expect(mockedListSessions).not.toHaveBeenCalled();
   });
 
-  it('book — fixed_sessions business → listSessions called with (business.id, 14, true) (D-01)', async () => {
+  it('book — fixed_sessions business → listSessions called with (business.id, 30, true) (Phase 30: date-first)', async () => {
     mockedListSessions.mockResolvedValue([]);
 
     const result: ClientMenuCallbackResult = { clientMenuAction: 'book' };
     await handleClientMenuCallback(result, BASE_BUSINESS as any, senderTelegramId);
 
-    expect(mockedListSessions).toHaveBeenCalledWith(BASE_BUSINESS.id, 14, true);
+    expect(mockedListSessions).toHaveBeenCalledWith(BASE_BUSINESS.id, 30, true);
   });
 
-  it('book — available sessions render with the resolved service name alongside date/time (D-10)', async () => {
+  it('book — renders one date button per distinct available date, deduped (Phase 30)', async () => {
+    mockedListSessions.mockResolvedValue([
+      {
+        instanceId: 101,
+        catalogId: 1,
+        sessionDate: '2026-08-01',
+        sessionTime: '09:00',
+        bookedCount: 0,
+        capacity: 5,
+        serviceId: 3,
+      },
+      {
+        instanceId: 102,
+        catalogId: 1,
+        sessionDate: '2026-08-01',
+        sessionTime: '11:00',
+        bookedCount: 0,
+        capacity: 5,
+        serviceId: 3,
+      },
+      {
+        instanceId: 103,
+        catalogId: 2,
+        sessionDate: '2026-08-03',
+        sessionTime: '10:00',
+        bookedCount: 0,
+        capacity: 5,
+        serviceId: 4,
+      },
+    ] as any);
+
+    const result: ClientMenuCallbackResult = { clientMenuAction: 'book' };
+    await handleClientMenuCallback(result, BASE_BUSINESS as any, senderTelegramId);
+
+    expect(mockedSendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
+      senderTelegramId,
+      'Επίλεξε ημερομηνία:',
+      expect.arrayContaining([
+        [{ text: 'Σαβ 01/08/2026', callback_data: 'cmenu:book:date:20260801' }],
+        [{ text: 'Δευ 03/08/2026', callback_data: 'cmenu:book:date:20260803' }],
+      ])
+    );
+  });
+
+  it('book — no available sessions in the 30-day window → "no availability" message + back button', async () => {
+    mockedListSessions.mockResolvedValue([]);
+
+    const result: ClientMenuCallbackResult = { clientMenuAction: 'book' };
+    await handleClientMenuCallback(result, BASE_BUSINESS as any, senderTelegramId);
+
+    expect(mockedSendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
+      senderTelegramId,
+      'Δεν υπάρχουν διαθέσιμα μαθήματα για τις επόμενες 30 ημέρες.',
+      [[{ text: '« Πίσω', callback_data: 'cmenu:root' }]]
+    );
+  });
+
+  it('book:date — business.bookingMode === open_slots → back-button keyboard sent, listSessions NOT called (D-04)', async () => {
+    const openSlotsBusiness = { ...BASE_BUSINESS, bookingMode: 'open_slots' };
+
+    const result: ClientMenuCallbackResult = { clientMenuAction: 'book:date', id: 20260801 };
+    await handleClientMenuCallback(result, openSlotsBusiness as any, senderTelegramId);
+
+    expect(mockedSendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
+      senderTelegramId,
+      expect.stringContaining('γράψε μου'),
+      [[{ text: '« Πίσω', callback_data: 'cmenu:root' }]]
+    );
+    expect(mockedListSessions).not.toHaveBeenCalled();
+  });
+
+  it('book:date — available sessions for the chosen date render with the resolved service name alongside time (D-10)', async () => {
     mockedListSessions.mockResolvedValue([
       {
         instanceId: 101,
@@ -825,7 +896,7 @@ describe('Suite C: booking flow via handleClientMenuCallback', () => {
       createdAt: new Date(),
     } as any);
 
-    const result: ClientMenuCallbackResult = { clientMenuAction: 'book' };
+    const result: ClientMenuCallbackResult = { clientMenuAction: 'book:date', id: 20260801 };
     await handleClientMenuCallback(result, BASE_BUSINESS as any, senderTelegramId);
 
     expect(mockedFindServiceById).toHaveBeenCalledWith(BASE_BUSINESS.id, 3);
@@ -833,12 +904,35 @@ describe('Suite C: booking flow via handleClientMenuCallback', () => {
       senderTelegramId,
       'Επίλεξε μάθημα:',
       expect.arrayContaining([
-        [{ text: 'Yoga - 2026-08-01 09:00', callback_data: 'cmenu:book:confirm:101' }],
+        [{ text: 'Yoga - 09:00', callback_data: 'cmenu:book:confirm:101' }],
       ])
     );
   });
 
-  it('book — a serviceId with no matching service falls back to "(άγνωστη υπηρεσία)" (D-10)', async () => {
+  it('book:date — sessions on other dates are filtered out', async () => {
+    mockedListSessions.mockResolvedValue([
+      {
+        instanceId: 102,
+        catalogId: 2,
+        sessionDate: '2026-08-02',
+        sessionTime: '10:00',
+        bookedCount: 0,
+        capacity: 5,
+        serviceId: 999,
+      },
+    ] as any);
+
+    const result: ClientMenuCallbackResult = { clientMenuAction: 'book:date', id: 20260801 };
+    await handleClientMenuCallback(result, BASE_BUSINESS as any, senderTelegramId);
+
+    expect(mockedSendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
+      senderTelegramId,
+      'Δεν υπάρχουν πλέον διαθέσιμα μαθήματα για αυτή την ημερομηνία.',
+      [[{ text: '« Πίσω', callback_data: 'cmenu:book' }]]
+    );
+  });
+
+  it('book:date — a serviceId with no matching service falls back to "(άγνωστη υπηρεσία)" (D-10)', async () => {
     mockedListSessions.mockResolvedValue([
       {
         instanceId: 102,
@@ -852,7 +946,7 @@ describe('Suite C: booking flow via handleClientMenuCallback', () => {
     ] as any);
     mockedFindServiceById.mockResolvedValue(null);
 
-    const result: ClientMenuCallbackResult = { clientMenuAction: 'book' };
+    const result: ClientMenuCallbackResult = { clientMenuAction: 'book:date', id: 20260802 };
     await handleClientMenuCallback(result, BASE_BUSINESS as any, senderTelegramId);
 
     expect(mockedSendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
@@ -861,7 +955,7 @@ describe('Suite C: booking flow via handleClientMenuCallback', () => {
       expect.arrayContaining([
         [
           {
-            text: '(άγνωστη υπηρεσία) - 2026-08-02 10:00',
+            text: '(άγνωστη υπηρεσία) - 10:00',
             callback_data: 'cmenu:book:confirm:102',
           },
         ],
@@ -869,7 +963,7 @@ describe('Suite C: booking flow via handleClientMenuCallback', () => {
     );
   });
 
-  it('book — 2 available sessions sharing one serviceId result in exactly 1 findServiceById call (batching)', async () => {
+  it('book:date — 2 available sessions on the same date sharing one serviceId result in exactly 1 findServiceById call (batching)', async () => {
     mockedListSessions.mockResolvedValue([
       {
         instanceId: 103,
@@ -883,7 +977,7 @@ describe('Suite C: booking flow via handleClientMenuCallback', () => {
       {
         instanceId: 104,
         catalogId: 1,
-        sessionDate: '2026-08-02',
+        sessionDate: '2026-08-01',
         sessionTime: '11:00',
         bookedCount: 0,
         capacity: 5,
@@ -899,7 +993,7 @@ describe('Suite C: booking flow via handleClientMenuCallback', () => {
       createdAt: new Date(),
     } as any);
 
-    const result: ClientMenuCallbackResult = { clientMenuAction: 'book' };
+    const result: ClientMenuCallbackResult = { clientMenuAction: 'book:date', id: 20260801 };
     await handleClientMenuCallback(result, BASE_BUSINESS as any, senderTelegramId);
 
     expect(mockedFindServiceById).toHaveBeenCalledTimes(1);
@@ -1768,7 +1862,7 @@ describe('Suite G: client consent gate', () => {
 
   // Quick task 260729-rjv: representative of the shared consent-gate logic
   // in dispatchClientCommand — /book only, mirroring the /start test above.
-  it('/book with consentGiven=false → consent prompt+keyboard sent, showBookSessionList NOT called', async () => {
+  it('/book with consentGiven=false → consent prompt+keyboard sent, showBookDateList NOT called', async () => {
     mockedGetOrCreateClientRelationship.mockResolvedValue({ isFirstContact: true, consentGiven: false });
 
     const res = await postToWebhook(makeMessageUpdate(24, CLIENT_TELEGRAM_ID, '/book'));
@@ -1779,7 +1873,7 @@ describe('Suite G: client consent gate', () => {
       CONSENT_PROMPT_GREEK_TEMPLATE(BASE_BUSINESS),
       CONSENT_KEYBOARD
     );
-    expect(mockedShowBookSessionList).not.toHaveBeenCalled();
+    expect(mockedShowBookDateList).not.toHaveBeenCalled();
   });
 });
 

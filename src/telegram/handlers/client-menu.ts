@@ -29,6 +29,7 @@ import { logger } from '../../utils/logger';
 import { listSessions, bookSessionInstance, findSessionInstanceById } from '../../session/manager';
 import { BACK_MENU_LABELS } from '../../utils/greek-messages';
 import { hoursUntilSession } from '../../utils/timezone';
+import { formatDateButtonLabel, dateToCallbackId, callbackIdToDate } from '../../utils/date-picker';
 import { checkEnforcementAndGetMembership } from '../../billing/enforcement';
 import {
   getClientActiveMembership,
@@ -101,11 +102,15 @@ export async function showClientRootMenu(chatId: string, business: Business): Pr
 // Plan 18-02: Book a class flow (CMENU-02, CMENU-04)
 // ---------------------------------------------------------------------------
 
+// Booking window: how many calendar days forward the client can browse
+// (roughly a month), matching admin-menu.ts's own 30-day lookahead.
+const BOOKING_WINDOW_DAYS = 30;
+
 /**
- * Shows up to 10 available session instances for the next 14 days.
- * Guard: only for fixed_sessions booking mode.
+ * Step 1 of booking: shows one button per date (next 30 days) that has at
+ * least one available session. Guard: only for fixed_sessions booking mode.
  */
-export async function showBookSessionList(chatId: string, business: Business): Promise<void> {
+export async function showBookDateList(chatId: string, business: Business): Promise<void> {
   if (business.bookingMode !== 'fixed_sessions') {
     const keyboard: InlineKeyboard = [
       [{ text: BACK_MENU_LABELS.CLIENT, callback_data: 'cmenu:root' }],
@@ -118,8 +123,8 @@ export async function showBookSessionList(chatId: string, business: Business): P
     return;
   }
 
-  const sessions = await listSessions(business.id, 14, true);
-  const available = sessions.filter((s) => s.bookedCount < s.capacity).slice(0, 10);
+  const sessions = await listSessions(business.id, BOOKING_WINDOW_DAYS, true);
+  const available = sessions.filter((s) => s.bookedCount < s.capacity);
 
   if (available.length === 0) {
     const keyboard: InlineKeyboard = [
@@ -127,8 +132,60 @@ export async function showBookSessionList(chatId: string, business: Business): P
     ];
     await sendTelegramMessageWithKeyboard(
       chatId,
-      'Δεν υπάρχουν διαθέσιμα μαθήματα για τις επόμενες 14 ημέρες.',
+      `Δεν υπάρχουν διαθέσιμα μαθήματα για τις επόμενες ${BOOKING_WINDOW_DAYS} ημέρες.`,
       keyboard
+    );
+    return;
+  }
+
+  // listSessions returns rows ordered by sessionDate, so dedup preserves order.
+  const dates = [...new Set(available.map((s) => s.sessionDate))];
+
+  const rows: InlineKeyboard = dates.map((date) => {
+    const callbackData = `cmenu:book:date:${dateToCallbackId(date)}`;
+    assertCallbackDataSize(callbackData);
+    return [{ text: formatDateButtonLabel(date), callback_data: callbackData }];
+  });
+  rows.push([{ text: BACK_MENU_LABELS.CLIENT, callback_data: 'cmenu:root' }]);
+
+  await sendTelegramMessageWithKeyboard(chatId, 'Επίλεξε ημερομηνία:', rows);
+}
+
+/**
+ * Step 2 of booking: shows up to 10 available session instances for the
+ * chosen date. Guard: only for fixed_sessions booking mode.
+ */
+export async function showBookSessionList(
+  chatId: string,
+  business: Business,
+  dateId: number
+): Promise<void> {
+  if (business.bookingMode !== 'fixed_sessions') {
+    const keyboard: InlineKeyboard = [
+      [{ text: BACK_MENU_LABELS.CLIENT, callback_data: 'cmenu:root' }],
+    ];
+    await sendTelegramMessageWithKeyboard(
+      chatId,
+      'Για κράτηση ραντεβού, γράψε μου στο chat τι θέλεις να κλείσεις.',
+      keyboard
+    );
+    return;
+  }
+
+  const date = callbackIdToDate(dateId);
+  const sessions = await listSessions(business.id, BOOKING_WINDOW_DAYS, true);
+  const available = sessions
+    .filter((s) => s.sessionDate === date && s.bookedCount < s.capacity)
+    .slice(0, 10);
+
+  const backToDates = { text: BACK_MENU_LABELS.CLIENT, callback_data: 'cmenu:book' };
+  assertCallbackDataSize(backToDates.callback_data);
+
+  if (available.length === 0) {
+    await sendTelegramMessageWithKeyboard(
+      chatId,
+      'Δεν υπάρχουν πλέον διαθέσιμα μαθήματα για αυτή την ημερομηνία.',
+      [[backToDates]]
     );
     return;
   }
@@ -145,12 +202,12 @@ export async function showBookSessionList(chatId: string, business: Business): P
     assertCallbackDataSize(callbackData);
     return [
       {
-        text: `${serviceNamesById.get(s.serviceId)} - ${s.sessionDate} ${s.sessionTime}`,
+        text: `${serviceNamesById.get(s.serviceId)} - ${s.sessionTime}`,
         callback_data: callbackData,
       },
     ];
   });
-  rows.push([{ text: BACK_MENU_LABELS.CLIENT, callback_data: 'cmenu:root' }]);
+  rows.push([backToDates]);
 
   await sendTelegramMessageWithKeyboard(chatId, 'Επίλεξε μάθημα:', rows);
 }
@@ -574,9 +631,17 @@ export async function handleClientMenuCallback(
       await showClientRootMenu(chatId, business);
       break;
 
-    // Plan 18-02: book a class flow
+    // Plan 18-02: book a class flow (date-first, Phase 30)
     case clientMenuAction === 'book':
-      await showBookSessionList(chatId, business);
+      await showBookDateList(chatId, business);
+      break;
+
+    case clientMenuAction === 'book:date':
+      if (result.id === undefined) {
+        await sendTelegramMessage(chatId, 'Σφάλμα: δεν βρέθηκε η ημερομηνία.');
+      } else {
+        await showBookSessionList(chatId, business, result.id);
+      }
       break;
 
     case clientMenuAction === 'book:confirm':
