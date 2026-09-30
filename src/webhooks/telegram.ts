@@ -121,6 +121,74 @@ async function dispatchClientCommand(
   );
 }
 
+// ---------------------------------------------------------------------------
+// Dev/test-only role override — hidden `/testrole <code> owner|client|clear`
+// command (never registered in setMyCommands, so it never appears in
+// Telegram's command menu — it only fires for whoever types it verbatim).
+//
+// Completely inert unless the TEST_ROLE_SECRET fly secret is set: with no
+// secret configured, handleTestRoleCommand's code check can never pass.
+//
+// In-memory only (never persisted to the DB) — self-clears on redeploy/
+// restart, and scoped per (businessId, senderTelegramId) so it can only ever
+// affect the tester's own session, never another user's.
+//
+// business.ownerTelegramId itself is NEVER mutated — every routing decision
+// in this file goes through isSenderOwner() below instead of comparing
+// business.ownerTelegramId directly, so the override only changes which
+// branch a message/callback takes. Owner-bound side effects that read
+// business.ownerTelegramId directly (e.g. "new booking pending approval"
+// alerts) are untouched and keep going to the real owner even while a
+// tester is impersonating the client role — otherwise testing the full
+// client-books → owner-approves loop from one Telegram account would be
+// impossible (the approval alert would vanish into the override instead of
+// reaching whoever needs to tap Έγκριση).
+// ---------------------------------------------------------------------------
+const testRoleOverrides = new Map<string, 'owner' | 'client'>();
+
+function testRoleOverrideKey(businessId: number, senderTelegramId: string): string {
+  return `${businessId}:${senderTelegramId}`;
+}
+
+function isSenderOwner(business: Business, senderTelegramId: string): boolean {
+  const override = testRoleOverrides.get(testRoleOverrideKey(business.id, senderTelegramId));
+  if (override) return override === 'owner';
+  return business.ownerTelegramId !== null && business.ownerTelegramId === senderTelegramId;
+}
+
+/**
+ * Returns true if `text` was a /testrole command (handled here and should
+ * short-circuit normal routing), false otherwise (caller proceeds as usual).
+ */
+async function handleTestRoleCommand(
+  business: Business,
+  senderTelegramId: string,
+  text: string
+): Promise<boolean> {
+  const match = text.trim().match(/^\/testrole\s+(\S+)\s+(owner|client|clear)$/);
+  if (!match) return false;
+
+  const [, code, role] = match;
+  const secret = process.env.TEST_ROLE_SECRET;
+  if (!secret || code !== secret) {
+    await sendTelegramMessage(senderTelegramId, '❌ Άκυρη εντολή.');
+    return true;
+  }
+
+  const key = testRoleOverrideKey(business.id, senderTelegramId);
+  if (role === 'clear') {
+    testRoleOverrides.delete(key);
+    await sendTelegramMessage(senderTelegramId, '✅ Test role override cleared — normal routing restored. Send /start.');
+  } else {
+    testRoleOverrides.set(key, role as 'owner' | 'client');
+    await sendTelegramMessage(
+      senderTelegramId,
+      `✅ Test role set to "${role}" for this business (this chat only). Send /start.`
+    );
+  }
+  return true;
+}
+
 async function handleFoundBusiness(
   updateId: string,
   business: Business,
@@ -132,7 +200,7 @@ async function handleFoundBusiness(
   try {
     // T-16-04: explicit null guard before comparison — a business with no owner
     // set (ownerTelegramId=null) must never match any sender.
-    if (business.ownerTelegramId !== null && business.ownerTelegramId === senderTelegramId) {
+    if (isSenderOwner(business, senderTelegramId)) {
       if (!business.onboardingCompleted) {
         // ARCH-03: owner messages bot before onboarding is complete — route to
         // the new stateless AI onboarding agent (D-01/D-02). No session lookup
@@ -468,7 +536,7 @@ async function handleFoundBusiness(
     // above already reached them directly — sending a second "diagnostic"
     // about their own error would be a confusing duplicate (24-RESEARCH.md
     // Pitfall 2).
-    const isClientSender = business.ownerTelegramId === null || business.ownerTelegramId !== senderTelegramId;
+    const isClientSender = !isSenderOwner(business, senderTelegramId);
     if (isClientSender && business.ownerTelegramId && business.botToken) {
       try {
         const errorType = err instanceof Error ? err.name : 'UnknownError';
@@ -751,7 +819,7 @@ async function handleCallbackQuery(
     // Identity check mirrors the escalationAction/menuAction/sbkAction
     // branches' exact `business.ownerTelegramId === senderTelegramId`
     // idiom used elsewhere in this file.
-    const isAdmin = business.ownerTelegramId === senderTelegramId;
+    const isAdmin = isSenderOwner(business, senderTelegramId);
     const keyboard: InlineKeyboard = [
       [
         {
@@ -793,7 +861,7 @@ async function handleCallbackQuery(
   // ---------------------------------------------------------------------------
   if ('escalationAction' in parsed) {
     const escl = parsed as EscalationCallbackResult;
-    if (business.ownerTelegramId !== senderTelegramId) {
+    if (!isSenderOwner(business, senderTelegramId)) {
       logger.warn({ senderTelegramId }, 'escl callback from non-owner, ignoring');
       return;
     }
@@ -889,7 +957,7 @@ async function handleCallbackQuery(
   // ---------------------------------------------------------------------------
   if ('menuAction' in parsed) {
     const menuResult = parsed as MenuCallbackResult;
-    if (business.ownerTelegramId !== senderTelegramId) {
+    if (!isSenderOwner(business, senderTelegramId)) {
       logger.warn({ senderTelegramId }, 'menu callback from non-owner, ignoring');
       return;
     }
@@ -958,7 +1026,7 @@ async function handleCallbackQuery(
     // T-22-01: owner-only guard — reuse the webhook-scoped, HMAC-verified
     // `business` param (mirrors the escalationAction branch's own guard),
     // never re-derived via findBusinessByOwnerTelegramId.
-    if (business.ownerTelegramId !== senderTelegramId) {
+    if (!isSenderOwner(business, senderTelegramId)) {
       logger.warn({ senderTelegramId }, 'sbk callback from non-owner, ignoring');
       return;
     }
@@ -1080,7 +1148,7 @@ async function handleCallbackQuery(
     // (menuAction/sbkAction): reuse the webhook-scoped, HMAC-verified
     // `business` param rather than re-deriving via
     // findBusinessByOwnerTelegramId.
-    if (business.ownerTelegramId !== senderTelegramId) {
+    if (!isSenderOwner(business, senderTelegramId)) {
       logger.warn({ senderTelegramId }, 'otc callback from non-owner, ignoring');
       return;
     }
@@ -1273,14 +1341,17 @@ async function handleCallbackQuery(
   // any action (T-02-17).
   // Named bookingBusiness to avoid shadowing the `business` parameter (added in Phase 18).
   const bookingBusiness = await findBusinessById(booking.businessId);
-  const ownerTelegramId = bookingBusiness?.ownerTelegramId;
-  if (!ownerTelegramId || ownerTelegramId !== senderTelegramId) {
+  if (!bookingBusiness || !isSenderOwner(bookingBusiness, senderTelegramId)) {
     logger.warn(
       { bookingId: booking.id, senderTelegramId },
       'callback_query from non-owner, ignoring'
     );
     return;
   }
+  // The real owner's chat id — NOT senderTelegramId — since editTelegramMessageReplyMarkup
+  // below targets a specific messageId that only exists in the real owner's chat history
+  // (the notification originally sent to them), regardless of a /testrole override.
+  const ownerTelegramId = bookingBusiness.ownerTelegramId ?? senderTelegramId;
 
   // Atomic compare-and-swap (WR-05): this single DB call is now the SOLE
   // gate for whether notify/cascade/button-clear run below. It replaces the
@@ -1490,11 +1561,7 @@ export async function handleTelegramWebhookPost(req: Request, res: Response): Pr
         // branch in handleFoundBusiness below) — otherwise the tap is silently
         // dropped by handleCallbackQuery, which only knows post-onboarding
         // menu/booking callback shapes.
-        if (
-          business.ownerTelegramId !== null &&
-          business.ownerTelegramId === senderTelegramId &&
-          !business.onboardingCompleted
-        ) {
+        if (isSenderOwner(business, senderTelegramId) && !business.onboardingCompleted) {
           const dispatchStartedAt = Date.now();
           try {
             await answerCallbackQuery(update.callback_query.id);
@@ -1548,6 +1615,10 @@ export async function handleTelegramWebhookPost(req: Request, res: Response): Pr
       }
 
       if (update.message) {
+        if (await handleTestRoleCommand(business, senderTelegramId, update.message.text ?? '')) {
+          return;
+        }
+
         const dispatchStartedAt = Date.now();
         await handleFoundBusiness(boundUpdateId, business, senderTelegramId, update.message.text ?? '');
         logger.info(
@@ -1561,7 +1632,7 @@ export async function handleTelegramWebhookPost(req: Request, res: Response): Pr
         // routeConversationMessage → getOrCreateClientRelationship for client messages).
         // Owners are excluded: owner messages go to aiOwnerAgent, not consent checker,
         // so creating an owner clientBusinessRelationship record is unnecessary.
-        if (business.ownerTelegramId !== senderTelegramId) {
+        if (!isSenderOwner(business, senderTelegramId)) {
           await withBusinessContext(business.id, () =>
             insertClientBusinessRelationship(
               business.id,

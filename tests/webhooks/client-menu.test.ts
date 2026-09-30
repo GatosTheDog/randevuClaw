@@ -553,6 +553,95 @@ describe('Suite B: /start intercept and CMENU-05 free-text routing', () => {
 });
 
 // ---------------------------------------------------------------------------
+// /testrole — hidden dev-only role-override command (not in the command menu)
+// ---------------------------------------------------------------------------
+
+describe('/testrole — hidden role-override command', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    setupCommonMocks();
+    mockedFindBusinessByWebhookId.mockResolvedValue({ ...BASE_BUSINESS });
+    delete process.env.TEST_ROLE_SECRET;
+  });
+
+  afterEach(async () => {
+    // Best-effort cleanup so the module-level override Map never leaks a
+    // stale entry into a later test regardless of which telegramId this
+    // test touched — 'clear' is idempotent on an id with no override.
+    if (process.env.TEST_ROLE_SECRET) {
+      await postToWebhook(
+        makeMessageUpdate(900, CLIENT_TELEGRAM_ID, `/testrole ${process.env.TEST_ROLE_SECRET} clear`)
+      );
+      await postToWebhook(
+        makeMessageUpdate(901, OWNER_TELEGRAM_ID, `/testrole ${process.env.TEST_ROLE_SECRET} clear`)
+      );
+    }
+    delete process.env.TEST_ROLE_SECRET;
+  });
+
+  it('TEST_ROLE_SECRET unset → any /testrole attempt is rejected, no routing change', async () => {
+    const res = await postToWebhook(makeMessageUpdate(1, CLIENT_TELEGRAM_ID, '/testrole anycode owner'));
+
+    expect(res.status).toBe(200);
+    expect(mockedSendTelegramMessage).toHaveBeenCalledWith(String(CLIENT_TELEGRAM_ID), '❌ Άκυρη εντολή.');
+    // Proves the message was fully intercepted (not passed through to the
+    // normal client free-text branch, which would have called this instead).
+    expect(mockedRouteConversationMessage).not.toHaveBeenCalled();
+  });
+
+  it('wrong code even with TEST_ROLE_SECRET configured → rejected, no override applied', async () => {
+    process.env.TEST_ROLE_SECRET = 'supersecret';
+
+    await postToWebhook(makeMessageUpdate(2, CLIENT_TELEGRAM_ID, '/testrole wrongcode owner'));
+    expect(mockedSendTelegramMessage).toHaveBeenCalledWith(String(CLIENT_TELEGRAM_ID), '❌ Άκυρη εντολή.');
+
+    await postToWebhook(makeMessageUpdate(3, CLIENT_TELEGRAM_ID, '/start'));
+    expect(mockedShowClientRootMenu).toHaveBeenCalledTimes(1);
+  });
+
+  it('correct code, role=owner, sent by a non-owner → subsequent /start routes as owner', async () => {
+    process.env.TEST_ROLE_SECRET = 'supersecret';
+
+    const setRes = await postToWebhook(makeMessageUpdate(4, CLIENT_TELEGRAM_ID, '/testrole supersecret owner'));
+    expect(setRes.status).toBe(200);
+    expect(mockedSendTelegramMessage).toHaveBeenCalledWith(
+      String(CLIENT_TELEGRAM_ID),
+      expect.stringContaining('owner')
+    );
+
+    await postToWebhook(makeMessageUpdate(5, CLIENT_TELEGRAM_ID, '/start'));
+    // Routed as owner now — showClientRootMenu (the client-side /start
+    // handler) must never fire for this sender while the override is active.
+    expect(mockedShowClientRootMenu).not.toHaveBeenCalled();
+  });
+
+  it('correct code, role=client, sent by the real owner → subsequent /start routes as client', async () => {
+    process.env.TEST_ROLE_SECRET = 'supersecret';
+
+    await postToWebhook(makeMessageUpdate(6, OWNER_TELEGRAM_ID, '/testrole supersecret client'));
+    await postToWebhook(makeMessageUpdate(7, OWNER_TELEGRAM_ID, '/start'));
+
+    expect(mockedShowClientRootMenu).toHaveBeenCalledTimes(1);
+    expect(mockedShowClientRootMenu).toHaveBeenCalledWith(
+      String(OWNER_TELEGRAM_ID),
+      expect.objectContaining({ id: 1 })
+    );
+  });
+
+  it('"clear" restores normal routing after an override was active', async () => {
+    process.env.TEST_ROLE_SECRET = 'supersecret';
+
+    await postToWebhook(makeMessageUpdate(8, CLIENT_TELEGRAM_ID, '/testrole supersecret owner'));
+    await postToWebhook(makeMessageUpdate(9, CLIENT_TELEGRAM_ID, '/testrole supersecret clear'));
+    await postToWebhook(makeMessageUpdate(10, CLIENT_TELEGRAM_ID, '/start'));
+
+    // Back to normal: this sender is not the real owner, so /start must hit
+    // the client branch again.
+    expect(mockedShowClientRootMenu).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // showClientRootMenu — booking button label reflects business.bookingMode (D-03)
 //
 // Suite B mocks showClientRootMenu itself, so these tests reach the real
