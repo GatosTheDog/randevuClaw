@@ -28,6 +28,12 @@ import {
   handleDeleteFullExecute,
   showUnlinkConfirm,
   handleUnlinkExecute,
+  showNotifyMenu,
+  showNotifyExpiringList,
+  handleNotifyExpiringExecute,
+  showNotifyClientList,
+  showNotifyClientConfirm,
+  handleNotifyClientExecute,
 } from '../src/telegram/handlers/admin-menu';
 import { Business } from '../src/database/queries';
 
@@ -123,7 +129,7 @@ describe('showAdminRootMenu — keyboard shape', () => {
     telegramClient.sendTelegramMessage.mockResolvedValue({ messageId: 2 });
   });
 
-  test('sends exactly one message with a 4-row keyboard totalling 6 buttons', async () => {
+  test('sends exactly one message with a 5-row keyboard totalling 7 buttons', async () => {
     const telegramClient = require('../src/telegram/client');
     await showAdminRootMenu('123', mockBusiness);
 
@@ -131,8 +137,8 @@ describe('showAdminRootMenu — keyboard shape', () => {
     expect(sendCalls.length).toBe(1);
 
     const keyboard = sendCalls[0][2];
-    // 4 rows: existing 2x2 grid unchanged, plus a payment row, plus the invite row
-    expect(keyboard.length).toBe(4);
+    // 5 rows: existing 2x2 grid unchanged, plus payment, invite, and notify rows
+    expect(keyboard.length).toBe(5);
     // Pre-existing 2x2 grid content is byte-for-byte unchanged
     expect(keyboard[0].length).toBe(2);
     expect(keyboard[1].length).toBe(2);
@@ -142,12 +148,15 @@ describe('showAdminRootMenu — keyboard shape', () => {
     // 4th row: exactly one button with callback_data menu:invite
     expect(keyboard[3].length).toBe(1);
     expect(keyboard[3][0]).toEqual({ text: 'Πρόσκληση Πελάτη', callback_data: 'menu:invite' });
-    // 6 buttons total
+    // 5th row: exactly one button with callback_data menu:notify
+    expect(keyboard[4].length).toBe(1);
+    expect(keyboard[4][0]).toEqual({ text: 'Ειδοποίηση Πελατών', callback_data: 'menu:notify' });
+    // 7 buttons total
     const totalButtons = keyboard.flat().length;
-    expect(totalButtons).toBe(6);
+    expect(totalButtons).toBe(7);
   });
 
-  test('message text enumerates all 6 button labels as a numbered list', async () => {
+  test('message text enumerates all 7 button labels as a numbered list', async () => {
     const telegramClient = require('../src/telegram/client');
     await showAdminRootMenu('123', mockBusiness);
 
@@ -159,6 +168,7 @@ describe('showAdminRootMenu — keyboard shape', () => {
     expect(menuText).toContain('4. Ατζέντα Σήμερα');
     expect(menuText).toContain('5. Καταχώρηση Πληρωμής');
     expect(menuText).toContain('6. Πρόσκληση Πελάτη');
+    expect(menuText).toContain('7. Ειδοποίηση Πελατών');
   });
 });
 
@@ -216,6 +226,7 @@ describe('showAdminRootMenu — menu button re-assertion (D-06.2)', () => {
         { command: 'agenda', description: 'Ατζέντα Σήμερα' },
         { command: 'payment', description: 'Καταχώρηση Πληρωμής' },
         { command: 'invite', description: 'Πρόσκληση Πελάτη' },
+        { command: 'notify', description: 'Ειδοποίηση Πελατών' },
         { command: 'calendar', description: 'Σύνδεση Google Ημερολογίου' },
       ],
       { type: 'chat', chat_id: '999' }
@@ -1055,6 +1066,334 @@ describe('showClientsList — remaining-slots annotation (Phase 30)', () => {
 
     const keyboard = (telegramClient.sendTelegramMessageWithKeyboard as jest.Mock).mock.calls[0][2];
     expect(keyboard[0][0].text).toBe('30555 ⚠️ 0');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Ειδοποίηση Πελατών — manual renewal-notification menu (Phase 30)
+// ---------------------------------------------------------------------------
+
+describe('showNotifyMenu — root of the notify flow', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    const telegramClient = require('../src/telegram/client');
+    telegramClient.sendTelegramMessageWithKeyboard.mockResolvedValue({ messageId: 1 });
+  });
+
+  test('sends the bulk / select-client / back options', async () => {
+    const telegramClient = require('../src/telegram/client');
+    await showNotifyMenu('123', mockBusiness);
+
+    const keyboard = (telegramClient.sendTelegramMessageWithKeyboard as jest.Mock).mock.calls[0][2];
+    expect(keyboard.flat()).toEqual([
+      { text: 'Όλοι με λήξη σε λιγότερο από 7 ημέρες', callback_data: 'menu:notify:expiring' },
+      { text: 'Επιλογή πελάτη', callback_data: 'menu:notify:select' },
+      { text: '« Πίσω στο Μενού', callback_data: 'menu:root' },
+    ]);
+  });
+});
+
+describe('showNotifyExpiringList — bulk path, step 1', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    const telegramClient = require('../src/telegram/client');
+    telegramClient.sendTelegramMessageWithKeyboard.mockResolvedValue({ messageId: 1 });
+  });
+
+  test('no expiring memberships → informational message + back button, no Ναι/Όχι', async () => {
+    const billingQueries = require('../src/billing/queries');
+    billingQueries.findMembershipsExpiringIn7Days.mockResolvedValue([]);
+
+    const telegramClient = require('../src/telegram/client');
+    await showNotifyExpiringList('123', mockBusiness);
+
+    expect(telegramClient.sendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
+      '123',
+      'Δεν υπάρχουν πελάτες με λήξη συνδρομής τις επόμενες 7 ημέρες.',
+      [[{ text: '« Πίσω στο Μενού', callback_data: 'menu:root' }]]
+    );
+  });
+
+  test('lists each expiring client with name, sessions, expiry date, and a Ναι/Όχι confirm', async () => {
+    const billingQueries = require('../src/billing/queries');
+    billingQueries.findMembershipsExpiringIn7Days.mockResolvedValue([
+      { id: 1, businessId: 1, clientPhone: '30111', sessionsRemaining: 2, expiresAt: new Date('2026-10-05') },
+      { id: 2, businessId: 1, clientPhone: '30222', sessionsRemaining: null, expiresAt: new Date('2026-10-06') },
+    ]);
+    billingQueries.getAllClientsForBusiness.mockResolvedValue([
+      { clientBusinessRelationshipId: 1, clientName: 'Maria', senderPhone: '30111' },
+      { clientBusinessRelationshipId: 2, clientName: null, senderPhone: '30222' },
+    ]);
+
+    const telegramClient = require('../src/telegram/client');
+    await showNotifyExpiringList('123', mockBusiness);
+
+    const call = (telegramClient.sendTelegramMessageWithKeyboard as jest.Mock).mock.calls[0];
+    expect(call[1]).toContain('Maria — 2 μαθήματα');
+    expect(call[1]).toContain('30222 — απεριόριστα μαθήματα');
+    expect(call[1]).toContain('Να σταλεί ειδοποίηση σε όλους;');
+    expect(call[2]).toEqual([
+      [
+        { text: 'Ναι', callback_data: 'menu:notify:expiring_yes' },
+        { text: 'Όχι', callback_data: 'menu:notify:expiring_no' },
+      ],
+    ]);
+  });
+});
+
+describe('handleNotifyExpiringExecute — bulk path, step 2', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    const telegramClient = require('../src/telegram/client');
+    telegramClient.sendTelegramMessage.mockResolvedValue({ messageId: 1 });
+    telegramClient.sendTelegramMessageWithKeyboard.mockResolvedValue({ messageId: 2 });
+    telegramClient.botTokenStore.run.mockImplementation(
+      (_token: string, fn: () => Promise<unknown>) => fn()
+    );
+  });
+
+  test('sends one reminder per expiring client and reports the count sent', async () => {
+    const billingQueries = require('../src/billing/queries');
+    billingQueries.findMembershipsExpiringIn7Days.mockResolvedValue([
+      { id: 1, businessId: 1, clientPhone: '30111', sessionsRemaining: 2, expiresAt: new Date('2026-10-05') },
+      { id: 2, businessId: 1, clientPhone: '30222', sessionsRemaining: null, expiresAt: new Date('2026-10-06') },
+    ]);
+
+    const telegramClient = require('../src/telegram/client');
+    await handleNotifyExpiringExecute('123', mockBusiness);
+
+    expect(telegramClient.sendTelegramMessage).toHaveBeenCalledWith('30111', expect.stringContaining('Η συνδρομή σας λήγει'));
+    expect(telegramClient.sendTelegramMessage).toHaveBeenCalledWith('30222', expect.stringContaining('Η συνδρομή σας λήγει'));
+    expect(telegramClient.sendTelegramMessage).toHaveBeenCalledWith('123', '✅ Στάλθηκαν ειδοποιήσεις σε 2 πελάτες.');
+  });
+
+  test('a per-client send failure does not stop the rest — count reflects only successful sends', async () => {
+    const billingQueries = require('../src/billing/queries');
+    billingQueries.findMembershipsExpiringIn7Days.mockResolvedValue([
+      { id: 1, businessId: 1, clientPhone: '30111', sessionsRemaining: 2, expiresAt: new Date('2026-10-05') },
+      { id: 2, businessId: 1, clientPhone: '30222', sessionsRemaining: 1, expiresAt: new Date('2026-10-06') },
+    ]);
+
+    const telegramClient = require('../src/telegram/client');
+    telegramClient.sendTelegramMessage.mockImplementation((to: string) => {
+      if (to === '30111') return Promise.reject(new Error('Telegram down'));
+      return Promise.resolve({ messageId: 1 });
+    });
+
+    await handleNotifyExpiringExecute('123', mockBusiness);
+
+    expect(telegramClient.sendTelegramMessage).toHaveBeenCalledWith('123', '✅ Στάλθηκαν ειδοποιήσεις σε 1 πελάτες.');
+  });
+
+  test('missing botToken → error message, no sends attempted', async () => {
+    const billingQueries = require('../src/billing/queries');
+    billingQueries.findMembershipsExpiringIn7Days.mockResolvedValue([
+      { id: 1, businessId: 1, clientPhone: '30111', sessionsRemaining: 2, expiresAt: new Date('2026-10-05') },
+    ]);
+
+    const telegramClient = require('../src/telegram/client');
+    await handleNotifyExpiringExecute('123', { ...mockBusiness, botToken: null });
+
+    expect(telegramClient.sendTelegramMessage).toHaveBeenCalledWith(
+      '123',
+      'Σφάλμα: δεν βρέθηκε το bot token της επιχείρησης.'
+    );
+    expect(billingQueries.findMembershipsExpiringIn7Days).not.toHaveBeenCalled();
+  });
+});
+
+describe('showNotifyClientList — single-client path, step 1', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    const telegramClient = require('../src/telegram/client');
+    telegramClient.sendTelegramMessageWithKeyboard.mockResolvedValue({ messageId: 1 });
+  });
+
+  test('only lists clients that have an active membership, with sessions + expiry in the label', async () => {
+    const billingQueries = require('../src/billing/queries');
+    billingQueries.getAllClientsForBusiness.mockResolvedValue([
+      { clientBusinessRelationshipId: 1, clientName: 'Maria', senderPhone: '30111' },
+      { clientBusinessRelationshipId: 2, clientName: 'Nikos', senderPhone: '30222' },
+    ]);
+    billingQueries.getActiveMembershipsForBusiness.mockResolvedValue(
+      new Map([['30111', { sessionsRemaining: 3, expiresAt: new Date('2026-10-05') }]])
+    );
+
+    const telegramClient = require('../src/telegram/client');
+    await showNotifyClientList('123', mockBusiness);
+
+    const keyboard = (telegramClient.sendTelegramMessageWithKeyboard as jest.Mock).mock.calls[0][2];
+    const flat = keyboard.flat();
+    expect(flat).toContainEqual({
+      text: expect.stringContaining('Maria — 3 μαθήματα'),
+      callback_data: 'menu:notify:client_confirm:1',
+    });
+    expect(flat.find((b: any) => b.callback_data === 'menu:notify:client_confirm:2')).toBeUndefined();
+  });
+
+  test('no clients with an active membership → informational message', async () => {
+    const billingQueries = require('../src/billing/queries');
+    billingQueries.getAllClientsForBusiness.mockResolvedValue([
+      { clientBusinessRelationshipId: 1, clientName: 'Maria', senderPhone: '30111' },
+    ]);
+    billingQueries.getActiveMembershipsForBusiness.mockResolvedValue(new Map());
+
+    const telegramClient = require('../src/telegram/client');
+    await showNotifyClientList('123', mockBusiness);
+
+    expect(telegramClient.sendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
+      '123',
+      'Δεν υπάρχουν πελάτες με ενεργή συνδρομή.',
+      [[{ text: '« Πίσω στο Μενού', callback_data: 'menu:root' }]]
+    );
+  });
+});
+
+describe('showNotifyClientConfirm — single-client path, step 2', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    const telegramClient = require('../src/telegram/client');
+    telegramClient.sendTelegramMessageWithKeyboard.mockResolvedValue({ messageId: 1 });
+    telegramClient.sendTelegramMessage.mockResolvedValue({ messageId: 2 });
+    const queries = require('../src/database/queries');
+    queries.findClientBusinessRelationshipById.mockResolvedValue({
+      id: 42,
+      businessId: 1,
+      senderPhone: '30111',
+      clientName: 'Maria',
+      consentGiven: true,
+      consentTimestamp: new Date(),
+      createdAt: new Date(),
+    });
+  });
+
+  test('shows client details and a Ναι/Όχι confirmation', async () => {
+    const billingQueries = require('../src/billing/queries');
+    billingQueries.getClientActiveMembership.mockResolvedValue({
+      packageName: 'Pilates 10',
+      sessionsRemaining: 3,
+      expiresAt: new Date('2026-10-05'),
+      isUnlimited: false,
+    });
+
+    const telegramClient = require('../src/telegram/client');
+    await showNotifyClientConfirm('123', mockBusiness, 42);
+
+    const call = (telegramClient.sendTelegramMessageWithKeyboard as jest.Mock).mock.calls[0];
+    expect(call[1]).toContain('Πελάτης: Maria');
+    expect(call[1]).toContain('Υπόλοιπο: 3 μαθήματα');
+    expect(call[1]).toContain('Να σταλεί ειδοποίηση ανανέωσης;');
+    expect(call[2]).toEqual([
+      [
+        { text: 'Ναι', callback_data: 'menu:notify:client_yes:42' },
+        { text: 'Όχι', callback_data: 'menu:notify:client_no:42' },
+      ],
+    ]);
+  });
+
+  test('cross-tenant guard: mismatched businessId → generic not-found, no membership lookup', async () => {
+    const queries = require('../src/database/queries');
+    queries.findClientBusinessRelationshipById.mockResolvedValue({
+      id: 42,
+      businessId: 999,
+      senderPhone: '30111',
+      clientName: 'Maria',
+      consentGiven: true,
+      consentTimestamp: new Date(),
+      createdAt: new Date(),
+    });
+    const billingQueries = require('../src/billing/queries');
+
+    const telegramClient = require('../src/telegram/client');
+    await showNotifyClientConfirm('123', mockBusiness, 42);
+
+    expect(telegramClient.sendTelegramMessage).toHaveBeenCalledWith('123', 'Ο πελάτης δεν βρέθηκε.');
+    expect(billingQueries.getClientActiveMembership).not.toHaveBeenCalled();
+  });
+
+  test('client no longer has an active membership → informational message with a back-to-list button', async () => {
+    const billingQueries = require('../src/billing/queries');
+    billingQueries.getClientActiveMembership.mockResolvedValue(null);
+
+    const telegramClient = require('../src/telegram/client');
+    await showNotifyClientConfirm('123', mockBusiness, 42);
+
+    expect(telegramClient.sendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
+      '123',
+      'Ο πελάτης δεν έχει πλέον ενεργή συνδρομή.',
+      [[{ text: '« Πίσω στη λίστα', callback_data: 'menu:notify:select' }]]
+    );
+  });
+});
+
+describe('handleNotifyClientExecute — single-client path, step 3', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    const telegramClient = require('../src/telegram/client');
+    telegramClient.sendTelegramMessageWithKeyboard.mockResolvedValue({ messageId: 1 });
+    telegramClient.sendTelegramMessage.mockResolvedValue({ messageId: 2 });
+    telegramClient.botTokenStore.run.mockImplementation(
+      (_token: string, fn: () => Promise<unknown>) => fn()
+    );
+    const queries = require('../src/database/queries');
+    queries.findClientBusinessRelationshipById.mockResolvedValue({
+      id: 42,
+      businessId: 1,
+      senderPhone: '30111',
+      clientName: 'Maria',
+      consentGiven: true,
+      consentTimestamp: new Date(),
+      createdAt: new Date(),
+    });
+  });
+
+  test('sends the reminder to the resolved client and confirms back to the owner', async () => {
+    const billingQueries = require('../src/billing/queries');
+    billingQueries.getClientActiveMembership.mockResolvedValue({
+      packageName: 'Pilates 10',
+      sessionsRemaining: 3,
+      expiresAt: new Date('2026-10-05'),
+      isUnlimited: false,
+    });
+
+    const telegramClient = require('../src/telegram/client');
+    await handleNotifyClientExecute('123', mockBusiness, 42);
+
+    expect(telegramClient.sendTelegramMessage).toHaveBeenCalledWith('30111', expect.stringContaining('Η συνδρομή σας λήγει'));
+    expect(telegramClient.sendTelegramMessage).toHaveBeenCalledWith('123', '✅ Η ειδοποίηση στάλθηκε στον/στην Maria.');
+  });
+
+  test('cross-tenant guard: mismatched businessId → generic not-found, no send attempted', async () => {
+    const queries = require('../src/database/queries');
+    queries.findClientBusinessRelationshipById.mockResolvedValue({
+      id: 42,
+      businessId: 999,
+      senderPhone: '30111',
+      clientName: 'Maria',
+      consentGiven: true,
+      consentTimestamp: new Date(),
+      createdAt: new Date(),
+    });
+
+    const telegramClient = require('../src/telegram/client');
+    await handleNotifyClientExecute('123', mockBusiness, 42);
+
+    expect(telegramClient.sendTelegramMessage).toHaveBeenCalledWith('123', 'Ο πελάτης δεν βρέθηκε.');
+    expect(telegramClient.sendTelegramMessage).not.toHaveBeenCalledWith('30111', expect.anything());
+  });
+
+  test('client no longer has an active membership → no send, informational message', async () => {
+    const billingQueries = require('../src/billing/queries');
+    billingQueries.getClientActiveMembership.mockResolvedValue(null);
+
+    const telegramClient = require('../src/telegram/client');
+    await handleNotifyClientExecute('123', mockBusiness, 42);
+
+    expect(telegramClient.sendTelegramMessage).toHaveBeenCalledWith(
+      '123',
+      'Ο πελάτης δεν έχει πλέον ενεργή συνδρομή — δεν στάλθηκε ειδοποίηση.'
+    );
+    expect(telegramClient.sendTelegramMessage).not.toHaveBeenCalledWith('30111', expect.anything());
   });
 });
 

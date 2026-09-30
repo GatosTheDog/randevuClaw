@@ -41,6 +41,7 @@ import {
   showClientsList,
   showTodaysAgenda,
   handleInviteGeneration,
+  showNotifyMenu,
 } from '../telegram/handlers/admin-menu';
 import { handleCalendarCommand } from '../telegram/handlers/calendar-connect';
 import {
@@ -332,6 +333,19 @@ async function handleFoundBusiness(
         logger.info(
           { updateId, businessId: business.id, elapsedMs: Date.now() - startedAt },
           'handleFoundBusiness: exit (/invite branch)'
+        );
+        return;
+      }
+
+      if (messageText.trim() === '/notify') {
+        await withBusinessContext(business.id, async () => {
+          clearPendingReply(business.id, senderTelegramId);
+          await showNotifyMenu(senderTelegramId, business);
+          await markTelegramUpdateProcessed(updateId, business.id);
+        });
+        logger.info(
+          { updateId, businessId: business.id, elapsedMs: Date.now() - startedAt },
+          'handleFoundBusiness: exit (/notify branch)'
         );
         return;
       }

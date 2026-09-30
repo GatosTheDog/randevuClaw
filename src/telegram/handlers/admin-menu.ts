@@ -23,7 +23,7 @@ import {
 } from '../../database/queries';
 import { businesses } from '../../database/schema';
 import { formatAgendaMessage } from '../../scheduler/agenda';
-import { isoDateInAthens } from '../../utils/timezone';
+import { isoDateInAthens, formatExpiryDateGreek } from '../../utils/timezone';
 import { logger } from '../../utils/logger';
 import { findBusinessByOwnerTelegramId } from '../../onboarding/queries';
 import { listSessions, cancelSession, cascadeCancelSessionBookings, findSessionInstanceById } from '../../session/manager';
@@ -40,6 +40,7 @@ import {
   getAllClientsForBusiness,
   getClientActiveMembership,
   getActiveMembershipsForBusiness,
+  findMembershipsExpiringIn7Days,
   deleteClientBillingData,
 } from '../../billing/queries';
 import { sendBusinessInvite } from '../../invites/generator';
@@ -91,6 +92,7 @@ async function reassertMenuButtonAndCommands(
       { command: 'agenda', description: 'Ατζέντα Σήμερα' },
       { command: 'payment', description: 'Καταχώρηση Πληρωμής' },
       { command: 'invite', description: 'Πρόσκληση Πελάτη' },
+      { command: 'notify', description: 'Ειδοποίηση Πελατών' },
       { command: 'calendar', description: 'Σύνδεση Google Ημερολογίου' },
     ],
     { type: 'chat', chat_id: chatId }
@@ -116,6 +118,7 @@ export async function showAdminRootMenu(chatId: string, business: Business): Pro
   const callbackDataAgenda = 'menu:agenda';
   const callbackDataPayment = 'menu:payment';
   const callbackDataInvite = 'menu:invite';
+  const callbackDataNotify = 'menu:notify';
 
   assertCallbackDataSize(callbackDataSettings);
   assertCallbackDataSize(callbackDataClasses);
@@ -123,6 +126,7 @@ export async function showAdminRootMenu(chatId: string, business: Business): Pro
   assertCallbackDataSize(callbackDataAgenda);
   assertCallbackDataSize(callbackDataPayment);
   assertCallbackDataSize(callbackDataInvite);
+  assertCallbackDataSize(callbackDataNotify);
 
   const keyboard: InlineKeyboard = [
     [
@@ -135,6 +139,7 @@ export async function showAdminRootMenu(chatId: string, business: Business): Pro
     ],
     [{ text: 'Καταχώρηση Πληρωμής', callback_data: callbackDataPayment }],
     [{ text: 'Πρόσκληση Πελάτη', callback_data: callbackDataInvite }],
+    [{ text: 'Ειδοποίηση Πελατών', callback_data: callbackDataNotify }],
   ];
 
   const menuText = `Πίνακας Ελέγχου — ${business.name}
@@ -144,7 +149,8 @@ export async function showAdminRootMenu(chatId: string, business: Business): Pro
 3. Πελάτες
 4. Ατζέντα Σήμερα
 5. Καταχώρηση Πληρωμής
-6. Πρόσκληση Πελάτη`;
+6. Πρόσκληση Πελάτη
+7. Ειδοποίηση Πελατών`;
 
   await sendTelegramMessageWithKeyboard(
     chatId,
@@ -713,6 +719,255 @@ export async function handleRenewalNudge(
 }
 
 // ---------------------------------------------------------------------------
+// Phase 30: Ειδοποίηση Πελατών (manual renewal-notification menu) — bulk
+// "all expiring within 7 days" and single-client paths, each gated behind a
+// Ναι/Όχι confirmation before anything is sent, mirroring the show*Confirm /
+// handle*Execute split used everywhere else in this file (cancel class,
+// delete client, etc.). Independent of the automatic 6-hourly sweep in
+// scheduler/membership-expiry.ts — this is an owner-triggered send, so it
+// deliberately does NOT touch that sweep's dedup table: an owner explicitly
+// confirming "send" should always send, even if the automatic sweep already
+// notified this client today.
+// ---------------------------------------------------------------------------
+
+function buildExpiryReminderMessage(sessionsRemaining: number | null, expiresAt: Date): string {
+  const sessionsText =
+    sessionsRemaining !== null ? ` Έχετε ${sessionsRemaining} μαθήματα απομείνει.` : '';
+  return `Υπενθύμιση: Η συνδρομή σας λήγει στις ${formatExpiryDateGreek(expiresAt)}.${sessionsText}`;
+}
+
+/**
+ * Root of the notify menu (AMENU-07): bulk vs single-client paths.
+ */
+export async function showNotifyMenu(chatId: string, business: Business): Promise<void> {
+  const expiringData = 'menu:notify:expiring';
+  const selectData = 'menu:notify:select';
+  const backData = 'menu:root';
+  assertCallbackDataSize(expiringData);
+  assertCallbackDataSize(selectData);
+  assertCallbackDataSize(backData);
+
+  const keyboard: InlineKeyboard = [
+    [{ text: 'Όλοι με λήξη σε λιγότερο από 7 ημέρες', callback_data: expiringData }],
+    [{ text: 'Επιλογή πελάτη', callback_data: selectData }],
+    [{ text: BACK_MENU_LABELS.ADMIN, callback_data: backData }],
+  ];
+
+  await sendTelegramMessageWithKeyboard(chatId, 'Ειδοποίηση Πελατών — τι θέλεις να κάνεις;', keyboard);
+}
+
+/**
+ * Bulk path, step 1: lists every client whose membership expires within 7
+ * days and asks for one Ναι/Όχι confirmation before notifying all of them.
+ */
+export async function showNotifyExpiringList(chatId: string, business: Business): Promise<void> {
+  const backButton = { text: BACK_MENU_LABELS.ADMIN, callback_data: 'menu:root' };
+  const expiring = await findMembershipsExpiringIn7Days(business.id);
+
+  if (expiring.length === 0) {
+    await sendTelegramMessageWithKeyboard(
+      chatId,
+      'Δεν υπάρχουν πελάτες με λήξη συνδρομής τις επόμενες 7 ημέρες.',
+      [[backButton]]
+    );
+    return;
+  }
+
+  // Batched name lookup (not per-client) — same pattern as showClientsList.
+  const allClients = await getAllClientsForBusiness(business.id);
+  const nameByPhone = new Map(allClients.map((c) => [c.senderPhone, c.clientName]));
+
+  const lines = expiring.map((m, i) => {
+    const name = nameByPhone.get(m.clientPhone) ?? m.clientPhone;
+    const sessionsText = m.sessionsRemaining !== null ? `${m.sessionsRemaining} μαθήματα` : 'απεριόριστα μαθήματα';
+    return `${i + 1}. ${name} — ${sessionsText}, λήγει ${formatExpiryDateGreek(m.expiresAt)}`;
+  });
+
+  const yesData = 'menu:notify:expiring_yes';
+  const noData = 'menu:notify:expiring_no';
+  assertCallbackDataSize(yesData);
+  assertCallbackDataSize(noData);
+
+  await sendTelegramMessageWithKeyboard(
+    chatId,
+    `Πελάτες με λήξη συνδρομής σε λιγότερο από 7 ημέρες:\n\n${lines.join('\n')}\n\nΝα σταλεί ειδοποίηση σε όλους;`,
+    [
+      [
+        { text: 'Ναι', callback_data: yesData },
+        { text: 'Όχι', callback_data: noData },
+      ],
+    ]
+  );
+}
+
+/**
+ * Bulk path, step 2: re-resolves the expiring list fresh (not the step-1
+ * snapshot — avoids acting on a stale list if a membership changed between
+ * the two taps) and sends every client their reminder, best-effort per
+ * client. Always replies to the owner with how many were actually sent.
+ */
+export async function handleNotifyExpiringExecute(chatId: string, business: Business): Promise<void> {
+  const backKeyboard: InlineKeyboard = [[{ text: BACK_MENU_LABELS.ADMIN, callback_data: 'menu:root' }]];
+
+  if (!business.botToken) {
+    await sendTelegramMessage(chatId, 'Σφάλμα: δεν βρέθηκε το bot token της επιχείρησης.');
+    await sendTelegramMessageWithKeyboard(chatId, 'Τι άλλο θέλεις να κάνεις;', backKeyboard);
+    return;
+  }
+
+  const expiring = await findMembershipsExpiringIn7Days(business.id);
+  let sent = 0;
+
+  for (const m of expiring) {
+    try {
+      await botTokenStore.run(business.botToken, async () => {
+        await sendTelegramMessage(m.clientPhone, buildExpiryReminderMessage(m.sessionsRemaining, m.expiresAt));
+      });
+      sent += 1;
+    } catch (err) {
+      logger.error({ err, membershipId: m.id, businessId: business.id }, 'Manual expiry notification failed (best-effort)');
+    }
+  }
+
+  await sendTelegramMessage(chatId, `✅ Στάλθηκαν ειδοποιήσεις σε ${sent} πελάτες.`);
+  await sendTelegramMessageWithKeyboard(chatId, 'Τι άλλο θέλεις να κάνεις;', backKeyboard);
+}
+
+/**
+ * Single-client path, step 1: lists every client with an active membership
+ * (remaining sessions + expiry date next to each name) — reuses the same
+ * batched getActiveMembershipsForBusiness lookup as showClientsList.
+ */
+export async function showNotifyClientList(chatId: string, business: Business): Promise<void> {
+  const backButton = { text: BACK_MENU_LABELS.ADMIN, callback_data: 'menu:root' };
+  const clients = await getAllClientsForBusiness(business.id);
+  const membershipsByPhone = await getActiveMembershipsForBusiness(business.id);
+
+  const withMembership = clients.filter((c) => membershipsByPhone.has(c.senderPhone));
+  const capped = withMembership.slice(0, 20);
+
+  if (capped.length === 0) {
+    await sendTelegramMessageWithKeyboard(
+      chatId,
+      'Δεν υπάρχουν πελάτες με ενεργή συνδρομή.',
+      [[backButton]]
+    );
+    return;
+  }
+
+  const keyboard: InlineKeyboard = capped.map((client) => {
+    const membership = membershipsByPhone.get(client.senderPhone)!;
+    const sessionsText =
+      membership.sessionsRemaining !== null ? `${membership.sessionsRemaining} μαθήματα` : 'απεριόριστα';
+    const cbData = `menu:notify:client_confirm:${client.clientBusinessRelationshipId}`;
+    assertCallbackDataSize(cbData);
+    return [
+      {
+        text: `${client.clientName ?? client.senderPhone} — ${sessionsText}, λήγει ${formatExpiryDateGreek(membership.expiresAt)}`,
+        callback_data: cbData,
+      },
+    ];
+  });
+  keyboard.push([backButton]);
+
+  const headerText =
+    `Επίλεξε πελάτη (${capped.length}${withMembership.length > 20 ? ` από ${withMembership.length}` : ''}):`;
+
+  await sendTelegramMessageWithKeyboard(chatId, headerText, keyboard);
+}
+
+/**
+ * Single-client path, step 2: shows the chosen client's current standing and
+ * asks for a Ναι/Όχι confirmation before sending.
+ * Cross-tenant guard mirrors showClientBalance/handleRenewalNudge exactly.
+ */
+export async function showNotifyClientConfirm(
+  chatId: string,
+  business: Business,
+  relId: number
+): Promise<void> {
+  const rel = await findClientBusinessRelationshipById(relId);
+  if (rel?.businessId !== business.id) {
+    await sendTelegramMessage(chatId, 'Ο πελάτης δεν βρέθηκε.');
+    return;
+  }
+
+  const membership = await getClientActiveMembership(business.id, rel.senderPhone);
+  const backToList = { text: '« Πίσω στη λίστα', callback_data: 'menu:notify:select' };
+
+  if (!membership) {
+    await sendTelegramMessageWithKeyboard(
+      chatId,
+      'Ο πελάτης δεν έχει πλέον ενεργή συνδρομή.',
+      [[backToList]]
+    );
+    return;
+  }
+
+  const displayName = rel.clientName ?? rel.senderPhone;
+  const sessionsText =
+    membership.sessionsRemaining !== null
+      ? `Υπόλοιπο: ${membership.sessionsRemaining} μαθήματα`
+      : 'Απεριόριστες συνεδρίες';
+  const messageText =
+    `Πελάτης: ${displayName}\n${sessionsText}\nΛήγει: ${formatExpiryDateGreek(membership.expiresAt)}\n\n` +
+    `Να σταλεί ειδοποίηση ανανέωσης;`;
+
+  const yesData = `menu:notify:client_yes:${relId}`;
+  const noData = `menu:notify:client_no:${relId}`;
+  assertCallbackDataSize(yesData);
+  assertCallbackDataSize(noData);
+
+  await sendTelegramMessageWithKeyboard(chatId, messageText, [
+    [
+      { text: 'Ναι', callback_data: yesData },
+      { text: 'Όχι', callback_data: noData },
+    ],
+  ]);
+}
+
+/**
+ * Single-client path, step 3: re-resolves the client + membership fresh
+ * (same ownership guard) and sends, then confirms back to the owner.
+ */
+export async function handleNotifyClientExecute(
+  chatId: string,
+  business: Business,
+  relId: number
+): Promise<void> {
+  const backKeyboard: InlineKeyboard = [[{ text: BACK_MENU_LABELS.ADMIN, callback_data: 'menu:root' }]];
+  const rel = await findClientBusinessRelationshipById(relId);
+  if (rel?.businessId !== business.id) {
+    await sendTelegramMessage(chatId, 'Ο πελάτης δεν βρέθηκε.');
+    await sendTelegramMessageWithKeyboard(chatId, 'Τι άλλο θέλεις να κάνεις;', backKeyboard);
+    return;
+  }
+
+  const membership = await getClientActiveMembership(business.id, rel.senderPhone);
+  if (!membership) {
+    await sendTelegramMessage(chatId, 'Ο πελάτης δεν έχει πλέον ενεργή συνδρομή — δεν στάλθηκε ειδοποίηση.');
+    await sendTelegramMessageWithKeyboard(chatId, 'Τι άλλο θέλεις να κάνεις;', backKeyboard);
+    return;
+  }
+
+  if (!business.botToken) {
+    await sendTelegramMessage(chatId, 'Σφάλμα: δεν βρέθηκε το bot token της επιχείρησης.');
+    await sendTelegramMessageWithKeyboard(chatId, 'Τι άλλο θέλεις να κάνεις;', backKeyboard);
+    return;
+  }
+
+  await botTokenStore.run(business.botToken, async () => {
+    await sendTelegramMessage(
+      rel.senderPhone,
+      buildExpiryReminderMessage(membership.sessionsRemaining, membership.expiresAt)
+    );
+  });
+
+  await sendTelegramMessage(chatId, `✅ Η ειδοποίηση στάλθηκε στον/στην ${rel.clientName ?? rel.senderPhone}.`);
+  await sendTelegramMessageWithKeyboard(chatId, 'Τι άλλο θέλεις να κάνεις;', backKeyboard);
+}
+
+// ---------------------------------------------------------------------------
 // Quick task 260729-n05: Client deletion (GDPR full erase + unlink-only)
 // ---------------------------------------------------------------------------
 
@@ -913,6 +1168,59 @@ export async function handleMenuCallback(
     case menuAction === 'invite':
       await handleInviteGeneration(chatId, business);
       break;
+
+    case menuAction === 'notify':
+      await showNotifyMenu(chatId, business);
+      break;
+
+    case menuAction === 'notify:expiring':
+      await showNotifyExpiringList(chatId, business);
+      break;
+
+    case menuAction === 'notify:expiring_yes':
+      await handleNotifyExpiringExecute(chatId, business);
+      break;
+
+    case menuAction === 'notify:expiring_no':
+      await sendTelegramMessage(chatId, 'Παραλείφθηκε. Δεν στάλθηκαν ειδοποιήσεις.');
+      await sendTelegramMessageWithKeyboard(chatId, 'Τι άλλο θέλεις να κάνεις;', [
+        [{ text: BACK_MENU_LABELS.ADMIN, callback_data: 'menu:root' }],
+      ]);
+      break;
+
+    case menuAction === 'notify:select':
+      await showNotifyClientList(chatId, business);
+      break;
+
+    case menuAction === 'notify:client_confirm': {
+      if (result.id === undefined) {
+        await sendTelegramMessage(chatId, 'Σφάλμα: λείπει το αναγνωριστικό πελάτη.');
+        return;
+      }
+      await showNotifyClientConfirm(chatId, business, result.id);
+      break;
+    }
+
+    case menuAction === 'notify:client_yes': {
+      if (result.id === undefined) {
+        await sendTelegramMessage(chatId, 'Σφάλμα: λείπει το αναγνωριστικό πελάτη.');
+        return;
+      }
+      await handleNotifyClientExecute(chatId, business, result.id);
+      break;
+    }
+
+    case menuAction === 'notify:client_no': {
+      if (result.id === undefined) {
+        await sendTelegramMessage(chatId, 'Σφάλμα: λείπει το αναγνωριστικό πελάτη.');
+        return;
+      }
+      await sendTelegramMessage(chatId, 'Παραλείφθηκε.');
+      await sendTelegramMessageWithKeyboard(chatId, 'Τι άλλο θέλεις να κάνεις;', [
+        [{ text: BACK_MENU_LABELS.ADMIN, callback_data: 'menu:root' }],
+      ]);
+      break;
+    }
 
     case menuAction === 'payment':
       await showClientSelection(business.id, chatId);
