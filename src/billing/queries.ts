@@ -299,6 +299,43 @@ export async function getAllClientsForBusiness(
   return rows;
 }
 
+/** Result entry for getActiveMembershipsForBusiness — one per clientPhone. */
+export interface ActiveMembershipSummary {
+  sessionsRemaining: number | null;
+  expiresAt: Date;
+}
+
+/**
+ * Batched active-membership lookup for every client of a business, keyed by
+ * clientPhone. One query instead of one-per-client (mirrors the
+ * serviceNamesById batching pattern used elsewhere) — used to annotate the
+ * admin clients list with remaining-slots without N+1 queries.
+ */
+export async function getActiveMembershipsForBusiness(
+  businessId: number
+): Promise<Map<string, ActiveMembershipSummary>> {
+  const rows = await getConn()
+    .select({
+      clientPhone: memberships.clientPhone,
+      sessionsRemaining: memberships.sessionsRemaining,
+      expiresAt: memberships.expiresAt,
+    })
+    .from(memberships)
+    .where(
+      and(
+        eq(memberships.businessId, businessId),
+        eq(memberships.isActive, true),
+        gt(memberships.expiresAt, new Date())
+      )
+    );
+
+  const byPhone = new Map<string, ActiveMembershipSummary>();
+  for (const row of rows) {
+    byPhone.set(row.clientPhone, { sessionsRemaining: row.sessionsRemaining, expiresAt: row.expiresAt });
+  }
+  return byPhone;
+}
+
 // ---------------------------------------------------------------------------
 // Quick task 260813-ji5: Unbilled-booking reconciliation
 // ---------------------------------------------------------------------------

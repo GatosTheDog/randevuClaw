@@ -36,7 +36,12 @@ import {
   setMyCommands,
   setChatMenuButton,
 } from '../client';
-import { getAllClientsForBusiness, getClientActiveMembership, deleteClientBillingData } from '../../billing/queries';
+import {
+  getAllClientsForBusiness,
+  getClientActiveMembership,
+  getActiveMembershipsForBusiness,
+  deleteClientBillingData,
+} from '../../billing/queries';
 import { sendBusinessInvite } from '../../invites/generator';
 import { showClientSelection } from './payment-flow';
 import { handleCalendarCommand, handleCalendarDisconnect } from './calendar-connect';
@@ -564,12 +569,23 @@ export async function showClientsList(chatId: string, business: Business): Promi
     `Πελάτες (${Math.min(clients.length, 20)} εμφανίζονται):` +
     (overLimit ? '\n(υπάρχουν κι άλλοι — επικοινώνησε για πλήρη λίστα)' : '');
 
+  // Batched (not per-client) remaining-slots annotation — same "exhausted
+  // pack counts as no membership" rule as the client-side booking gate (D-11).
+  const membershipsByPhone = await getActiveMembershipsForBusiness(business.id);
+
   const keyboard: InlineKeyboard = capped.map((client) => {
     const cbData = `menu:clients:balance:${client.clientBusinessRelationshipId}`;
     assertCallbackDataSize(cbData);
+    const membership = membershipsByPhone.get(client.senderPhone);
+    const slotsLabel =
+      !membership || membership.sessionsRemaining === 0
+        ? ' ⚠️ 0'
+        : membership.sessionsRemaining === null
+          ? ' ∞'
+          : ` (${membership.sessionsRemaining})`;
     return [
       {
-        text: client.clientName ?? client.senderPhone,
+        text: `${client.clientName ?? client.senderPhone}${slotsLabel}`,
         callback_data: cbData,
       },
     ];

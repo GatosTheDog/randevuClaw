@@ -22,6 +22,7 @@ import {
   showClassesMenu,
   showCancelClassList,
   showCancelClassListForDate,
+  showClientsList,
   showClientBalance,
   showDeleteFullConfirm,
   handleDeleteFullExecute,
@@ -965,6 +966,95 @@ describe('showClientBalance — delete/unlink buttons (n05)', () => {
     const flat = keyboard.flat();
     expect(flat).toContainEqual({ text: 'Πλήρης διαγραφή', callback_data: 'menu:clients:del_full_confirm:42' });
     expect(flat).toContainEqual({ text: 'Αφαίρεση από λίστα', callback_data: 'menu:clients:del_unlink_confirm:42' });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// showClientsList — remaining-slots annotation next to each client name
+// ---------------------------------------------------------------------------
+
+describe('showClientsList — remaining-slots annotation (Phase 30)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+
+    const telegramClient = require('../src/telegram/client');
+    telegramClient.sendTelegramMessageWithKeyboard.mockResolvedValue({ messageId: 2 });
+  });
+
+  test('client with remaining sessions → "(N)" suffix', async () => {
+    const billingQueries = require('../src/billing/queries');
+    billingQueries.getAllClientsForBusiness.mockResolvedValue([
+      { clientBusinessRelationshipId: 1, clientName: 'Maria', senderPhone: '30111' },
+    ]);
+    billingQueries.getActiveMembershipsForBusiness.mockResolvedValue(
+      new Map([['30111', { sessionsRemaining: 4, expiresAt: new Date('2030-01-01') }]])
+    );
+
+    const telegramClient = require('../src/telegram/client');
+    await showClientsList('123', mockBusiness);
+
+    const keyboard = (telegramClient.sendTelegramMessageWithKeyboard as jest.Mock).mock.calls[0][2];
+    expect(keyboard[0][0].text).toBe('Maria (4)');
+  });
+
+  test('client with no active membership → warning icon + 0', async () => {
+    const billingQueries = require('../src/billing/queries');
+    billingQueries.getAllClientsForBusiness.mockResolvedValue([
+      { clientBusinessRelationshipId: 1, clientName: 'Nikos', senderPhone: '30222' },
+    ]);
+    billingQueries.getActiveMembershipsForBusiness.mockResolvedValue(new Map());
+
+    const telegramClient = require('../src/telegram/client');
+    await showClientsList('123', mockBusiness);
+
+    const keyboard = (telegramClient.sendTelegramMessageWithKeyboard as jest.Mock).mock.calls[0][2];
+    expect(keyboard[0][0].text).toBe('Nikos ⚠️ 0');
+  });
+
+  test('client with an exhausted pack (sessionsRemaining=0) → warning icon, same as no membership (CR-04)', async () => {
+    const billingQueries = require('../src/billing/queries');
+    billingQueries.getAllClientsForBusiness.mockResolvedValue([
+      { clientBusinessRelationshipId: 1, clientName: 'Eleni', senderPhone: '30333' },
+    ]);
+    billingQueries.getActiveMembershipsForBusiness.mockResolvedValue(
+      new Map([['30333', { sessionsRemaining: 0, expiresAt: new Date('2030-01-01') }]])
+    );
+
+    const telegramClient = require('../src/telegram/client');
+    await showClientsList('123', mockBusiness);
+
+    const keyboard = (telegramClient.sendTelegramMessageWithKeyboard as jest.Mock).mock.calls[0][2];
+    expect(keyboard[0][0].text).toBe('Eleni ⚠️ 0');
+  });
+
+  test('client with an unlimited membership → "∞" suffix', async () => {
+    const billingQueries = require('../src/billing/queries');
+    billingQueries.getAllClientsForBusiness.mockResolvedValue([
+      { clientBusinessRelationshipId: 1, clientName: 'Costas', senderPhone: '30444' },
+    ]);
+    billingQueries.getActiveMembershipsForBusiness.mockResolvedValue(
+      new Map([['30444', { sessionsRemaining: null, expiresAt: new Date('2030-01-01') }]])
+    );
+
+    const telegramClient = require('../src/telegram/client');
+    await showClientsList('123', mockBusiness);
+
+    const keyboard = (telegramClient.sendTelegramMessageWithKeyboard as jest.Mock).mock.calls[0][2];
+    expect(keyboard[0][0].text).toBe('Costas ∞');
+  });
+
+  test('client with no clientName falls back to senderPhone, suffix still appended', async () => {
+    const billingQueries = require('../src/billing/queries');
+    billingQueries.getAllClientsForBusiness.mockResolvedValue([
+      { clientBusinessRelationshipId: 1, clientName: null, senderPhone: '30555' },
+    ]);
+    billingQueries.getActiveMembershipsForBusiness.mockResolvedValue(new Map());
+
+    const telegramClient = require('../src/telegram/client');
+    await showClientsList('123', mockBusiness);
+
+    const keyboard = (telegramClient.sendTelegramMessageWithKeyboard as jest.Mock).mock.calls[0][2];
+    expect(keyboard[0][0].text).toBe('30555 ⚠️ 0');
   });
 });
 
