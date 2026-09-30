@@ -28,6 +28,7 @@ import * as adminMenuModule from '../../src/telegram/handlers/admin-menu';
 import * as paymentFlowModule from '../../src/telegram/handlers/payment-flow';
 import * as enforcement from '../../src/billing/enforcement';
 import * as sessionManager from '../../src/session/manager';
+import { formatExpiryDateGreek } from '../../src/utils/timezone';
 
 // ---------------------------------------------------------------------------
 // Module-level mocks (hoisted by Jest before any imports are executed)
@@ -249,6 +250,10 @@ const mockedRestoreCredit = billingQueries.restoreCredit as jest.MockedFunction<
 const mockedGetClientName = billingQueries.getClientName as jest.MockedFunction<
   typeof billingQueries.getClientName
 >;
+const mockedGetClientActiveMembership =
+  billingQueries.getClientActiveMembership as jest.MockedFunction<
+    typeof billingQueries.getClientActiveMembership
+  >;
 const mockedDeleteBookingFromCalendar =
   calendarSync.deleteBookingFromCalendar as jest.MockedFunction<
     typeof calendarSync.deleteBookingFromCalendar
@@ -362,6 +367,16 @@ function setupCommonMocks() {
   // Suite B/F /start and callback flows are unaffected by the new gate.
   mockedGetOrCreateClientRelationship.mockResolvedValue({ isFirstContact: false, consentGiven: true });
   mockedUpdateClientConsentGiven.mockResolvedValue(undefined);
+  // Phase 30 (D-11): default to a comfortably-valid membership (far-future
+  // expiry, so the date-cap never trips) so existing booking-flow tests that
+  // don't exercise the membership preview itself are unaffected. Tests that
+  // specifically cover D-11 override this per-test.
+  mockedGetClientActiveMembership.mockResolvedValue({
+    packageName: 'Test Pack',
+    sessionsRemaining: 99,
+    expiresAt: new Date('2030-01-01T00:00:00Z'),
+    isUnlimited: false,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -840,7 +855,7 @@ describe('Suite C: booking flow via handleClientMenuCallback', () => {
 
     expect(mockedSendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
       senderTelegramId,
-      'Επίλεξε ημερομηνία:',
+      expect.stringContaining('Επίλεξε ημερομηνία:'),
       expect.arrayContaining([
         [{ text: 'Σαβ 01/08/2026', callback_data: 'cmenu:book:date:20260801' }],
         [{ text: 'Δευ 03/08/2026', callback_data: 'cmenu:book:date:20260803' }],
@@ -859,6 +874,149 @@ describe('Suite C: booking flow via handleClientMenuCallback', () => {
       'Δεν υπάρχουν διαθέσιμα μαθήματα για τις επόμενες 30 ημέρες.',
       [[{ text: '« Πίσω', callback_data: 'cmenu:root' }]]
     );
+  });
+
+  // Phase 30 (D-11): membership preview + expiry-date cap on the booking flow.
+  describe('book — membership preview and expiry-date cap (D-11)', () => {
+    it('block policy + no membership → refuses outright with renew message, listSessions NOT called', async () => {
+      mockedGetClientActiveMembership.mockResolvedValue(null);
+
+      const result: ClientMenuCallbackResult = { clientMenuAction: 'book' };
+      await handleClientMenuCallback(result, BASE_BUSINESS as any, senderTelegramId);
+
+      expect(mockedSendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
+        senderTelegramId,
+        'Για να κάνετε κράτηση, χρειάζεστε ενεργή συνδρομή. Επικοινωνήστε με τον διαχειριστή για ανανέωση.',
+        [[{ text: '« Πίσω', callback_data: 'cmenu:root' }]]
+      );
+      expect(mockedListSessions).not.toHaveBeenCalled();
+    });
+
+    it('block policy + exhausted membership (sessionsRemaining=0) → same refusal as no membership (CR-04)', async () => {
+      mockedGetClientActiveMembership.mockResolvedValue({
+        packageName: 'Test Pack',
+        sessionsRemaining: 0,
+        expiresAt: new Date('2030-01-01T00:00:00Z'),
+        isUnlimited: false,
+      });
+
+      const result: ClientMenuCallbackResult = { clientMenuAction: 'book' };
+      await handleClientMenuCallback(result, BASE_BUSINESS as any, senderTelegramId);
+
+      expect(mockedSendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
+        senderTelegramId,
+        'Για να κάνετε κράτηση, χρειάζεστε ενεργή συνδρομή. Επικοινωνήστε με τον διαχειριστή για ανανέωση.',
+        [[{ text: '« Πίσω', callback_data: 'cmenu:root' }]]
+      );
+      expect(mockedListSessions).not.toHaveBeenCalled();
+    });
+
+    it('flag/allow policy + no membership → dates still shown, warning banner sent, listSessions IS called', async () => {
+      const allowBusiness = { ...BASE_BUSINESS, enforcementPolicy: 'allow' };
+      mockedGetClientActiveMembership.mockResolvedValue(null);
+      mockedListSessions.mockResolvedValue([
+        { instanceId: 1, catalogId: 1, sessionDate: '2026-08-01', sessionTime: '09:00', bookedCount: 0, capacity: 5, serviceId: 3 },
+      ] as any);
+
+      const result: ClientMenuCallbackResult = { clientMenuAction: 'book' };
+      await handleClientMenuCallback(result, allowBusiness as any, senderTelegramId);
+
+      expect(mockedListSessions).toHaveBeenCalled();
+      expect(mockedSendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
+        senderTelegramId,
+        expect.stringContaining('Δεν έχεις ενεργή συνδρομή'),
+        expect.arrayContaining([
+          [{ text: 'Σαβ 01/08/2026', callback_data: 'cmenu:book:date:20260801' }],
+        ])
+      );
+    });
+
+    it('valid limited membership → banner shows remaining count + expiry date', async () => {
+      const expiresAt = new Date('2030-06-15T00:00:00Z');
+      mockedGetClientActiveMembership.mockResolvedValue({
+        packageName: 'Test Pack',
+        sessionsRemaining: 4,
+        expiresAt,
+        isUnlimited: false,
+      });
+      mockedListSessions.mockResolvedValue([
+        { instanceId: 1, catalogId: 1, sessionDate: '2026-08-01', sessionTime: '09:00', bookedCount: 0, capacity: 5, serviceId: 3 },
+      ] as any);
+
+      const result: ClientMenuCallbackResult = { clientMenuAction: 'book' };
+      await handleClientMenuCallback(result, BASE_BUSINESS as any, senderTelegramId);
+
+      expect(mockedSendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
+        senderTelegramId,
+        expect.stringContaining(`Έχεις 4 διαθέσιμα μαθήματα (ισχύουν έως ${formatExpiryDateGreek(expiresAt)})`),
+        expect.anything()
+      );
+    });
+
+    it('valid unlimited membership → banner reads "απεριόριστες συνεδρίες"', async () => {
+      const expiresAt = new Date('2030-06-15T00:00:00Z');
+      mockedGetClientActiveMembership.mockResolvedValue({
+        packageName: 'Unlimited Pack',
+        sessionsRemaining: null,
+        expiresAt,
+        isUnlimited: true,
+      });
+      mockedListSessions.mockResolvedValue([
+        { instanceId: 1, catalogId: 1, sessionDate: '2026-08-01', sessionTime: '09:00', bookedCount: 0, capacity: 5, serviceId: 3 },
+      ] as any);
+
+      const result: ClientMenuCallbackResult = { clientMenuAction: 'book' };
+      await handleClientMenuCallback(result, BASE_BUSINESS as any, senderTelegramId);
+
+      expect(mockedSendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
+        senderTelegramId,
+        expect.stringContaining(`Έχεις απεριόριστες συνεδρίες (ισχύουν έως ${formatExpiryDateGreek(expiresAt)})`),
+        expect.anything()
+      );
+    });
+
+    it('dates beyond membership expiry are excluded from the date list', async () => {
+      mockedGetClientActiveMembership.mockResolvedValue({
+        packageName: 'Test Pack',
+        sessionsRemaining: 5,
+        expiresAt: new Date('2026-08-02T23:59:59+03:00'),
+        isUnlimited: false,
+      });
+      mockedListSessions.mockResolvedValue([
+        { instanceId: 1, catalogId: 1, sessionDate: '2026-08-01', sessionTime: '09:00', bookedCount: 0, capacity: 5, serviceId: 3 },
+        { instanceId: 2, catalogId: 1, sessionDate: '2026-08-05', sessionTime: '09:00', bookedCount: 0, capacity: 5, serviceId: 3 },
+      ] as any);
+
+      const result: ClientMenuCallbackResult = { clientMenuAction: 'book' };
+      await handleClientMenuCallback(result, BASE_BUSINESS as any, senderTelegramId);
+
+      const kbCalls = (mockedSendTelegramMessageWithKeyboard as jest.Mock).mock.calls;
+      const keyboard = kbCalls[kbCalls.length - 1][2];
+      const dateButtons = keyboard.flat().map((b: any) => b.callback_data);
+      expect(dateButtons).toContain('cmenu:book:date:20260801');
+      expect(dateButtons).not.toContain('cmenu:book:date:20260805');
+    });
+
+    it('all available dates fall beyond membership expiry → renewal-specific empty message, not the generic one', async () => {
+      mockedGetClientActiveMembership.mockResolvedValue({
+        packageName: 'Test Pack',
+        sessionsRemaining: 5,
+        expiresAt: new Date('2026-07-31T23:59:59+03:00'),
+        isUnlimited: false,
+      });
+      mockedListSessions.mockResolvedValue([
+        { instanceId: 1, catalogId: 1, sessionDate: '2026-08-05', sessionTime: '09:00', bookedCount: 0, capacity: 5, serviceId: 3 },
+      ] as any);
+
+      const result: ClientMenuCallbackResult = { clientMenuAction: 'book' };
+      await handleClientMenuCallback(result, BASE_BUSINESS as any, senderTelegramId);
+
+      expect(mockedSendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
+        senderTelegramId,
+        expect.stringContaining('εντός της συνδρομής σου'),
+        [[{ text: '« Πίσω', callback_data: 'cmenu:root' }]]
+      );
+    });
   });
 
   it('book:date — business.bookingMode === open_slots → back-button keyboard sent, listSessions NOT called (D-04)', async () => {

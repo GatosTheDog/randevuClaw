@@ -28,7 +28,7 @@ import {
 import { logger } from '../../utils/logger';
 import { listSessions, bookSessionInstance, findSessionInstanceById } from '../../session/manager';
 import { BACK_MENU_LABELS } from '../../utils/greek-messages';
-import { hoursUntilSession } from '../../utils/timezone';
+import { hoursUntilSession, isoDateInAthens, formatExpiryDateGreek } from '../../utils/timezone';
 import { formatDateButtonLabel, dateToCallbackId, callbackIdToDate } from '../../utils/date-picker';
 import { checkEnforcementAndGetMembership } from '../../billing/enforcement';
 import {
@@ -123,23 +123,51 @@ export async function showBookDateList(chatId: string, business: Business): Prom
     return;
   }
 
-  const sessions = await listSessions(business.id, BOOKING_WINDOW_DAYS, true);
-  const available = sessions.filter((s) => s.bookedCount < s.capacity);
+  // Membership preview (D-11): a plain, non-locking read — this is a browse
+  // step, not a deduction, so getClientActiveMembership (not the FOR UPDATE
+  // getActiveMembershipForDeduction used at execute time) is the right call.
+  const membership = await getClientActiveMembership(business.id, chatId);
+  const hasCapacity =
+    membership !== null &&
+    (membership.sessionsRemaining === null || membership.sessionsRemaining > 0);
 
-  if (available.length === 0) {
+  if (!hasCapacity && business.enforcementPolicy === 'block') {
     const keyboard: InlineKeyboard = [
       [{ text: BACK_MENU_LABELS.CLIENT, callback_data: 'cmenu:root' }],
     ];
     await sendTelegramMessageWithKeyboard(
       chatId,
-      `Δεν υπάρχουν διαθέσιμα μαθήματα για τις επόμενες ${BOOKING_WINDOW_DAYS} ημέρες.`,
+      'Για να κάνετε κράτηση, χρειάζεστε ενεργή συνδρομή. Επικοινωνήστε με τον διαχειριστή για ανανέωση.',
       keyboard
     );
     return;
   }
 
+  const sessions = await listSessions(business.id, BOOKING_WINDOW_DAYS, true);
+  const available = sessions.filter((s) => s.bookedCount < s.capacity);
+
+  // D-11: a membership only covers slots up to its own expiry — cap the
+  // browsable date range to it regardless of enforcement policy, so a client
+  // is never offered a date they'd need to renew for before it even loads.
+  const cappedAtDate = membership ? isoDateInAthens(membership.expiresAt) : null;
+  const withinMembership = cappedAtDate
+    ? available.filter((s) => s.sessionDate <= cappedAtDate)
+    : available;
+
+  if (withinMembership.length === 0) {
+    const keyboard: InlineKeyboard = [
+      [{ text: BACK_MENU_LABELS.CLIENT, callback_data: 'cmenu:root' }],
+    ];
+    const message =
+      cappedAtDate && available.length > 0
+        ? `Δεν έχεις διαθέσιμες ημερομηνίες εντός της συνδρομής σου (ισχύει έως ${formatExpiryDateGreek(membership!.expiresAt)}). Ανανέωσε τη συνδρομή σου για μαθήματα αργότερα.`
+        : `Δεν υπάρχουν διαθέσιμα μαθήματα για τις επόμενες ${BOOKING_WINDOW_DAYS} ημέρες.`;
+    await sendTelegramMessageWithKeyboard(chatId, message, keyboard);
+    return;
+  }
+
   // listSessions returns rows ordered by sessionDate, so dedup preserves order.
-  const dates = [...new Set(available.map((s) => s.sessionDate))];
+  const dates = [...new Set(withinMembership.map((s) => s.sessionDate))];
 
   const rows: InlineKeyboard = dates.map((date) => {
     const callbackData = `cmenu:book:date:${dateToCallbackId(date)}`;
@@ -148,7 +176,18 @@ export async function showBookDateList(chatId: string, business: Business): Prom
   });
   rows.push([{ text: BACK_MENU_LABELS.CLIENT, callback_data: 'cmenu:root' }]);
 
-  await sendTelegramMessageWithKeyboard(chatId, 'Επίλεξε ημερομηνία:', rows);
+  let banner: string;
+  if (membership && hasCapacity) {
+    banner = membership.isUnlimited
+      ? `Έχεις απεριόριστες συνεδρίες (ισχύουν έως ${formatExpiryDateGreek(membership.expiresAt)}).`
+      : `Έχεις ${membership.sessionsRemaining} διαθέσιμα μαθήματα (ισχύουν έως ${formatExpiryDateGreek(membership.expiresAt)}).`;
+  } else {
+    // !hasCapacity here only reaches this point under a non-'block' policy
+    // (flag/allow) — the 'block' case already returned above.
+    banner = '⚠️ Δεν έχεις ενεργή συνδρομή. Η κράτηση θα σταλεί στον διαχειριστή για έγκριση.';
+  }
+
+  await sendTelegramMessageWithKeyboard(chatId, `${banner}\n\nΕπίλεξε ημερομηνία:`, rows);
 }
 
 /**
