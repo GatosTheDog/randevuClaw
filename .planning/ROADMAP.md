@@ -114,7 +114,14 @@ See: `.planning/milestones/v1.6-ROADMAP.md`
   2. A client-initiated reschedule request is sent to the owner as an approve/reject prompt instead of auto-confirming, reusing the same capacity-hold cascade already used for new session bookings.
   3. If the owner rejects a reschedule, the client's original booking remains intact and the client receives a Greek notification explaining the rejection.
   4. Reschedules already confirmed under the previous auto-confirm behavior continue to behave correctly after the new approval gate ships (no orphaned capacity holds or double-booked slots).
-**Plans**: TBD
+**Plans**: 5 plans
+
+Plans:
+- [ ] 26-01-PLAN.md — CONF-01 foundation: Greek button-label constants, owner-confirm module (five prompts, execute-on-confirm handlers), admin-menu cancel-class labels and `menu:confirm:*` routing
+- [ ] 26-02-PLAN.md — CONF-01 free chat: delete_service, update_service_price, close_day/update_hours, cancel_session, assign_client_to_session become confirmation-prompt tools
+- [ ] 26-03-PLAN.md — CONF-02 domain core: persist reschedule link, approve-time cascade with net-zero credit, standalone fallback, reschedule-aware expiry notice
+- [ ] 26-04-PLAN.md — CONF-02 reschedule tool: pending replacement (no auto-confirm), owner reschedule prompt, duplicate/chained guards, shared approval labels, legacy-safety tests
+- [ ] 26-05-PLAN.md — CONF-02 webhook wiring: sbk:approve cascade and sbk:reject client notice that the original booking is kept
 
 #### Phase 27: Client Consent & Registration
 **Goal**: Every client's first contact with the bot goes through a real, observable consent step, and the platform can tell a genuinely opted-in client apart from an incidental first-contact row.
@@ -189,7 +196,7 @@ See: `.planning/milestones/v1.6-ROADMAP.md`
 | 23. Lesson Deletion & Cascade Cancellation | v1.6 | 1/1 | Complete | 2026-07-27 |
 | 24. Bot Access & Diagnostics Polish | v1.6 | 1/1 | Complete | 2026-07-27 |
 | 25. Client Invite Generator | v1.6 | 1/1 | Complete | 2026-07-27 |
-| 26. Confirmation & Approval Policy | v1.7 | 0/TBD | Not started | - |
+| 26. Confirmation & Approval Policy | v1.7 | 0/5 | Planned | - |
 | 27. Client Consent & Registration | v1.7 | 0/TBD | Not started | - |
 | 28. Admin Menu Discoverability | v1.7 | 0/TBD | Not started | - |
 | 29. Booking & List Clarity | v1.7 | 0/TBD | Not started | - |
