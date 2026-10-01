@@ -195,7 +195,8 @@ function formatServiceLine(service: Service): string {
 }
 
 function formatHoursLine(hours: BusinessHours): string {
-  const label = hours.isClosed ? 'Κλειστά' : `${hours.openTime}-${hours.closeTime}`;
+  const range2 = hours.openTime2 && hours.closeTime2 ? `, ${hours.openTime2}-${hours.closeTime2}` : '';
+  const label = hours.isClosed ? 'Κλειστά' : `${hours.openTime}-${hours.closeTime}${range2}`;
   return `${GREEK_WEEKDAYS[hours.dayOfWeek]}: ${label}`;
 }
 
@@ -252,6 +253,13 @@ function is429(err: unknown): boolean {
     (err as { status?: number } | null | undefined)?.status ??
     (err as { error?: { status?: number } } | null | undefined)?.error?.status;
   return status === 429;
+}
+
+function is404(err: unknown): boolean {
+  const status =
+    (err as { status?: number } | null | undefined)?.status ??
+    (err as { error?: { status?: number } } | null | undefined)?.error?.status;
+  return status === 404;
 }
 
 // Debug (webhook-hang-no-reply): distinguishes a bounded per-call timeout
@@ -395,6 +403,21 @@ export async function aiBookingAgent(
         { requestId, businessId: business.id, round }
       );
     } catch (err) {
+      // Stored interaction ids expire server-side (Gemini retention window),
+      // so a 404 on the first round with a previous id means the id is
+      // stale. Drop it and retry as a fresh interaction; otherwise the
+      // fallback would re-persist the same dead id and every later message
+      // would fail the same way.
+      if (is404(err) && currentInteractionId && round === 1 && typeof input === 'string') {
+        logger.warn(
+          { requestId, businessId: business.id },
+          'aiBookingAgent: previous_interaction_id expired (404), retrying without it'
+        );
+        currentInteractionId = undefined;
+        previousInteractionId = null;
+        round = 0;
+        continue;
+      }
       if (err instanceof GeminiRateLimitError) {
         logger.warn({ requestId, businessId: business.id, round }, 'aiBookingAgent: rate-limited after retries, returning fallback');
         return {
