@@ -14,6 +14,8 @@ import {
 import { checkAvailability } from '../business/availability';
 import { sendTelegramMessage, sendTelegramMessageWithKeyboard, InlineKeyboard } from '../telegram/client';
 import { deleteBookingFromCalendar } from '../calendar/sync';
+import { appendCancelCalendarNote } from '../calendar/client-link';
+import { processBookingConfirmedForCalendar } from '../calendar/confirmation';
 import { logger } from '../utils/logger';
 import { getClientActiveMembership, getActiveMembershipForDeduction, deductSession, getClientName, findMembershipByBooking, restoreCredit, linkRescheduledBooking } from '../billing/queries';
 import { checkEnforcementAndGetMembership } from '../billing/enforcement';
@@ -376,7 +378,10 @@ async function cancelAppointmentTool(
       try {
         await sendTelegramMessage(
           booking.clientPhone,
-          `Το ραντεβού σας ακυρώθηκε. Το session δεν επιστράφηκε λόγω ακύρωσης εντός ${cutoffHours} ωρών.`
+          appendCancelCalendarNote(
+            `Το ραντεβού σας ακυρώθηκε. Το session δεν επιστράφηκε λόγω ακύρωσης εντός ${cutoffHours} ωρών.`,
+            booking.bookingStatus === 'confirmed'
+          )
         );
       } catch (err) { logger.error({ err }, 'Client forfeiture notification failed'); }
       return { success: true, booking_id: booking.id, credit_forfeited: true };
@@ -414,7 +419,11 @@ async function cancelAppointmentTool(
       const ownerText = `Ακύρωση ραντεβού από πελάτη:\nΥπηρεσία: ${service?.name ?? 'άγνωστη'}\nΗμερομηνία: ${booking.calendarDate}\nΏρα: ${booking.calendarTime}\nΠελάτης: ${booking.clientPhone}`;
       await sendTelegramMessage(context.business.ownerTelegramId, ownerText);
     }
-    await sendTelegramMessage(booking.clientPhone, 'Το ραντεβού σας ακυρώθηκε.');
+    await sendTelegramMessage(
+      booking.clientPhone,
+      // D-03: `booking` is the pre-update row, so a confirmed status means a link was sent.
+      appendCancelCalendarNote('Το ραντεβού σας ακυρώθηκε.', booking.bookingStatus === 'confirmed')
+    );
   } catch (err) {
     logger.error({ err, bookingId: booking.id }, 'Cancellation succeeded but notification failed');
   }
@@ -771,6 +780,16 @@ async function rescheduleSessionTool(
     await restoreCredit(oldMembershipId, original.id, 'booking:' + original.id + ':credit');
   }
 
+  // D-05: the superseded booking's Google event must not be orphaned.
+  // Best-effort: calendar failures never block the reschedule.
+  let fullBusiness: Awaited<ReturnType<typeof findBusinessById>> = null;
+  try {
+    fullBusiness = await findBusinessById(context.business.id);
+    if (fullBusiness) await deleteBookingFromCalendar(original, fullBusiness);
+  } catch (err) {
+    logger.error({ err, bookingId: original.id }, 'Calendar deletion failed (best-effort, reschedule_session)');
+  }
+
   // Fetch fresh membership after restore so deductSession sees the updated counter
   const activeMembership = await getActiveMembershipForDeduction(context.business.id, context.clientPhone);
   const newKey = context.idempotencyKey + ':reschedule:' + parsed.new_session_instance_id;
@@ -802,6 +821,33 @@ async function rescheduleSessionTool(
       error: 'reschedule_failed_' + result.status,
       message: result.status === 'full' ? 'Το νέο μάθημα είναι πλήρες.' : 'Το νέο μάθημα δεν είναι διαθέσιμο.',
     };
+  }
+
+  // Today's immediate-confirm flow (the 'confirmed' override above): the new
+  // booking is confirmed right here, so owner sync + client link happen here.
+  // Phase 26 (26-04) replaces this with a pending approval; the sbk:approve
+  // branch then performs the confirmation processing and this block goes away.
+  if (result.bookingId !== undefined && fullBusiness) {
+    try {
+      const newBooking = await findBookingById(context.business.id, result.bookingId);
+      if (newBooking) {
+        const outcome = await processBookingConfirmedForCalendar({
+          booking: newBooking,
+          business: fullBusiness,
+          isReschedule: true,
+        });
+        const linkMessage = outcome?.clientCalendarMessage?.trim();
+        if (linkMessage) {
+          try {
+            await sendTelegramMessage(context.clientPhone, linkMessage);
+          } catch (err) {
+            logger.error({ err, bookingId: newBooking.id }, 'Reschedule calendar link send failed');
+          }
+        }
+      }
+    } catch (err) {
+      logger.error({ err, bookingId: result.bookingId }, 'Reschedule calendar processing failed (best-effort)');
+    }
   }
 
   return {
