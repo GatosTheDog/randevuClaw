@@ -118,7 +118,7 @@ See: `.planning/milestones/v1.6-ROADMAP.md`
   3. The client receives a tap-to-add Google Calendar link only after owner confirmation, plus Greek delete-old-event notes on reschedule/cancel; client calendars are never modified.
   4. Without a Google connection, sync is skipped silently, bookings and the client link are unaffected, and the owner gets exactly one nudge to connect.
 
-**Plans**: 3/6 plans executed
+**Plans**: 4/6 plans executed
 
 Plans:
 **Wave 1**
@@ -129,7 +129,7 @@ Plans:
 **Wave 2** *(blocked on Wave 1 completion)*
 
 - [x] 25.1-03-PLAN.md — Owner sync hardening (sync/poller), one-time and revoked-token nudges, `processBookingConfirmedForCalendar` entry point
-- [ ] 25.1-04-PLAN.md — In-bot Google connect: menu button, single-use state, callback route, live consent human-check
+- [x] 25.1-04-PLAN.md — In-bot Google connect: menu button, single-use state, callback route, live consent human-check
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
