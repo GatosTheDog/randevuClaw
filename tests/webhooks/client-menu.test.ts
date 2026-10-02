@@ -1,3 +1,6 @@
+// qrcode/sharp are not installed in this checkout; the invite generator is irrelevant here.
+jest.mock('../../src/invites/generator', () => ({ sendBusinessInvite: jest.fn() }));
+
 // Phase 18 Plan 04: Client menu integration tests.
 //
 // Covers:
