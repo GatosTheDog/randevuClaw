@@ -1,3 +1,6 @@
+// qrcode/sharp are not installed in this checkout; the invite generator is irrelevant here.
+jest.mock('../src/invites/generator', () => ({ sendBusinessInvite: jest.fn() }));
+
 import request from 'supertest';
 import app from '../src/server';
 import * as queries from '../src/database/queries';
