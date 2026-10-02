@@ -12,6 +12,7 @@ import {
   listServicesForBusiness,
   listBookingsForDate,
   findServiceById,
+  findBookingById,
   withBusinessContext,
   getConn,
   setBookingMode,
@@ -36,6 +37,7 @@ import { sendTelegramMessage, sendTelegramMessageWithKeyboard } from '../telegra
 import { createSessionCatalogWithExpansion, bookSessionInstance, cancelSession, cascadeCancelSessionBookings, listSessions, buildRRuleString } from '../session/manager';
 import { sendBusinessInvite } from '../invites/generator';
 import { CONFIRM_LABELS } from '../utils/greek-messages';
+import { processBookingConfirmedForCalendar } from '../calendar/confirmation';
 
 // Bounds the Gemini HTTP call to 25s so a stalled owner-agent response settles
 // instead of hanging silently — the existing try/catch already logs + returns
@@ -1317,13 +1319,28 @@ export async function handleOwnerToolConfirmCallback(
         );
         return;
       }
+      // Owner assignment is a confirmed point (D-02: the booking row is already
+      // 'confirmed'): sync to the owner's calendar (D-05) and append the client's
+      // tap-to-add link. Best-effort — never blocks the notifications below.
+      let calendarMessage = '';
+      if (bookResult.bookingId !== undefined) {
+        try {
+          const assigned = await findBookingById(business.id, bookResult.bookingId);
+          if (assigned) {
+            const calendarOutcome = await processBookingConfirmedForCalendar({ booking: assigned, business });
+            calendarMessage = calendarOutcome?.clientCalendarMessage ?? '';
+          }
+        } catch (err) {
+          logger.warn({ err, bookingId: bookResult.bookingId }, 'assign: calendar processing failed (best-effort)');
+        }
+      }
       // WR-04: the assignment above has already committed — each send is
       // independently best-effort so a failure on the client's notification
       // (e.g. unreachable chat) never skips the owner's own confirmation.
       try {
         await sendTelegramMessage(
           clientPhone,
-          `Ο ιδιοκτήτης σε όρισε στο μάθημα ${target.sessionDate} στις ${target.sessionTime}. Σε περιμένουμε!`
+          `Ο ιδιοκτήτης σε όρισε στο μάθημα ${target.sessionDate} στις ${target.sessionTime}. Σε περιμένουμε!${calendarMessage}`
         );
       } catch (err) {
         logger.error({ err, clientPhone, instanceId: target.instanceId }, 'assign: client notification failed (best-effort)');
