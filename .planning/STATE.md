@@ -5,14 +5,14 @@ milestone_name: UX & Trust Polish
 current_phase: 26
 current_phase_name: v1.7 Phase 1/5
 status: executing
-stopped_at: Phase 26 context gathered
-last_updated: "2026-10-01T10:28:23.129Z"
+stopped_at: Phase 25.1 context gathered
+last_updated: "2026-10-02T08:21:30.123Z"
 last_activity: 2026-07-28
 last_activity_desc: v1.7 ROADMAP.md created (Phases 26-30), REQUIREMENTS.md traceability updated, 15/15 requirements mapped
 progress:
-  total_phases: 5
+  total_phases: 6
   completed_phases: 0
-  total_plans: 0
+  total_plans: 5
   completed_plans: 0
   percent: 0
 ---
@@ -257,6 +257,10 @@ Recent decisions affecting current work:
 - [Phase 26]: CONF-02 reschedule-approval reversal has in-flight data risk — reschedules already auto-confirmed under the old Phase 22 behavior must not become invisible/orphaned once the new approval filter goes live (research PITFALLS.md #2).
 - [Phase 27]: COMP-01/COMP-02 consent-timing fix has a concurrency risk — two threads on the same client's first contact could race past the consent upsert; use an atomic INSERT...ON CONFLICT, not read-then-write (research PITFALLS.md #3).
 
+### Roadmap Evolution
+
+- Phase 25.1 inserted after Phase 25: Google Calendar integration for client and admin bookings (URGENT)
+
 ## Deferred Items
 
 Items acknowledged and deferred at v1.0 milestone close on 2026-07-09:
@@ -318,9 +322,9 @@ Items acknowledged and deferred at v1.6 milestone close on 2026-07-28:
 
 ## Session Continuity
 
-Last session: 2026-07-27T23:08:41.863Z
-Stopped at: Phase 26 context gathered
-Resume file: .planning/phases/26-confirmation-approval-policy/26-CONTEXT.md
+Last session: 2026-10-02T08:21:30.117Z
+Stopped at: Phase 25.1 context gathered
+Resume file: .planning/phases/25.1-google-calendar-client-admin/25.1-CONTEXT.md
 
 **Phase 12 Plan 01 completed:** a940588, 6c5830e, 7d64f85
 
