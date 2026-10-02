@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import { logger } from './utils/logger';
 import telegramWebhookRouter from './webhooks/telegram';
+import { getGoogleOAuthCallbackPath, handleGoogleOAuthCallback } from './google/callback';
 import { startExpiryPoller } from './conversation/expiry-poller';
 import { startCalendarSyncPoller } from './calendar/poller';
 import { startAgendaPoller } from './scheduler/agenda';
@@ -14,6 +15,8 @@ import { exchangeAuthCodeForTokens, storeGoogleRefreshToken, verifyOAuthState } 
 const app = express();
 
 app.use('/webhooks/telegram', telegramWebhookRouter);
+
+app.get(getGoogleOAuthCallbackPath(), handleGoogleOAuthCallback);
 
 app.get('/healthz', (_req, res) => {
   res.status(200).json({ status: 'ok' });
