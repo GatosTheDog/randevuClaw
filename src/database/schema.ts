@@ -75,6 +75,9 @@ export const businesses = pgTable('businesses', {
   // Phase 11 (SBOK-04): whether a client can book multiple sessions in one
   // request. Default false.
   allowMultiBooking: boolean('allow_multi_booking').notNull().default(false),
+  // Phase 25.1 (D-06): the one-time "connect your Google Calendar" nudge is
+  // persisted. Only the atomic claim query (claimGoogleCalendarNudge) flips it.
+  googleCalendarNudgeSent: boolean('google_calendar_nudge_sent').notNull().default(false),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 
@@ -552,3 +555,19 @@ export const renewalNudgeNotifications = pgTable(
     uniqueIndex('unique_renewal_nudge').on(table.membershipId, table.nudgeDate),
   ]
 );
+
+/**
+ * Phase 25.1 (D-04): single-use OAuth state store for the in-bot Google
+ * Calendar connect flow. Holds only the SHA-256 hash of the state value.
+ * Accessed only through the admin pool (RLS is enabled in migration 0013 with
+ * no policy and no GRANT to randevuclaw_app). Deliberately has no unique index
+ * besides the primary key so `drizzle-kit push` needs no TTY prompt.
+ */
+export const googleOauthStates = pgTable('google_oauth_states', {
+  stateHash: text('state_hash').primaryKey(),
+  businessId: integer('business_id')
+    .notNull()
+    .references(() => businesses.id, { onDelete: 'cascade' }),
+  expiresAt: timestamp('expires_at').notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+});

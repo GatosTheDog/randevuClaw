@@ -16,6 +16,8 @@
     "db:push": "drizzle-kit push",
     "db:seed": "ts-node src/database/seed.ts",
     "db:studio": "drizzle-kit studio",
+    "db:apply-sql": "ts-node scripts/apply-sql-migration.ts",
+    "db:verify-25-1": "ts-node scripts/verify-schema-25-1.ts",
     "setup-calendar": "ts-node scripts/setup-google-calendar.ts",
     "create-business": "ts-node scripts/create-business.ts"
   },
