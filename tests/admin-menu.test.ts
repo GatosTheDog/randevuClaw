@@ -30,7 +30,8 @@ jest.mock('../src/onboarding/queries');
 jest.mock('../src/onboarding/ai-owner-agent');
 jest.mock('../src/session/manager');
 jest.mock('../src/scheduler/agenda');
-jest.mock('../src/invites/generator');
+jest.mock('../src/invites/generator', () => ({ sendBusinessInvite: jest.fn() }));
+jest.mock('../src/telegram/handlers/google-calendar-connect');
 
 // ---------------------------------------------------------------------------
 // Test constants
@@ -79,6 +80,10 @@ describe('parseCallbackData — MenuCallbackResult arm', () => {
     expect(result).toEqual({ menuAction: 'classes:cancel_yes', id: 99 });
   });
 
+  test('parses menu:gcal_connect as menuAction without id', () => {
+    expect(parseCallbackData('menu:gcal_connect')).toEqual({ menuAction: 'gcal_connect', id: undefined });
+  });
+
   test('parses menu:root without id', () => {
     const result = parseCallbackData('menu:root');
     expect(result).toEqual({ menuAction: 'root', id: undefined });
@@ -107,7 +112,7 @@ describe('showAdminRootMenu — keyboard shape', () => {
     telegramClient.sendTelegramMessage.mockResolvedValue({ messageId: 2 });
   });
 
-  test('sends exactly one message with a 3-row keyboard totalling 5 buttons', async () => {
+  test('sends exactly one message with a 4-row keyboard totalling 6 buttons', async () => {
     const telegramClient = require('../src/telegram/client');
     await showAdminRootMenu('123', mockBusiness);
 
@@ -115,17 +120,41 @@ describe('showAdminRootMenu — keyboard shape', () => {
     expect(sendCalls.length).toBe(1);
 
     const keyboard = sendCalls[0][2];
-    // 3 rows: existing 2x2 grid unchanged, plus a 3rd row with the invite button
-    expect(keyboard.length).toBe(3);
+    // 4 rows: existing 2x2 grid unchanged, invite row, Google Calendar connect row
+    expect(keyboard.length).toBe(4);
     // Pre-existing 2x2 grid content is byte-for-byte unchanged
     expect(keyboard[0].length).toBe(2);
     expect(keyboard[1].length).toBe(2);
     // 3rd row: exactly one button with callback_data menu:invite
     expect(keyboard[2].length).toBe(1);
     expect(keyboard[2][0]).toEqual({ text: 'Πρόσκληση Πελάτη', callback_data: 'menu:invite' });
-    // 5 buttons total
+    // 4th row: Google Calendar connect button
+    expect(keyboard[3]).toEqual([{ text: 'Σύνδεση Google Calendar', callback_data: 'menu:gcal_connect' }]);
+    // 6 buttons total
     const totalButtons = keyboard.flat().length;
-    expect(totalButtons).toBe(5);
+    expect(totalButtons).toBe(6);
+  });
+
+  test('shows the reconnect label when the business already has a Google refresh token', async () => {
+    const telegramClient = require('../src/telegram/client');
+    await showAdminRootMenu('123', { ...mockBusiness, googleRefreshToken: 'rt' });
+
+    const keyboard = (telegramClient.sendTelegramMessageWithKeyboard as jest.Mock).mock.calls[0][2];
+    expect(keyboard[3]).toEqual([
+      { text: 'Google Calendar ✅ (επανασύνδεση)', callback_data: 'menu:gcal_connect' },
+    ]);
+  });
+});
+
+describe('handleMenuCallback — gcal_connect action', () => {
+  test('routes to handleGoogleCalendarConnect(chatId, business) exactly once', async () => {
+    const connect = require('../src/telegram/handlers/google-calendar-connect');
+    connect.handleGoogleCalendarConnect.mockResolvedValue(undefined);
+
+    await handleMenuCallback({ menuAction: 'gcal_connect', id: undefined }, mockBusiness, '123');
+
+    expect(connect.handleGoogleCalendarConnect).toHaveBeenCalledTimes(1);
+    expect(connect.handleGoogleCalendarConnect).toHaveBeenCalledWith('123', mockBusiness);
   });
 });
 

@@ -22,6 +22,8 @@ import { listSessions, cancelSession, cascadeCancelSessionBookings } from '../..
 import { InlineKeyboard, sendTelegramMessage, sendTelegramMessageWithKeyboard, botTokenStore } from '../client';
 import { getAllClientsForBusiness, getClientActiveMembership } from '../../billing/queries';
 import { sendBusinessInvite } from '../../invites/generator';
+import { GOOGLE_CONNECT_CALLBACK_DATA, GOOGLE_CONNECT_BUTTON_LABEL } from '../../google/constants';
+import { handleGoogleCalendarConnect } from './google-calendar-connect';
 
 // Exported so telegram.ts can use it in the parseCallbackData return union.
 // Discriminant field: menuAction — unique across all existing result types
@@ -42,7 +44,8 @@ function assertCallbackDataSize(data: string): void {
 }
 
 /**
- * Sends the four-button 2x2 admin root menu keyboard to the owner (AMENU-01).
+ * Sends the admin root menu keyboard to the owner (AMENU-01): a 2x2 grid, then
+ * single-button rows for the client invite and Google Calendar connect/reconnect.
  */
 export async function showAdminRootMenu(chatId: string, business: Business): Promise<void> {
   const callbackDataSettings = 'menu:settings';
@@ -56,6 +59,7 @@ export async function showAdminRootMenu(chatId: string, business: Business): Pro
   assertCallbackDataSize(callbackDataClients);
   assertCallbackDataSize(callbackDataAgenda);
   assertCallbackDataSize(callbackDataInvite);
+  assertCallbackDataSize(GOOGLE_CONNECT_CALLBACK_DATA);
 
   const keyboard: InlineKeyboard = [
     [
@@ -67,6 +71,12 @@ export async function showAdminRootMenu(chatId: string, business: Business): Pro
       { text: 'Ατζέντα Σήμερα', callback_data: callbackDataAgenda },
     ],
     [{ text: 'Πρόσκληση Πελάτη', callback_data: callbackDataInvite }],
+    [
+      {
+        text: business.googleRefreshToken ? 'Google Calendar ✅ (επανασύνδεση)' : GOOGLE_CONNECT_BUTTON_LABEL,
+        callback_data: GOOGLE_CONNECT_CALLBACK_DATA,
+      },
+    ],
   ];
 
   await sendTelegramMessageWithKeyboard(
@@ -541,6 +551,10 @@ export async function handleMenuCallback(
 
     case menuAction === 'invite':
       await handleInviteGeneration(chatId, business);
+      break;
+
+    case menuAction === 'gcal_connect':
+      await handleGoogleCalendarConnect(chatId, business);
       break;
 
     case menuAction === 'classes':
