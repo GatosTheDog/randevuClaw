@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'async_hooks';
-import { and, desc, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
 import { db, appPool, runInTransaction, withConnectionRetry } from './db';
 import { logger } from '../utils/logger';
 import {
@@ -11,6 +11,7 @@ import {
   conversationTurns,
   telegramUpdates,
   slotlessRequests,
+  googleOauthStates,
 } from './schema';
 
 // Thread the current Drizzle transaction through the call stack transparently.
@@ -688,11 +689,17 @@ export async function claimAgendaSlot(businessId: number, todayIso: string): Pro
   return rows.length > 0;
 }
 
+// Phase 25.1 (T-25.1-07): the three calendar status writes below use getConn()
+// instead of the admin db. Inside a webhook callback the booking row is already
+// locked by the open withBusinessContext transaction; a write through the
+// separate admin pool would wait on that lock (self-deadlock until
+// statement_timeout). getConn() joins the transaction and falls back to the
+// admin pool outside it (pollers).
 export async function updateCalendarSyncStatus(
   bookingId: number,
   status: 'pending' | 'synced' | 'failed'
 ): Promise<void> {
-  await db
+  await getConn()
     .update(bookings)
     .set({ calendarSyncStatus: status })
     .where(eq(bookings.id, bookingId));
@@ -702,7 +709,7 @@ export async function updateBookingGoogleEventId(
   bookingId: number,
   eventId: string
 ): Promise<void> {
-  await db
+  await getConn()
     .update(bookings)
     .set({ googleCalendarEventId: eventId })
     .where(eq(bookings.id, bookingId));
@@ -712,7 +719,7 @@ export async function updateBookingGoogleEventId(
 // just firing the UPDATE), so the retry poller can compare it against a
 // max-retry threshold without a separate read.
 export async function incrementCalendarSyncRetryCount(bookingId: number): Promise<number> {
-  const rows = await db
+  const rows = await getConn()
     .update(bookings)
     .set({ calendarSyncRetryCount: sql`${bookings.calendarSyncRetryCount} + 1` })
     .where(eq(bookings.id, bookingId))
@@ -737,7 +744,17 @@ export async function listClientBookings(
     .orderBy(bookings.calendarDate, bookings.calendarTime);
 }
 
-export async function findBookingsNeedingCalendarSync(businessId: number): Promise<Booking[]> {
+export const CALENDAR_SYNC_BATCH_LIMIT = 50;
+
+// Phase 25.1 (D-05/D-16, T-25.1-12): bounded sweep. Past confirmed bookings are
+// never back-filled and cancelled rows that never got a Google event need no
+// delete, so the first live connection cannot flood Google Calendar (Phase 3
+// D-16 quota reasoning, T-03-06).
+export async function findBookingsNeedingCalendarSync(
+  businessId: number,
+  todayIso: string,
+  limit: number = CALENDAR_SYNC_BATCH_LIMIT
+): Promise<Booking[]> {
   return db
     .select()
     .from(bookings)
@@ -745,9 +762,75 @@ export async function findBookingsNeedingCalendarSync(businessId: number): Promi
       and(
         eq(bookings.businessId, businessId),
         eq(bookings.calendarSyncStatus, 'pending'),
-        inArray(bookings.bookingStatus, ['confirmed', 'cancelled'])
+        or(
+          and(eq(bookings.bookingStatus, 'confirmed'), gte(bookings.calendarDate, todayIso)),
+          and(
+            eq(bookings.bookingStatus, 'cancelled'),
+            isNotNull(bookings.googleCalendarEventId)
+          )
+        )
       )
-    );
+    )
+    .orderBy(bookings.calendarDate, bookings.id)
+    .limit(limit);
+}
+
+// Phase 25.1 (D-06): atomic one-time nudge claim. true iff THIS call flipped
+// google_calendar_nudge_sent false -> true, so exactly one caller wins.
+export async function claimGoogleCalendarNudge(businessId: number): Promise<boolean> {
+  const rows = await db
+    .update(businesses)
+    .set({ googleCalendarNudgeSent: true })
+    .where(and(eq(businesses.id, businessId), eq(businesses.googleCalendarNudgeSent, false)))
+    .returning({ id: businesses.id });
+  return rows.length > 0;
+}
+
+// Releases the claim when the nudge message could not be delivered.
+export async function releaseGoogleCalendarNudgeClaim(businessId: number): Promise<void> {
+  await db
+    .update(businesses)
+    .set({ googleCalendarNudgeSent: false })
+    .where(eq(businesses.id, businessId));
+}
+
+// true iff a token was actually cleared.
+export async function clearBusinessGoogleRefreshToken(businessId: number): Promise<boolean> {
+  const rows = await db
+    .update(businesses)
+    .set({ googleRefreshToken: null })
+    .where(and(eq(businesses.id, businessId), isNotNull(businesses.googleRefreshToken)))
+    .returning({ id: businesses.id });
+  return rows.length > 0;
+}
+
+// Phase 25.1 (D-04): OAuth state store. Admin pool only (RLS, no app GRANT).
+export async function insertGoogleOauthState(
+  stateHash: string,
+  businessId: number,
+  expiresAt: Date
+): Promise<void> {
+  await db.insert(googleOauthStates).values({ stateHash, businessId, expiresAt });
+}
+
+// One atomic DELETE ... RETURNING: a state works at most once and only before
+// expiry. The businessId comes from the row written server-side at creation.
+export async function consumeGoogleOauthState(stateHash: string): Promise<number | null> {
+  const rows = await db
+    .delete(googleOauthStates)
+    .where(
+      and(eq(googleOauthStates.stateHash, stateHash), gt(googleOauthStates.expiresAt, new Date()))
+    )
+    .returning({ businessId: googleOauthStates.businessId });
+  return rows[0]?.businessId ?? null;
+}
+
+export async function deleteExpiredGoogleOauthStates(): Promise<number> {
+  const rows = await db
+    .delete(googleOauthStates)
+    .where(lt(googleOauthStates.expiresAt, new Date()))
+    .returning({ stateHash: googleOauthStates.stateHash });
+  return rows.length;
 }
 
 export async function listBookingsForDate(
