@@ -27,6 +27,7 @@ interface SelectChain {
   from: jest.Mock;
   where: jest.Mock;
   orderBy: jest.Mock;
+  limit: jest.Mock;
   then: (resolve: (value: unknown) => void) => void;
 }
 
@@ -34,7 +35,9 @@ function makeSelectChain(result: unknown[]): SelectChain {
   const chain = {} as SelectChain;
   chain.from = jest.fn().mockReturnValue(chain);
   chain.where = jest.fn().mockReturnValue(chain);
-  chain.orderBy = jest.fn().mockResolvedValue(result);
+  // orderBy returns the chain (itself awaitable) so a following .limit() works.
+  chain.orderBy = jest.fn().mockReturnValue(chain);
+  chain.limit = jest.fn().mockResolvedValue(result);
   // Makes the chain itself awaitable when no .orderBy() is chained.
   chain.then = (resolve) => resolve(result);
   return chain;
@@ -106,10 +109,11 @@ describe('findBookingsNeedingCalendarSync', () => {
     const chain = makeSelectChain(fakeRows);
     mockedDb.select.mockReturnValueOnce(chain);
 
-    const result = await findBookingsNeedingCalendarSync(1);
+    const result = await findBookingsNeedingCalendarSync(1, '2026-07-09');
 
     expect(result).toEqual(fakeRows);
     expect(chain.from).toHaveBeenCalledWith(bookings);
+    expect(chain.limit).toHaveBeenCalledWith(50);
   });
 });
 

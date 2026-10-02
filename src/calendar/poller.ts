@@ -8,6 +8,7 @@ import {
 } from '../database/queries';
 import { deleteBookingFromCalendar, syncBookingToCalendar } from './sync';
 import { logger } from '../utils/logger';
+import { isoDateInAthens } from '../utils/timezone';
 
 // D-16: ~50 minutes total retry window (10 attempts x 5-minute poll
 // interval) before a stuck sync is permanently abandoned -- bounds Google
@@ -27,7 +28,7 @@ export async function runCalendarSyncSweep(): Promise<number> {
       const business = await findBusinessById(businessId);
       if (!business?.googleRefreshToken) continue;
 
-      const pending = await findBookingsNeedingCalendarSync(businessId);
+      const pending = await findBookingsNeedingCalendarSync(businessId, isoDateInAthens(new Date()));
 
       for (const booking of pending) {
         try {
