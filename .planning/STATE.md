@@ -5,15 +5,15 @@ milestone_name: UX & Trust Polish
 current_phase: 25.1
 current_phase_name: google-calendar-client-admin
 status: executing
-stopped_at: Completed 25.1-02-PLAN.md
-last_updated: "2026-10-02T09:15:27.501Z"
+stopped_at: Completed 25.1-01-PLAN.md
+last_updated: "2026-10-02T10:45:23.515Z"
 last_activity: 2026-10-02
 last_activity_desc: Phase 25.1 execution started
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 11
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-28 after v1.6 milestone close)
 ## Current Position
 
 Phase: 25.1 (google-calendar-client-admin) — EXECUTING
-Plan: 2 of 6
+Plan: 3 of 6
 Status: Ready to execute
 Last activity: 2026-10-02 — Phase 25.1 execution started
 
@@ -107,6 +107,7 @@ Last activity: 2026-10-02 — Phase 25.1 execution started
 | Phase 21 P03 | 20min | 2 tasks | 10 files |
 | Phase quick P260725-hlh | 8min | 2 tasks | 3 files |
 | Phase 25.1 P02 | 15min | 2 tasks | 8 files |
+| Phase 25.1 P01 | n/a | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -222,6 +223,7 @@ Recent decisions affecting current work:
 - [Roadmap v1.6]: BOT-06 and DIAG-01 grouped into one phase (24) rather than two single-requirement phases — both are small, independent bot-ops config/behavior changes with no natural neighbor closer than each other
 - [Roadmap v1.7]: 5 phases derived from 15 requirements — Phase 26 (CONF-01+CONF-02 confirmation/approval policy foundation), Phase 27 (COMP-01+COMP-02 client consent & registration), Phase 28 (ADMIN-01..04 admin menu discoverability, depends on Phase 26's confirmation pattern), Phase 29 (UX-01/02/04/05/06 booking & list clarity, depends on Phase 26's confirmation pattern), Phase 30 (UX-03+ADMIN-05 client identification & menu-button reliability, sequenced last as the most research-heavy pair)
 - [Roadmap v1.7]: Research's suggested 5-6 phase split (confirmation, reschedule-reversal, menu-standardization, booking-clarity, advanced-consent/fuzzy, dead-feature-cleanup) was consolidated to 5 phases — CONF-01/CONF-02 share one phase instead of two (both are "approval/confirmation policy" work), and the two dead-button items (ADMIN-01/02) were folded into the admin-menu-discoverability phase instead of a standalone cleanup phase, avoiding thin single-requirement phases
+- [Phase ?]: 25.1-01: applied migration 0013 to Neon via db:apply-sql only; drizzle-kit push skipped (needs TTY, applies without confirmation)
 
 ### Pending Todos
 
@@ -323,8 +325,8 @@ Items acknowledged and deferred at v1.6 milestone close on 2026-07-28:
 
 ## Session Continuity
 
-Last session: 2026-10-02T09:15:27.494Z
-Stopped at: Completed 25.1-02-PLAN.md
+Last session: 2026-10-02T10:45:23.509Z
+Stopped at: Completed 25.1-01-PLAN.md
 Resume file: None
 
 **Phase 12 Plan 01 completed:** a940588, 6c5830e, 7d64f85
