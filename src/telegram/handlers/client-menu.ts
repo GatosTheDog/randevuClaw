@@ -34,6 +34,7 @@ import {
   getClientName,
 } from '../../billing/queries';
 import { deleteBookingFromCalendar } from '../../calendar/sync';
+import { appendCancelCalendarNote } from '../../calendar/client-link';
 import { db } from '../../database/db';
 import { sessionInstances, sessionCatalog } from '../../database/schema';
 import { eq } from 'drizzle-orm';
@@ -470,7 +471,11 @@ export async function handleCancelExecute(
   }
 
   // Confirm to client
-  await sendTelegramMessage(chatId, 'Η κράτησή σας ακυρώθηκε.');
+  // D-03: booking is the pre-update row; a confirmed status means the client was given an add-to-calendar link.
+  await sendTelegramMessage(
+    chatId,
+    appendCancelCalendarNote('Η κράτησή σας ακυρώθηκε.', booking.bookingStatus === 'confirmed')
+  );
 
   const backKeyboard: InlineKeyboard = [
     [{ text: '« Αρχικό μενού', callback_data: 'cmenu:root' }],

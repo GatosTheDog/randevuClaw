@@ -17,6 +17,7 @@ import { isoDateInAthens, addCalendarDays } from '../utils/timezone';
 import { logger } from '../utils/logger';
 import { RRule } from 'rrule';
 import { deleteBookingFromCalendar } from '../calendar/sync';
+import { appendCancelCalendarNote } from '../calendar/client-link';
 import { botTokenStore, sendTelegramMessage } from '../telegram/client';
 
 // ---------------------------------------------------------------------------
@@ -453,7 +454,11 @@ export async function cascadeCancelSessionBookings(
 
       try {
         if (business.botToken) {
-          const msg = `Η κράτησή σας για το μάθημα ${booking.calendarDate} ${booking.calendarTime} ακυρώθηκε από την επιχείρηση.`;
+          // D-03: `booking` carries the pre-cancel status; only confirmed bookings had a client link.
+          const msg = appendCancelCalendarNote(
+            `Η κράτησή σας για το μάθημα ${booking.calendarDate} ${booking.calendarTime} ακυρώθηκε από την επιχείρηση.`,
+            booking.bookingStatus === 'confirmed'
+          );
           await botTokenStore.run(business.botToken, () => sendTelegramMessage(booking.clientPhone, msg));
         }
       } catch (err) {

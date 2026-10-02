@@ -48,6 +48,7 @@ const {
   insertTestSessionBooking,
 } = require('./helpers/session-fixtures');
 const telegramClient = require('../src/telegram/client');
+const { CALENDAR_REMOVE_NOTE_GREEK } = require('../src/calendar/client-link');
 /* eslint-enable @typescript-eslint/no-var-requires */
 
 afterAll(() => {
@@ -217,6 +218,7 @@ describe('cascadeCancelSessionBookings (CLSS-07)', () => {
     const messages = telegramClient.sendTelegramMessage.mock.calls.map((c: [string, string]) => c[1]);
     messages.forEach((msg: string) => {
       expect(msg).toContain('ακυρώθηκε από την επιχείρηση');
+      expect(msg).toContain(CALENDAR_REMOVE_NOTE_GREEK);
       expect(msg).not.toContain('επικοινωνήστε μαζί μας');
     });
   });
