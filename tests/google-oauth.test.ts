@@ -24,6 +24,7 @@ jest.mock('../src/utils/logger', () => ({
 
 import { updateBusinessGoogleRefreshToken } from '../src/database/queries';
 import { logger } from '../src/utils/logger';
+import { google } from 'googleapis';
 import {
   getOAuth2AuthUrl,
   exchangeAuthCodeForTokens,
@@ -43,14 +44,14 @@ describe('src/google/oauth.ts', () => {
 
   it('Test 1: getOAuth2AuthUrl(state) returns a URL string containing access_type=offline, prompt=consent, calendar scope, and the exact state value', () => {
     mockGenerateAuthUrl.mockReturnValue(
-      'https://accounts.google.com/o/oauth2/v2/auth?access_type=offline&prompt=consent&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcalendar&state=csrf-token-123'
+      'https://accounts.google.com/o/oauth2/v2/auth?access_type=offline&prompt=consent&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcalendar.events&state=csrf-token-123'
     );
 
     const url = getOAuth2AuthUrl('csrf-token-123');
 
     expect(mockGenerateAuthUrl).toHaveBeenCalledWith({
       access_type: 'offline',
-      scope: ['https://www.googleapis.com/auth/calendar'],
+      scope: ['https://www.googleapis.com/auth/calendar.events'],
       prompt: 'consent',
       state: 'csrf-token-123',
     });
@@ -58,6 +59,20 @@ describe('src/google/oauth.ts', () => {
     expect(url).toContain('prompt=consent');
     expect(url).toContain('calendar');
     expect(url).toContain('csrf-token-123');
+  });
+
+  it('Test 2 (ctor): getOAuth2Client() builds OAuth2 with an options object including an 8s transporter timeout', () => {
+    getOAuth2Client();
+
+    const ctor = google.auth.OAuth2 as unknown as jest.Mock;
+    const args = ctor.mock.calls[ctor.mock.calls.length - 1];
+    expect(args).toHaveLength(1);
+    expect(args[0]).toEqual({
+      clientId: expect.any(String),
+      clientSecret: expect.any(String),
+      redirectUri: expect.any(String),
+      transporterOptions: { timeout: 8000 },
+    });
   });
 
   it('Test 2: exchangeAuthCodeForTokens(code) throws mentioning "refresh token" when no refresh_token is returned', async () => {
