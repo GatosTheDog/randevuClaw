@@ -118,7 +118,7 @@ See: `.planning/milestones/v1.6-ROADMAP.md`
   3. The client receives a tap-to-add Google Calendar link only after owner confirmation, plus Greek delete-old-event notes on reschedule/cancel; client calendars are never modified.
   4. Without a Google connection, sync is skipped silently, bookings and the client link are unaffected, and the owner gets exactly one nudge to connect.
 
-**Plans**: 5/6 plans executed
+**Plans**: 6/6 plans executed
 
 Plans:
 **Wave 1**
@@ -137,7 +137,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 25.1-06-PLAN.md — Cancel notes on every cancel message, reschedule_session delete/sync/link, owner assign-to-class
+- [x] 25.1-06-PLAN.md — Cancel notes on every cancel message, reschedule_session delete/sync/link, owner assign-to-class
 
 #### Phase 26: Confirmation & Approval Policy
 
