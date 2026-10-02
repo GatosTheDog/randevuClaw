@@ -118,12 +118,12 @@ See: `.planning/milestones/v1.6-ROADMAP.md`
   3. The client receives a tap-to-add Google Calendar link only after owner confirmation, plus Greek delete-old-event notes on reschedule/cancel; client calendars are never modified.
   4. Without a Google connection, sync is skipped silently, bookings and the client link are unaffected, and the owner gets exactly one nudge to connect.
 
-**Plans**: 1/6 plans executed
+**Plans**: 2/6 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 25.1-01-PLAN.md — DB foundation: nudge flag, DB-backed OAuth state table, migration 0013 + [BLOCKING] schema push, deadlock/unbounded-sweep fixes at query layer
+- [x] 25.1-01-PLAN.md — DB foundation: nudge flag, DB-backed OAuth state table, migration 0013 + [BLOCKING] schema push, deadlock/unbounded-sweep fixes at query layer
 - [x] 25.1-02-PLAN.md — Pure building blocks: constants, Google error helper, owner event content, client tap-to-add link + Greek notes, typed fixtures
 
 **Wave 2** *(blocked on Wave 1 completion)*
