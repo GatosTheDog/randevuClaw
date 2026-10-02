@@ -15,6 +15,9 @@ import { isoDateInAthens } from '../utils/timezone';
 // Calendar API quota exposure per booking (T-03-06).
 const MAX_CALENDAR_SYNC_RETRIES = 10;
 
+// The candidate query is date- and event-bounded (plan 25.1-01). Session
+// bookings need no special casing: they carry serviceId like any booking.
+//
 // Mirrors src/conversation/expiry-poller.ts's per-business + per-booking
 // try/catch isolation: one business's (or one booking's) failure never
 // blocks the sweep for any other business/booking. Returns the count of
@@ -45,6 +48,16 @@ export async function runCalendarSyncSweep(): Promise<number> {
           if (success) {
             syncedCount += 1;
             continue;
+          }
+
+          // A revoked/expired authorization clears the token (sync.ts ->
+          // handleGoogleAuthRevoked). Stop this business for the rest of the
+          // sweep without burning the retry budget; bookings stay pending
+          // until the owner reconnects.
+          const refreshed = await findBusinessById(businessId);
+          if (!refreshed?.googleRefreshToken) {
+            logger.warn({ businessId }, 'Google authorization lost, pausing business until reconnect');
+            break;
           }
 
           const retryCount = await incrementCalendarSyncRetryCount(booking.id);
