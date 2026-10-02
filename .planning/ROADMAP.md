@@ -110,13 +110,34 @@ See: `.planning/milestones/v1.6-ROADMAP.md`
 
 **Goal**: Bookings are reflected in Google Calendar for both the admin (owner) and the client.
 **Depends on**: Phase 25 (v1.6 shipped); existing owner calendar sync in `src/calendar/` and `src/google/oauth.ts`
-**Requirements**: TBD (define in discuss-phase)
-**Success Criteria** (what must be TRUE): TBD in discuss-phase
-**Plans**: 0 plans
+**Requirements**: CAL-01, CAL-02, CAL-03, CAL-04, CAL-05, CAL-06, CAL-07, CAL-08, CAL-09 (derived from CONTEXT D-01..D-08; see 25.1-RESEARCH.md)
+**Success Criteria** (what must be TRUE):
+
+  1. Owner connects Google Calendar from the owner menu (button → Google consent → callback stores the token) with no CLI; the OAuth state is single-use, expiring and bound to the business.
+  2. A confirmed appointment OR class/session booking creates a Google Calendar event for the owner (Greek title with service + client name/@username/id, description with business and service, 30-min popup reminder); cancel/reschedule removes or replaces it.
+  3. The client receives a tap-to-add Google Calendar link only after owner confirmation, plus Greek delete-old-event notes on reschedule/cancel; client calendars are never modified.
+  4. Without a Google connection, sync is skipped silently, bookings and the client link are unaffected, and the owner gets exactly one nudge to connect.
+
+**Plans**: 6 plans
 
 Plans:
+**Wave 1**
 
-- [ ] TBD (run /gsd-plan-phase 25.1 to break down)
+- [ ] 25.1-01-PLAN.md — DB foundation: nudge flag, DB-backed OAuth state table, migration 0013 + [BLOCKING] schema push, deadlock/unbounded-sweep fixes at query layer
+- [ ] 25.1-02-PLAN.md — Pure building blocks: constants, Google error helper, owner event content, client tap-to-add link + Greek notes, typed fixtures
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 25.1-03-PLAN.md — Owner sync hardening (sync/poller), one-time and revoked-token nudges, `processBookingConfirmedForCalendar` entry point
+- [ ] 25.1-04-PLAN.md — In-bot Google connect: menu button, single-use state, callback route, live consent human-check
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 25.1-05-PLAN.md — Webhook wiring: all approve paths sync + client link, client-cancel note, @username capture
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 25.1-06-PLAN.md — Cancel notes on every cancel message, reschedule_session delete/sync/link, owner assign-to-class
 
 #### Phase 26: Confirmation & Approval Policy
 
