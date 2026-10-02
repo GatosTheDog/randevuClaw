@@ -12,6 +12,7 @@ import {
   listServicesForBusiness,
   listBookingsForDate,
   findServiceById,
+  findBookingById,
   withBusinessContext,
   getConn,
   setBookingMode,
@@ -33,6 +34,7 @@ import { showClientSelection } from '../telegram/handlers/payment-flow';
 import { sendTelegramMessage, sendTelegramMessageWithKeyboard } from '../telegram/client';
 import { createSessionCatalogWithExpansion, bookSessionInstance, cancelSession, cascadeCancelSessionBookings, listSessions, buildRRuleString } from '../session/manager';
 import { sendBusinessInvite } from '../invites/generator';
+import { processBookingConfirmedForCalendar } from '../calendar/confirmation';
 
 // Bounds the Gemini HTTP call to 25s so a stalled owner-agent response settles
 // instead of hanging silently — the existing try/catch already logs + returns
@@ -806,11 +808,26 @@ async function executeOwnerTool(
       if (bookResult.status === 'conflict') {
         return 'Σφάλμα: το μάθημα δεν είναι διαθέσιμο (ακυρωμένο ή δεν βρέθηκε).';
       }
+      // Owner assignment is a confirmed point (D-02 satisfied: the booking row is
+      // already 'confirmed'): sync to the owner's calendar (D-05) and append the
+      // client's tap-to-add link. Booking is re-read by id, scoped to this business.
+      let calendarMessage = '';
+      if (bookResult.bookingId !== undefined) {
+        try {
+          const assigned = await findBookingById(business.id, bookResult.bookingId);
+          if (assigned) {
+            const calendarOutcome = await processBookingConfirmedForCalendar({ booking: assigned, business });
+            calendarMessage = calendarOutcome?.clientCalendarMessage ?? '';
+          }
+        } catch (err) {
+          logger.warn({ err, bookingId: bookResult.bookingId }, 'assign_client_to_session: calendar processing failed (best-effort)');
+        }
+      }
       // D-11 pattern: sendTelegramMessage NOT wrapped in try/catch — failure propagates
       // to top-level catch which returns Greek error to Gemini (T-10-13 accepted risk).
       await sendTelegramMessage(
         client_phone,
-        `Ο ιδιοκτήτης σε όρισε στο μάθημα ${session_date} στις ${session_time}. Σε περιμένουμε!`
+        `Ο ιδιοκτήτης σε όρισε στο μάθημα ${session_date} στις ${session_time}. Σε περιμένουμε!${calendarMessage}`
       );
       return `Ο πελάτης ${client_phone} ορίστηκε στο μάθημα ${session_date} ${session_time} και ειδοποιήθηκε.`;
     }
