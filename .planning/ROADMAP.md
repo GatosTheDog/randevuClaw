@@ -99,11 +99,24 @@ See: `.planning/milestones/v1.6-ROADMAP.md`
 
 **Milestone Goal:** Close UX/trust gaps surfaced by a full-bot audit — fix broken/inconsistent owner tooling, make high-frequency actions discoverable, close a real compliance hole, and give clients a genuine opt-in path.
 
+- [ ] **Phase 25.1: Google Calendar for Client & Admin Bookings (INSERTED)** - Confirmed bookings create Google Calendar events for both the admin and the client
 - [ ] **Phase 26: Confirmation & Approval Policy** - Uniform Ναι/Όχι confirmation on every destructive owner action, and client reschedules now require owner approval like new bookings
 - [ ] **Phase 27: Client Consent & Registration** - GDPR consent notice shown before any client relationship row is created, with a real opt-in flag distinguishing registered clients
 - [ ] **Phase 28: Admin Menu Discoverability** - Payment recording, setup editing, and escalation reply are all reachable from `/menu`; dead decorative buttons removed
 - [ ] **Phase 29: Booking & List Clarity** - Slots, cancel prompts, and booking lists show accurate, contextual information instead of raw IDs or stale bookable slots
 - [ ] **Phase 30: Client Identification & Menu Reliability** - Owner tools accept client names instead of raw Telegram IDs; persistent menu button reliability investigated and fixed/documented
+
+#### Phase 25.1: Google Calendar for Client & Admin Bookings (INSERTED)
+
+**Goal**: Bookings are reflected in Google Calendar for both the admin (owner) and the client.
+**Depends on**: Phase 25 (v1.6 shipped); existing owner calendar sync in `src/calendar/` and `src/google/oauth.ts`
+**Requirements**: TBD (define in discuss-phase)
+**Success Criteria** (what must be TRUE): TBD in discuss-phase
+**Plans**: 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 25.1 to break down)
 
 #### Phase 26: Confirmation & Approval Policy
 
