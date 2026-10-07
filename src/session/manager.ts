@@ -4,7 +4,12 @@
 
 import { and, eq, gte, inArray, sql } from 'drizzle-orm';
 import { sessionCatalog, sessionInstances, bookings } from '../database/schema';
-import { getConn, withBusinessContext, findActiveBookingsForSessionInstance } from '../database/queries';
+import {
+  getConn,
+  withBusinessContext,
+  withAmbientBusinessContext,
+  findActiveBookingsForSessionInstance,
+} from '../database/queries';
 import type { Business } from '../database/queries';
 import {
   getActiveMembershipForDeduction,
@@ -187,6 +192,21 @@ export async function createSessionCatalogWithExpansion(
  *
  * Idempotency: onConflictDoNothing on the bookings insert + fallback lookup
  * returns the existing bookingId on replay (same idempotencyKey).
+ *
+ * Transaction scope (book-session-rollback-timeout): a caller that passes a
+ * non-null `activeMembership` obtained it via checkEnforcementAndGetMembership /
+ * getActiveMembershipForDeduction, i.e. SELECT ... FOR UPDATE on that
+ * memberships row under ITS ambient withBusinessContext transaction (the
+ * client conversation turn / callback handler). The deduction below must
+ * therefore run in that SAME transaction (SESS-01 / T-08-01 invariant: lock
+ * held until the booking + deduction commit together). withBusinessContext
+ * would open a separate transaction that blocks forever on the caller's row
+ * lock (the caller awaits us), so in that case we join the ambient transaction
+ * as a SAVEPOINT via withAmbientBusinessContext. With no ambient transaction
+ * this still opens its own, exactly like before. Callers passing null (e.g.
+ * escl:approve, which re-reads the new booking through the admin pool right
+ * after) or undefined (owner assign: we lock the membership ourselves below)
+ * keep the independent short transaction.
  */
 export async function bookSessionInstance(
   businessId: number,
@@ -202,7 +222,11 @@ export async function bookSessionInstance(
   // preserve their pre-existing immediate-confirm behavior.
   initialStatus: 'pending_owner_approval' | 'confirmed' = 'pending_owner_approval'
 ): Promise<BookSessionResult> {
-  return withBusinessContext(businessId, async () => {
+  const runInContext =
+    activeMembership !== null && activeMembership !== undefined
+      ? withAmbientBusinessContext
+      : withBusinessContext;
+  return runInContext(businessId, async () => {
     // SELECT FOR UPDATE: serialize concurrent bookings on the same instance.
     // Ownership guard via subquery: catalogId IN (SELECT id FROM session_catalog WHERE business_id = businessId).
     // T-10-02: prevents cross-tenant booking even if RLS is misconfigured.
