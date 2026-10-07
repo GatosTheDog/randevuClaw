@@ -31,6 +31,7 @@ import {
   showPackageSelection,
   showMembershipConfirmation,
 } from '../telegram/handlers/payment-flow';
+import { handleGoogleCalendarConnect } from '../telegram/handlers/google-calendar-connect';
 import { handleMenuCallback, MenuCallbackResult, showAdminRootMenu } from '../telegram/handlers/admin-menu';
 import { ClientMenuCallbackResult, showClientRootMenu, handleClientMenuCallback } from '../telegram/handlers/client-menu';
 import { findMembershipByBooking, restoreCredit } from '../billing/queries';
@@ -115,6 +116,20 @@ async function handleFoundBusiness(
         logger.info(
           { updateId, businessId: business.id, elapsedMs: Date.now() - startedAt },
           'handleFoundBusiness: exit (/menu branch)'
+        );
+        return;
+      }
+
+      // /calendar command: stale BotFather command lists can still advertise it,
+      // so route it to the Google Calendar connect flow instead of the AI agent.
+      if (messageText.trim() === '/calendar') {
+        await withBusinessContext(business.id, async () => {
+          await handleGoogleCalendarConnect(senderTelegramId, business);
+          await markTelegramUpdateProcessed(updateId, business.id);
+        });
+        logger.info(
+          { updateId, businessId: business.id, elapsedMs: Date.now() - startedAt },
+          'handleFoundBusiness: exit (/calendar branch)'
         );
         return;
       }

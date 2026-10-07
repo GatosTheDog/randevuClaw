@@ -11,6 +11,7 @@ import * as registryModule from '../src/telegram/registry';
 import * as billingQueries from '../src/billing/queries';
 import * as aiOwnerAgentModule from '../src/onboarding/ai-owner-agent';
 import { parseCallbackData } from '../src/webhooks/telegram';
+import * as gcalConnect from '../src/telegram/handlers/google-calendar-connect';
 
 jest.mock('../src/database/queries');
 jest.mock('../src/telegram/client');
@@ -24,6 +25,7 @@ jest.mock('../src/billing/queries');
 // DIAG-01: only used by the owner-branch diagnostic test below — every other
 // test in this file already routes through the client or onboarding branches.
 jest.mock('../src/onboarding/ai-owner-agent');
+jest.mock('../src/telegram/handlers/google-calendar-connect');
 
 // Phase 4: per-bot secret — hardcoded test constant (ONB-04: TEST_BOT_* removed from jest.setup.ts)
 const SECRET = 'test-bot-1-webhook-secret';
@@ -348,6 +350,24 @@ describe('POST /webhooks/telegram/:webhookId', () => {
       onboardedBusiness.ownerTelegramId,
       'Παρουσιάστηκε πρόβλημα. Δοκιμάστε ξανά σε λίγο.'
     );
+  });
+
+  it('owner /calendar starts the Google Calendar connect flow and skips the AI agent', async () => {
+    const onboardedBusiness = { ...KNOWN_BUSINESS, onboardingCompleted: true };
+    mockedFindBusinessByWebhookId.mockResolvedValue(onboardedBusiness);
+    mockedAiOwnerAgent.mockClear();
+
+    const res = await postWebhook(
+      'test-webhook-id-1',
+      makeMessageUpdate(32, '/calendar', Number(onboardedBusiness.ownerTelegramId))
+    );
+
+    expect(res.status).toBe(200);
+    expect(gcalConnect.handleGoogleCalendarConnect).toHaveBeenCalledWith(
+      onboardedBusiness.ownerTelegramId,
+      onboardedBusiness
+    );
+    expect(mockedAiOwnerAgent).not.toHaveBeenCalled();
   });
 });
 
