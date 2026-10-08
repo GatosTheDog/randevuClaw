@@ -38,6 +38,7 @@ import {
   getClientName,
 } from '../../billing/queries';
 import { deleteBookingFromCalendar } from '../../calendar/sync';
+import { appendCancelCalendarNote } from '../../calendar/client-link';
 
 // Exported so telegram.ts can use it in the parseCallbackData return union.
 // Discriminant field: clientMenuAction — unique across all existing result types
@@ -613,7 +614,11 @@ export async function handleCancelExecute(
   }
 
   // Confirm to client
-  await sendTelegramMessage(chatId, 'Η κράτησή σας ακυρώθηκε.');
+  // D-03: booking is the pre-update row; a confirmed status means the client was given an add-to-calendar link.
+  await sendTelegramMessage(
+    chatId,
+    appendCancelCalendarNote('Η κράτησή σας ακυρώθηκε.', booking.bookingStatus === 'confirmed')
+  );
 
   const backKeyboard: InlineKeyboard = [
     [{ text: BACK_MENU_LABELS.CLIENT, callback_data: 'cmenu:root' }],

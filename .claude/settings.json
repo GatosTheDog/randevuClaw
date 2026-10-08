@@ -1,7 +1,16 @@
 {
   "permissions": {
     "allow": [
-      "Bash(*)"
+      "Bash(*)",
+      "Bash(awk '/^ *)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(awk 'NR>=960 && NR<=1045' src/onboarding/ai-owner-agent.ts)",
+      "Bash(sed -n '169,399p' tests/google-oauth-callback.test.ts)",
+      "Read(//tmp/**)",
+      "Bash(printf '  }\\);\\\\n}\\);\\\\n')",
+      "Bash(cp /tmp/gcal_resolved.txt tests/google-oauth-callback.test.ts)",
+      "Bash(npx jest *)",
+      "Bash(git add *)"
     ]
   }
 }

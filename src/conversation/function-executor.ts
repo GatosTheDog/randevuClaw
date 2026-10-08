@@ -14,6 +14,7 @@ import {
 import { checkAvailability } from '../business/availability';
 import { sendTelegramMessage, sendTelegramMessageWithKeyboard, InlineKeyboard } from '../telegram/client';
 import { deleteBookingFromCalendar } from '../calendar/sync';
+import { appendCancelCalendarNote } from '../calendar/client-link';
 import { logger } from '../utils/logger';
 import { getClientActiveMembership, deductSession, getClientName, findMembershipByBooking, restoreCredit, linkRescheduledBooking } from '../billing/queries';
 import { checkEnforcementAndGetMembership } from '../billing/enforcement';
@@ -358,7 +359,10 @@ async function cancelAppointmentTool(
       try {
         await sendTelegramMessage(
           booking.clientPhone,
-          `Το ραντεβού σας ακυρώθηκε. Το session δεν επιστράφηκε λόγω ακύρωσης εντός ${cutoffHours} ωρών.`
+          appendCancelCalendarNote(
+            `Το ραντεβού σας ακυρώθηκε. Το session δεν επιστράφηκε λόγω ακύρωσης εντός ${cutoffHours} ωρών.`,
+            booking.bookingStatus === 'confirmed'
+          )
         );
       } catch (err) { logger.error({ err }, 'Client forfeiture notification failed'); }
       return { success: true, booking_id: booking.id, credit_forfeited: true };
@@ -396,7 +400,11 @@ async function cancelAppointmentTool(
       const ownerText = `Ακύρωση ραντεβού από πελάτη:\nΥπηρεσία: ${service?.name ?? 'άγνωστη'}\nΗμερομηνία: ${booking.calendarDate}\nΏρα: ${booking.calendarTime}\nΠελάτης: ${booking.clientPhone}`;
       await sendTelegramMessage(context.business.ownerTelegramId, ownerText);
     }
-    await sendTelegramMessage(booking.clientPhone, 'Το ραντεβού σας ακυρώθηκε.');
+    await sendTelegramMessage(
+      booking.clientPhone,
+      // D-03: `booking` is the pre-update row, so a confirmed status means a link was sent.
+      appendCancelCalendarNote('Το ραντεβού σας ακυρώθηκε.', booking.bookingStatus === 'confirmed')
+    );
   } catch (err) {
     logger.error({ err, bookingId: booking.id }, 'Cancellation succeeded but notification failed');
   }

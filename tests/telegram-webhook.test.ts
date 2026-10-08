@@ -1,3 +1,6 @@
+// qrcode/sharp are not installed in this checkout; the invite generator is irrelevant here.
+jest.mock('../src/invites/generator', () => ({ sendBusinessInvite: jest.fn() }));
+
 import request from 'supertest';
 import app from '../src/server';
 import * as queries from '../src/database/queries';
@@ -12,6 +15,7 @@ import * as sessionManager from '../src/session/manager';
 import { parseCallbackData } from '../src/webhooks/telegram';
 import { pendingReplies } from '../src/telegram/handlers/pending-reply';
 import { BACK_MENU_LABELS } from '../src/utils/greek-messages';
+import * as gcalConnect from '../src/telegram/handlers/google-calendar-connect';
 
 jest.mock('../src/database/queries');
 jest.mock('../src/telegram/client');
@@ -31,6 +35,7 @@ jest.mock('../src/onboarding/ai-owner-agent');
 // than reaching a real DB. Previously unmocked in this file, which is why
 // the T-29-06 escl:approve refactor shipped with zero behavioral coverage.
 jest.mock('../src/session/manager');
+jest.mock('../src/telegram/handlers/google-calendar-connect');
 
 // Phase 4: per-bot secret — hardcoded test constant (ONB-04: TEST_BOT_* removed from jest.setup.ts)
 const SECRET = 'test-bot-1-webhook-secret';
@@ -385,6 +390,24 @@ describe('POST /webhooks/telegram/:webhookId', () => {
       onboardedBusiness.ownerTelegramId,
       'Παρουσιάστηκε πρόβλημα. Δοκιμάστε ξανά σε λίγο.'
     );
+  });
+
+  it('owner /calendar starts the Google Calendar connect flow and skips the AI agent', async () => {
+    const onboardedBusiness = { ...KNOWN_BUSINESS, onboardingCompleted: true };
+    mockedFindBusinessByWebhookId.mockResolvedValue(onboardedBusiness);
+    mockedAiOwnerAgent.mockClear();
+
+    const res = await postWebhook(
+      'test-webhook-id-1',
+      makeMessageUpdate(32, '/calendar', Number(onboardedBusiness.ownerTelegramId))
+    );
+
+    expect(res.status).toBe(200);
+    expect(gcalConnect.handleGoogleCalendarConnect).toHaveBeenCalledWith(
+      onboardedBusiness.ownerTelegramId,
+      onboardedBusiness
+    );
+    expect(mockedAiOwnerAgent).not.toHaveBeenCalled();
   });
 });
 

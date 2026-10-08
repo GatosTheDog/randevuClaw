@@ -47,6 +47,8 @@ import { sendBusinessInvite } from '../../invites/generator';
 import { showClientSelection } from './payment-flow';
 import { handleCalendarCommand, handleCalendarDisconnect } from './calendar-connect';
 import { BACK_MENU_LABELS } from '../../utils/greek-messages';
+import { GOOGLE_CONNECT_CALLBACK_DATA, GOOGLE_CONNECT_BUTTON_LABEL } from '../../google/constants';
+import { handleGoogleCalendarConnect } from './google-calendar-connect';
 
 // Exported so telegram.ts can use it in the parseCallbackData return union.
 // Discriminant field: menuAction — unique across all existing result types
@@ -109,7 +111,9 @@ async function reassertMenuButtonAndCommands(
 }
 
 /**
- * Sends the four-button 2x2 admin root menu keyboard to the owner (AMENU-01).
+ * Sends the admin root menu keyboard to the owner (AMENU-01): a 2x2 grid, then
+ * single-button rows for payment, client invite, client notify, and Google
+ * Calendar connect/reconnect.
  */
 export async function showAdminRootMenu(chatId: string, business: Business): Promise<void> {
   const callbackDataSettings = 'menu:settings';
@@ -127,6 +131,7 @@ export async function showAdminRootMenu(chatId: string, business: Business): Pro
   assertCallbackDataSize(callbackDataPayment);
   assertCallbackDataSize(callbackDataInvite);
   assertCallbackDataSize(callbackDataNotify);
+  assertCallbackDataSize(GOOGLE_CONNECT_CALLBACK_DATA);
 
   const keyboard: InlineKeyboard = [
     [
@@ -140,6 +145,12 @@ export async function showAdminRootMenu(chatId: string, business: Business): Pro
     [{ text: 'Καταχώρηση Πληρωμής', callback_data: callbackDataPayment }],
     [{ text: 'Πρόσκληση Πελάτη', callback_data: callbackDataInvite }],
     [{ text: 'Ειδοποίηση Πελατών', callback_data: callbackDataNotify }],
+    [
+      {
+        text: business.googleRefreshToken ? 'Google Calendar ✅ (επανασύνδεση)' : GOOGLE_CONNECT_BUTTON_LABEL,
+        callback_data: GOOGLE_CONNECT_CALLBACK_DATA,
+      },
+    ],
   ];
 
   const menuText = `Πίνακας Ελέγχου — ${business.name}
@@ -150,7 +161,8 @@ export async function showAdminRootMenu(chatId: string, business: Business): Pro
 4. Ατζέντα Σήμερα
 5. Καταχώρηση Πληρωμής
 6. Πρόσκληση Πελάτη
-7. Ειδοποίηση Πελατών`;
+7. Ειδοποίηση Πελατών
+8. Google Calendar`;
 
   await sendTelegramMessageWithKeyboard(
     chatId,
@@ -1224,6 +1236,10 @@ export async function handleMenuCallback(
 
     case menuAction === 'payment':
       await showClientSelection(business.id, chatId);
+      break;
+
+    case menuAction === 'gcal_connect':
+      await handleGoogleCalendarConnect(chatId, business);
       break;
 
     case menuAction === 'classes':

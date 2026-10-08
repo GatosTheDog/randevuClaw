@@ -162,6 +162,25 @@ export async function runInTransaction<T>(
   const client = await withConnectionRetry(() => pool.connect());
   const clientDb = drizzle(client, { schema });
   let txError: unknown;
+  // Debug (book-session-rollback-timeout): drizzle's transaction() does
+  // `catch (error) { await tx.execute(rollback); throw error }`. If the
+  // statement that failed was a client-side query_timeout (the server-side
+  // statement is still running, e.g. a lock wait), ROLLBACK queues behind it
+  // on the same connection, times out too, and ITS rejection replaces the
+  // original error — the log then only says "Failed query: rollback / Query
+  // read timeout" and the statement that actually stalled is lost. Capture
+  // the callback's own error so it can be logged when that masking happens.
+  let callbackFailed = false;
+  let callbackError: unknown;
+  const trackedCallback = async (tx: unknown): Promise<T> => {
+    try {
+      return await callback(tx as never);
+    } catch (err) {
+      callbackFailed = true;
+      callbackError = err;
+      throw err;
+    }
+  };
   try {
     // clientDb (drizzle(client, {schema})) has the identical schema-derived
     // transaction/tx shape as `db`/`appDb` (drizzle(pool, {schema})) — only
@@ -169,9 +188,15 @@ export async function runInTransaction<T>(
     // reflected at the tx-callback type level. The cast below bridges a
     // structural TS-inference artifact (generic T defaulting to `unknown`
     // when extracted via `Parameters<>`), not a real type mismatch.
-    return (await clientDb.transaction(callback as never)) as T;
+    return (await clientDb.transaction(trackedCallback as never)) as T;
   } catch (err) {
     txError = err;
+    if (callbackFailed && err !== callbackError) {
+      logger.error(
+        { err: callbackError },
+        'runInTransaction: callback failed AND rollback failed; this is the original callback error that the rollback failure masked'
+      );
+    }
     throw err;
   } finally {
     // Releasing with a truthy error tells pg-pool to discard the connection

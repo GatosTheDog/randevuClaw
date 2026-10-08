@@ -6,7 +6,7 @@
 // client in plaintext chat.
 
 import { Booking, Business, Service } from '../database/queries';
-import { addMinutesToLocalTime } from './sync';
+import { addMinutesToLocalTime } from './event-content';
 import { sendTelegramDocument } from '../telegram/client';
 import { logger } from '../utils/logger';
 

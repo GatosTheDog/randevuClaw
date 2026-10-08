@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import express, { Router, Request, Response } from 'express';
 import { logger } from '../utils/logger';
 import {
+  Booking,
   Business,
   findBookingByIdUnscoped,
   findBusinessById,
@@ -19,8 +20,10 @@ import { getOrCreateClientRelationship, CONSENT_PROMPT_GREEK_TEMPLATE, CONSENT_K
 import { answerCallbackQuery, editTelegramMessageReplyMarkup, sendTelegramMessage, sendTelegramMessageWithKeyboard, botTokenStore, InlineKeyboard } from '../telegram/client';
 import { getOrCreateBotInstance } from '../telegram/registry';
 import { routeConversationMessage } from '../conversation/router';
-import { deleteBookingFromCalendar, syncBookingToCalendar } from '../calendar/sync';
+import { deleteBookingFromCalendar } from '../calendar/sync';
 import { sendBookingConfirmationIcs } from '../calendar/ics';
+import { processBookingConfirmedForCalendar } from '../calendar/confirmation';
+import { appendCancelCalendarNote } from '../calendar/client-link';
 import { aiOwnerAgent, handleOwnerToolConfirmCallback, OwnerToolConfirmParams } from '../onboarding/ai-owner-agent';
 import { aiOnboardingAgent } from '../onboarding/ai-onboarding-agent';
 import { findBusinessByOwnerTelegramId } from '../onboarding/queries';
@@ -44,6 +47,7 @@ import {
   showNotifyMenu,
 } from '../telegram/handlers/admin-menu';
 import { handleCalendarCommand } from '../telegram/handlers/calendar-connect';
+import { handleGoogleCalendarConnect } from '../telegram/handlers/google-calendar-connect';
 import {
   ClientMenuCallbackResult,
   showClientRootMenu,
@@ -65,6 +69,8 @@ interface TelegramFrom {
   id: number;
   /** Nullable: Telegram does not require users to set a first name. */
   first_name?: string;
+  /** Optional Telegram @username (without the @); used as a name fallback (D-07). */
+  username?: string;
 }
 
 interface TelegramMessage {
@@ -418,6 +424,20 @@ async function handleFoundBusiness(
         logger.info(
           { updateId, businessId: business.id, elapsedMs: Date.now() - startedAt },
           'handleFoundBusiness: exit (reply-relay branch)'
+        );
+        return;
+      }
+
+      // /calendar command: stale BotFather command lists can still advertise it,
+      // so route it to the Google Calendar connect flow instead of the AI agent.
+      if (messageText.trim() === '/calendar') {
+        await withBusinessContext(business.id, async () => {
+          await handleGoogleCalendarConnect(senderTelegramId, business);
+          await markTelegramUpdateProcessed(updateId, business.id);
+        });
+        logger.info(
+          { updateId, businessId: business.id, elapsedMs: Date.now() - startedAt },
+          'handleFoundBusiness: exit (/calendar branch)'
         );
         return;
       }
@@ -804,7 +824,12 @@ async function handleClientCancelCallback(
     logger.error({ err, bookingId }, 'Client cancel: owner notification failed (best-effort)');
   }
 
-  await sendTelegramMessage(senderTelegramId, 'Το ραντεβού σας ακυρώθηκε.');
+  // D-03: only a booking that was confirmed ever got a calendar link, so only
+  // then do we tell the client to remove the event themselves (no client-calendar API call).
+  await sendTelegramMessage(
+    senderTelegramId,
+    appendCancelCalendarNote('Το ραντεβού σας ακυρώθηκε.', booking.bookingStatus === 'confirmed')
+  );
 }
 
 // Owner tap handler for the Αποδοχή/Απόρριψη inline-keyboard buttons
@@ -924,12 +949,31 @@ async function handleCallbackQuery(
         return;
       }
 
+      // Booking just became confirmed (owner-approved exception): calendar sync +
+      // client link via the single helper (D-01/D-02; Phase 26 reuses this call).
+      // Cross-tenant guard: the re-read booking must belong to the owner's business.
+      let calendarMessage = '';
+      if (result.bookingId !== undefined) {
+        try {
+          const confirmedBooking = await findBookingByIdUnscoped(result.bookingId);
+          if (confirmedBooking && confirmedBooking.businessId === ownerBusiness.id) {
+            const outcome = await processBookingConfirmedForCalendar({
+              booking: confirmedBooking,
+              business: ownerBusiness,
+            });
+            calendarMessage = outcome.clientCalendarMessage;
+          }
+        } catch (err) {
+          logger.error({ err, bookingId: result.bookingId }, 'escl approve: calendar processing failed (best-effort)');
+        }
+      }
+
       // Notify client of approval
       try {
         await botTokenStore.run(ownerBusiness.botToken!, async () => {
           await sendTelegramMessage(
             escl.clientTelegramId,
-            'Η κράτησή σας εγκρίθηκε από τον διαχειριστή! Θα σας δούμε σύντομα.'
+            `Η κράτησή σας εγκρίθηκε από τον διαχειριστή! Θα σας δούμε σύντομα.${calendarMessage}`
           );
         });
       } catch (err) {
@@ -1092,10 +1136,13 @@ async function handleCallbackQuery(
         }
       }
 
+      // Booking just became confirmed (D-05): owner calendar sync + client link via
+      // the single helper (D-01/D-02). Phase 26 reschedule approval reuses this call.
+      const calendarOutcome = await processBookingConfirmedForCalendar({ booking: updated, business });
       try {
         await sendTelegramMessage(
           updated.clientPhone,
-          'Η κράτησή σας εγκρίθηκε από τον διαχειριστή! Θα σας δούμε σύντομα.'
+          `Η κράτησή σας εγκρίθηκε από τον διαχειριστή! Θα σας δούμε σύντομα.${calendarOutcome.clientCalendarMessage}`
         );
       } catch (err) {
         logger.error({ err, bookingId: updated.id }, 'sbk approve: client notification failed (best-effort)');
@@ -1261,10 +1308,16 @@ async function handleCallbackQuery(
         await sendTelegramMessage(senderTelegramId, 'Δεν ήταν δυνατή η έγκριση: η συνδρομή του πελάτη έχει λήξει ή το αίτημα δεν ισχύει πλέον.');
       } else {
         const { booking, request } = result;
+        // Booking just became confirmed (committed in its own transaction): calendar
+        // sync + client link via the single helper (D-01/D-02; Phase 26 reuses this call).
+        const calendarOutcome = await processBookingConfirmedForCalendar({
+          booking: booking as unknown as Booking,
+          business: ownerBusiness,
+        });
         try {
           await sendTelegramMessage(
             booking.clientPhone,
-            `Το αίτημα σας εγκρίθηκε! Η κράτησή σας επιβεβαιώθηκε για ${booking.calendarDate} στις ${booking.calendarTime}.`
+            `Το αίτημα σας εγκρίθηκε! Η κράτησή σας επιβεβαιώθηκε για ${booking.calendarDate} στις ${booking.calendarTime}.${calendarOutcome.clientCalendarMessage}`
           );
         } catch (err) {
           logger.error({ err, bookingId: booking.id }, 'Slotless approval client notification failed (best-effort)');
@@ -1407,18 +1460,19 @@ async function handleCallbackQuery(
       }
     }
     const service = await findServiceById(updated.businessId, updated.serviceId);
-    // Best-effort Calendar sync (D-15). syncBookingToCalendar's own contract
-    // never throws, but this try/catch is defense in depth (Pitfall 2) so a
-    // totally unexpected bug here can never abort the client confirmation
-    // message below or the webhook's 200 response.
-    try {
-      if (service) await syncBookingToCalendar(updated, bookingBusiness, service);
-    } catch (err) {
-      logger.error({ err, bookingId: updated.id }, 'Calendar sync failed (best-effort)');
-    }
+    // Booking just became confirmed: owner calendar sync + client link via the
+    // single helper (D-01/D-02). It never throws, so the client confirmation
+    // below and the webhook's 200 are never blocked (D-15). It adds the
+    // reschedule note itself when rescheduledFromBookingId is set (D-03).
+    // Phase 26 reuses this call.
+    const calendarOutcome = await processBookingConfirmedForCalendar({
+      booking: updated,
+      business: bookingBusiness,
+      service,
+    });
     await sendTelegramMessageWithKeyboard(
       updated.clientPhone,
-      `Το ραντεβού σας επιβεβαιώθηκε! ${service?.name ?? ''}, ${updated.calendarDate} στις ${updated.calendarTime}.`,
+      `Το ραντεβού σας επιβεβαιώθηκε! ${service?.name ?? ''}, ${updated.calendarDate} στις ${updated.calendarTime}.${calendarOutcome.clientCalendarMessage}`,
       [[{ text: '🚫 Ακύρωση κράτησης', callback_data: `client_cancel_${updated.id}` }]]
     );
     // D-05: best-effort .ics calendar invite alongside the text confirmation
@@ -1651,7 +1705,10 @@ export async function handleTelegramWebhookPost(req: Request, res: Response): Pr
             insertClientBusinessRelationship(
               business.id,
               senderTelegramId,
-              update.message!.from.first_name
+              // D-07: name -> @username -> id chain for the owner's calendar title
+              // (formatClientLabel falls back to the Telegram id when both are missing).
+              update.message!.from.first_name ??
+                (update.message!.from.username ? '@' + update.message!.from.username : undefined)
             )
           );
         }

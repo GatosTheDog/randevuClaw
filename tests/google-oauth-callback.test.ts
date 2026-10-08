@@ -1,168 +1,233 @@
-/**
- * Integration tests for GET /oauth/callback — Phase 31 Plan 01 (D-03, T-31-01,
- * T-31-03, T-31-05).
- *
- * Mocks database/queries and every module transitively pulled in by
- * src/server.ts -> src/webhooks/telegram.ts (mirrors tests/telegram-webhook.test.ts's
- * mock list) so importing the real exported `app` never reaches a real DB or
- * the real Telegram API. src/google/oauth's signOAuthState/verifyOAuthState
- * are kept REAL (via jest.requireActual) so these tests exercise genuine HMAC
- * round-trips, not a stubbed signature check — only exchangeAuthCodeForTokens
- * and storeGoogleRefreshToken are mocked.
- *
- * NEVER run bare `npm test` — machine crashes on full suite.
- * Use: npm test -- --testPathPattern="google-oauth-callback" --testTimeout=20000
- */
-
+import fs from 'fs';
+import path from 'path';
+import express from 'express';
 import request from 'supertest';
-import app from '../src/server';
-import * as queries from '../src/database/queries';
-import { signOAuthState, exchangeAuthCodeForTokens, storeGoogleRefreshToken } from '../src/google/oauth';
-import { Business } from '../src/database/queries';
 
-jest.mock('../src/database/queries');
-jest.mock('../src/telegram/client');
-jest.mock('../src/conversation/router');
-jest.mock('../src/calendar/sync');
-jest.mock('../src/telegram/registry');
-jest.mock('../src/billing/queries');
-jest.mock('../src/onboarding/ai-owner-agent');
-jest.mock('../src/session/manager');
-jest.mock('../src/utils/logger', () => ({
-  logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
+jest.mock('../src/google/oauth-state', () => ({ consumeOAuthState: jest.fn() }));
+jest.mock('../src/google/oauth', () => ({
+  exchangeAuthCodeForTokens: jest.fn(),
+  storeGoogleRefreshToken: jest.fn(),
 }));
-jest.mock('../src/google/oauth', () => {
-  const actual = jest.requireActual('../src/google/oauth');
-  return {
-    ...actual,
-    exchangeAuthCodeForTokens: jest.fn(),
-    storeGoogleRefreshToken: jest.fn(),
-  };
-});
+jest.mock('../src/database/queries', () => ({ findBusinessById: jest.fn() }));
+jest.mock('../src/telegram/client', () => ({
+  botTokenStore: { run: jest.fn((_t: string, cb: () => unknown) => cb()) },
+  sendTelegramMessage: jest.fn(),
+}));
+jest.mock('../src/utils/logger', () => ({
+  logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+}));
 
-const KNOWN_BUSINESS: Business = {
-  id: 1,
-  name: 'Pilates Athens',
-  slug: 'pilates-athens',
-  phoneNumberId: null,
-  ownerTelegramId: '999999999',
-  googleRefreshToken: null,
-  agendaSentDate: null,
-  botToken: 'test-bot-1-token',
-  webhookId: 'test-webhook-id-1',
-  webhookSecret: 'test-bot-1-webhook-secret',
-  enforcementPolicy: 'allow',
-  bookingMode: 'open_slots',
-  allowMultiBooking: false,
-  cancellationCutoffEnabled: false,
-  cancellationCutoffHours: 0,
-  slotlessRequestsEnabled: false,
-  lastSessionThresholdEnabled: false,
-  lastSessionThresholdCount: 0,
-  onboardingCompleted: true,
-  createdAt: new Date(),
-};
+import { config } from '../src/config';
+import { logger } from '../src/utils/logger';
+import { botTokenStore, sendTelegramMessage } from '../src/telegram/client';
+import { findBusinessById } from '../src/database/queries';
+import { consumeOAuthState } from '../src/google/oauth-state';
+import { exchangeAuthCodeForTokens, storeGoogleRefreshToken } from '../src/google/oauth';
+import {
+  handleGoogleOAuthCallback,
+  getGoogleOAuthCallbackPath,
+  GCAL_CONNECTED_GREEK,
+  GCAL_DENIED_GREEK,
+  GCAL_CONNECT_FAILED_GREEK,
+} from '../src/google/callback';
 
-const mockedFindBusinessById = queries.findBusinessById as jest.MockedFunction<typeof queries.findBusinessById>;
-const mockedExchangeAuthCodeForTokens = exchangeAuthCodeForTokens as jest.MockedFunction<
-  typeof exchangeAuthCodeForTokens
->;
-const mockedStoreGoogleRefreshToken = storeGoogleRefreshToken as jest.MockedFunction<
-  typeof storeGoogleRefreshToken
->;
+const mockConsume = consumeOAuthState as jest.Mock;
+const mockFind = findBusinessById as jest.Mock;
+const mockExchange = exchangeAuthCodeForTokens as jest.Mock;
+const mockStore = storeGoogleRefreshToken as jest.Mock;
+const mockSend = sendTelegramMessage as jest.Mock;
+const mockRun = botTokenStore.run as unknown as jest.Mock;
 
-describe('GET /oauth/callback', () => {
+const STATE = 'ab'.repeat(32);
+
+interface FakeRes {
+  statusCode?: number;
+  headers: Record<string, string>;
+  body?: string;
+  headersSent: boolean;
+  status: jest.Mock;
+  set: jest.Mock;
+  send: jest.Mock;
+}
+
+function makeRes(): FakeRes {
+  const res = { headers: {}, headersSent: false } as FakeRes;
+  res.status = jest.fn((c: number) => {
+    res.statusCode = c;
+    return res;
+  });
+  res.set = jest.fn((h: Record<string, string>) => {
+    Object.assign(res.headers, h);
+    return res;
+  });
+  res.send = jest.fn((b: string) => {
+    res.body = b;
+    return res;
+  });
+  return res;
+}
+
+async function call(query: Record<string, unknown>): Promise<FakeRes> {
+  const res = makeRes();
+  await handleGoogleOAuthCallback({ query } as never, res as never);
+  return res;
+}
+
+function allLogs(): string {
+  const l = logger as unknown as Record<string, jest.Mock>;
+  return JSON.stringify([l.info.mock.calls, l.warn.mock.calls, l.error.mock.calls]);
+}
+
+const business = { id: 7, ownerTelegramId: '555', botToken: 'bot-tok' };
+
+describe('handleGoogleOAuthCallback', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockRun.mockImplementation((_t: string, cb: () => unknown) => cb());
+    mockConsume.mockResolvedValue(7);
+    mockFind.mockResolvedValue(business);
+    mockExchange.mockResolvedValue({ refreshToken: 'rt-new', accessToken: 'at' });
+    mockStore.mockResolvedValue(undefined);
+    mockSend.mockResolvedValue({ messageId: 1 });
   });
 
-  it('succeeds (200, stores token) for a valid code + state matching an existing business, and the response HTML contains the business name', async () => {
-    const state = signOAuthState(KNOWN_BUSINESS.id);
-    mockedFindBusinessById.mockResolvedValue(KNOWN_BUSINESS);
-    mockedExchangeAuthCodeForTokens.mockResolvedValue({ refreshToken: 'rt-1', accessToken: 'at-1' });
-    mockedStoreGoogleRefreshToken.mockResolvedValue(undefined);
+  it('Test 1: happy path stores the token and confirms to the owner via the business bot', async () => {
+    const res = await call({ state: STATE, code: 'auth-code' });
 
-    const res = await request(app).get('/oauth/callback').query({ code: 'auth-code-1', state });
-
-    expect(res.status).toBe(200);
-    expect(res.text).toContain('Pilates Athens');
-    expect(mockedExchangeAuthCodeForTokens).toHaveBeenCalledTimes(1);
-    expect(mockedExchangeAuthCodeForTokens).toHaveBeenCalledWith('auth-code-1');
-    expect(mockedStoreGoogleRefreshToken).toHaveBeenCalledTimes(1);
-    expect(mockedStoreGoogleRefreshToken).toHaveBeenCalledWith(KNOWN_BUSINESS.id, 'rt-1');
+    expect(mockExchange).toHaveBeenCalledWith('auth-code');
+    expect(mockStore).toHaveBeenCalledWith(7, 'rt-new');
+    expect(mockRun).toHaveBeenCalledWith('bot-tok', expect.any(Function));
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    expect(mockSend).toHaveBeenCalledWith('555', GCAL_CONNECTED_GREEK);
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain('lang="el"');
   });
 
-  it('returns 400 for a tampered state and never calls exchangeAuthCodeForTokens', async () => {
-    const state = signOAuthState(KNOWN_BUSINESS.id);
-    const lastChar = state.slice(-1);
-    const tampered = state.slice(0, -1) + (lastChar === 'a' ? 'b' : 'a');
+  it('Test 2: ignores business_id/owner_id query parameters (cross-tenant guard)', async () => {
+    await call({ state: STATE, code: 'c', business_id: '99', owner_id: 'x' });
 
-    const res = await request(app).get('/oauth/callback').query({ code: 'auth-code-1', state: tampered });
-
-    expect(res.status).toBe(400);
-    expect(mockedExchangeAuthCodeForTokens).not.toHaveBeenCalled();
-    expect(mockedStoreGoogleRefreshToken).not.toHaveBeenCalled();
+    expect(mockFind).toHaveBeenCalledWith(7);
+    expect(mockStore).toHaveBeenCalledWith(7, 'rt-new');
   });
 
-  it('returns 400 for a malformed state and never calls exchangeAuthCodeForTokens', async () => {
-    const res = await request(app).get('/oauth/callback').query({ code: 'auth-code-1', state: 'not-a-real-state' });
+  it('Test 3: unknown/expired state -> 400, no exchange, state not echoed', async () => {
+    mockConsume.mockResolvedValue(null);
+    const res = await call({ state: STATE, code: 'c' });
 
-    expect(res.status).toBe(400);
-    expect(mockedExchangeAuthCodeForTokens).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
+    expect(mockExchange).not.toHaveBeenCalled();
+    expect(mockStore).not.toHaveBeenCalled();
+    expect(res.body).not.toContain(STATE);
   });
 
-  it('returns 404 for a valid state whose businessId has no matching business, and never calls exchangeAuthCodeForTokens', async () => {
-    const state = signOAuthState(9999);
-    mockedFindBusinessById.mockResolvedValue(null);
+  it('Test 4: missing or non-string state/code -> 400 and consume never gets a non-string', async () => {
+    const missing = await call({ code: 'c' });
+    expect(missing.statusCode).toBe(400);
 
-    const res = await request(app).get('/oauth/callback').query({ code: 'auth-code-1', state });
+    const arr = await call({ state: [STATE, STATE], code: 'c' });
+    expect(arr.statusCode).toBe(400);
+    const obj = await call({ state: { a: 'b' }, code: 'c' });
+    expect(obj.statusCode).toBe(400);
 
-    expect(res.status).toBe(404);
-    expect(mockedExchangeAuthCodeForTokens).not.toHaveBeenCalled();
+    expect(mockConsume).not.toHaveBeenCalled();
+
+    // non-string code with valid state: no exchange
+    const badCode = await call({ state: STATE, code: ['x'] });
+    expect(badCode.statusCode).toBe(400);
+    expect(mockExchange).not.toHaveBeenCalled();
   });
 
-  it('returns 400 when code is missing', async () => {
-    const state = signOAuthState(KNOWN_BUSINESS.id);
-    const res = await request(app).get('/oauth/callback').query({ state });
+  it('Test 5: replay -> second request 400, exchange called once overall', async () => {
+    mockConsume.mockResolvedValueOnce(7).mockResolvedValueOnce(null);
+    const first = await call({ state: STATE, code: 'c' });
+    const second = await call({ state: STATE, code: 'c' });
 
-    expect(res.status).toBe(400);
-    expect(mockedExchangeAuthCodeForTokens).not.toHaveBeenCalled();
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(400);
+    expect(mockExchange).toHaveBeenCalledTimes(1);
   });
 
-  it('returns 400 when state is missing', async () => {
-    const res = await request(app).get('/oauth/callback').query({ code: 'auth-code-1' });
+  it('Test 6: access_denied consumes the state, skips exchange, notifies owner', async () => {
+    const res = await call({ state: STATE, error: 'access_denied' });
 
-    expect(res.status).toBe(400);
-    expect(mockedExchangeAuthCodeForTokens).not.toHaveBeenCalled();
+    expect(mockConsume).toHaveBeenCalledTimes(1);
+    expect(mockExchange).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(200);
+    expect(mockSend).toHaveBeenCalledWith('555', GCAL_DENIED_GREEK);
   });
 
-  it('never logs the raw code, state, or refreshToken/accessToken values on any path (success, tampered state, or missing params)', async () => {
-    const { logger } = jest.requireMock('../src/utils/logger') as { logger: Record<string, jest.Mock> };
+  it('Test 7: valid state without code -> 400, no exchange', async () => {
+    const res = await call({ state: STATE });
 
-    const secretCode = 'super-secret-auth-code-xyz';
-    const secretRefreshToken = 'super-secret-refresh-token-xyz';
-    const secretAccessToken = 'super-secret-access-token-xyz';
-    const validState = signOAuthState(KNOWN_BUSINESS.id);
+    expect(res.statusCode).toBe(400);
+    expect(mockExchange).not.toHaveBeenCalled();
+  });
 
-    mockedFindBusinessById.mockResolvedValue(KNOWN_BUSINESS);
-    mockedExchangeAuthCodeForTokens.mockResolvedValue({
-      refreshToken: secretRefreshToken,
-      accessToken: secretAccessToken,
-    });
-    mockedStoreGoogleRefreshToken.mockResolvedValue(undefined);
+  it('Test 8: exchange failure -> 502, failure message, no store, secrets not logged', async () => {
+    mockExchange.mockRejectedValue(
+      Object.assign(new Error('invalid request'), {
+        config: { data: 'refresh_token=SECRET_TOKEN_123' },
+        response: { status: 400, data: { error: 'invalid_grant' } },
+      })
+    );
+    const res = await call({ state: STATE, code: 'c' });
 
-    await request(app).get('/oauth/callback').query({ code: secretCode, state: validState });
-    await request(app)
-      .get('/oauth/callback')
-      .query({ code: secretCode, state: validState.slice(0, -1) + 'x' });
-    await request(app).get('/oauth/callback').query({});
+    expect(res.statusCode).toBe(502);
+    expect(mockStore).not.toHaveBeenCalled();
+    expect(mockSend).toHaveBeenCalledWith('555', GCAL_CONNECT_FAILED_GREEK);
+    expect(allLogs()).not.toContain('SECRET_TOKEN_123');
+  });
 
-    const allLoggedArgs = [...logger.error.mock.calls, ...logger.warn.mock.calls, ...logger.info.mock.calls];
-    const serialized = JSON.stringify(allLoggedArgs);
+  it('Test 9: XSS payload in error is not echoed', async () => {
+    const res = await call({ state: STATE, error: '<script>alert(1)</script>' });
 
-    expect(serialized).not.toContain(secretCode);
-    expect(serialized).not.toContain(secretRefreshToken);
-    expect(serialized).not.toContain(secretAccessToken);
-    expect(serialized).not.toContain(validState);
+    expect(res.body).not.toContain('<script>');
+    expect(res.body).not.toContain('alert(1)');
+  });
+
+  it('Test 10: logs contain neither the new token nor the raw state', async () => {
+    await call({ state: STATE, code: 'c' });
+    await call({ state: STATE, error: 'access_denied' });
+    mockConsume.mockResolvedValueOnce(null);
+    await call({ state: STATE, code: 'c' });
+
+    const logs = allLogs();
+    expect(logs).not.toContain('rt-new');
+    expect(logs).not.toContain(STATE);
+    expect(logs).toContain('"businessId":7');
+  });
+
+  it('Test 11: every response carries the hardening headers', async () => {
+    const responses = [
+      await call({ state: STATE, code: 'c' }),
+      await call({}),
+      await call({ state: STATE, error: 'access_denied' }),
+    ];
+    for (const res of responses) {
+      expect(res.headers['Cache-Control']).toBe('no-store');
+      expect(res.headers['Referrer-Policy']).toBe('no-referrer');
+      expect(res.headers['X-Content-Type-Options']).toBe('nosniff');
+      expect(res.headers['Content-Security-Policy']).toMatch(/^default-src 'none'/);
+    }
+  });
+
+  it('Test 12: route path follows GOOGLE_REDIRECT_URI and is wired in server.ts', async () => {
+    const callbackPath = getGoogleOAuthCallbackPath();
+    expect(callbackPath).toBe(new URL(config.googleRedirectUri).pathname);
+
+    const app = express();
+    app.get(callbackPath, handleGoogleOAuthCallback);
+    const response = await request(app).get(callbackPath).query({ state: STATE, code: 'c' });
+    expect(response.status).toBe(200);
+    expect(response.headers['cache-control']).toBe('no-store');
+
+    const serverSource = fs.readFileSync(path.join(__dirname, '../src/server.ts'), 'utf8');
+    expect(serverSource).toContain('app.get(getGoogleOAuthCallbackPath(), handleGoogleOAuthCallback)');
+  });
+
+  it('never throws: unexpected failure yields 500 page', async () => {
+    mockConsume.mockRejectedValue(new Error('db down'));
+    const res = await call({ state: STATE, code: 'c' });
+    expect(res.statusCode).toBe(500);
   });
 });

@@ -5,16 +5,16 @@ milestone_name: UX & Trust Polish
 current_phase: 31
 current_phase_name: google-calendar-self-serve-connect-owner-facing-oauth-flow-t
 status: executing
-stopped_at: Phase 31 context gathered
-last_updated: "2026-08-13T15:18:54.195Z"
-last_activity: 2026-08-13
-last_activity_desc: Phase 31 execution started
+stopped_at: "Git-sync merge: local (Phase 31, quick tasks 260729-260908) reconciled with origin (Phase 25.1, coworker's parallel Google Calendar branch). Both Phase 31 and Phase 25.1 Calendar implementations existed independently; kept 25.1's DB-backed single-use OAuth state as the surviving connect flow, Phase 31's /calendar command + disconnect action preserved as a thin adapter on top of it."
+last_updated: "2026-10-08T00:00:00.000Z"
+last_activity: 2026-10-08
+last_activity_desc: "Git-sync merge resolved (195 local commits reconciled with 34 origin commits across 12 overlapping source files); session also shipped date-first booking picker, membership expiry date-cap, admin clients-list remaining-slots display, hidden /testrole dev command, and the admin notify-clients menu"
 progress:
-  total_phases: 6
-  completed_phases: 5
-  total_plans: 16
-  completed_plans: 14
-  percent: 83
+  total_phases: 7
+  completed_phases: 7
+  total_plans: 22
+  completed_plans: 22
+  percent: 100
 ---
 
 # Project State
@@ -24,20 +24,20 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-29 after v1.7 milestone close)
 
 **Core value:** A client can book or cancel an appointment with a Greek business entirely through a chat conversation, in Greek, with zero friction — and the owner's calendar updates automatically.
-**Current focus:** Phase 31 — google-calendar-self-serve-connect-owner-facing-oauth-flow-t
+**Current focus:** Post-git-sync stabilization — both Phase 31 and Phase 25.1 (Google Calendar) are shipped and reconciled; ready to plan the next milestone.
 
 ## Current Position
 
-Phase: 31 (google-calendar-self-serve-connect-owner-facing-oauth-flow-t) — EXECUTING
-Plan: 1 of 2
-Status: Executing Phase 31
-Last activity: 2026-09-08 — Completed quick task 260908-dxa: Add deterministic view_schedule_for_date owner tool (fixes hallucinated weekday on date queries)
+Phase: 31 (google-calendar-self-serve-connect-owner-facing-oauth-flow-t) and 25.1 (google-calendar-client-admin) — both COMPLETE, merged
+Plan: N/A — git-sync reconciliation complete
+Status: Ready to plan next milestone
+Last activity: 2026-10-08 — Git-sync merge resolved; session also shipped date-first booking picker (client + admin class-cancel), membership expiry date-cap/preview, admin clients-list remaining-slots display, hidden /testrole dev command, and the admin "Ειδοποίηση Πελατών" notify-clients menu
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 55
+- Total plans completed: 61
 - Average duration: - min
 - Total execution time: 0 hours
 
@@ -54,11 +54,13 @@ Last activity: 2026-09-08 — Completed quick task 260908-dxa: Add deterministic
 | 17 | 4 | - | - |
 | 19 | 3 | - | - |
 | 21 | 3 | - | - |
+| 25.1 | 6 | - | - |
 | 26 | 2 | - | - |
 | 27 | 2 | - | - |
 | 28 | 2 | - | - |
 | 29 | 6 | - | - |
 | 30 | 2 | - | - |
+| 31 | 2 | - | - |
 
 **Recent Trend:**
 
@@ -111,6 +113,12 @@ Last activity: 2026-09-08 — Completed quick task 260908-dxa: Add deterministic
 | Phase 21 P01 | 55 | 2 tasks | 3 files |
 | Phase 21 P03 | 20min | 2 tasks | 10 files |
 | Phase quick P260725-hlh | 8min | 2 tasks | 3 files |
+| Phase 25.1 P01 | n/a | 3 tasks | 10 files |
+| Phase 25.1 P02 | 15min | 2 tasks | 8 files |
+| Phase 25.1 P03 | 25min | 3 tasks | 8 files |
+| Phase 25.1 P04 | 20min | 3 tasks | 11 files |
+| Phase 25.1 P05 | 20min | 2 tasks | 4 files |
+| Phase 25.1 P06 | 20min | 3 tasks | 8 files |
 | Phase 26 P01 | 25min | 3 tasks | 6 files |
 | Phase 26 P02 | 23min | 3 tasks | 7 files |
 | Phase 27 P01 | 8min | 3 tasks | 3 files |
@@ -239,6 +247,10 @@ Recent decisions affecting current work:
 - [Roadmap v1.6]: BOT-06 and DIAG-01 grouped into one phase (24) rather than two single-requirement phases — both are small, independent bot-ops config/behavior changes with no natural neighbor closer than each other
 - [Roadmap v1.7]: 5 phases derived from 15 requirements — Phase 26 (CONF-01+CONF-02 confirmation/approval policy foundation), Phase 27 (COMP-01+COMP-02 client consent & registration), Phase 28 (ADMIN-01..04 admin menu discoverability, depends on Phase 26's confirmation pattern), Phase 29 (UX-01/02/04/05/06 booking & list clarity, depends on Phase 26's confirmation pattern), Phase 30 (UX-03+ADMIN-05 client identification & menu-button reliability, sequenced last as the most research-heavy pair)
 - [Roadmap v1.7]: Research's suggested 5-6 phase split (confirmation, reschedule-reversal, menu-standardization, booking-clarity, advanced-consent/fuzzy, dead-feature-cleanup) was consolidated to 5 phases — CONF-01/CONF-02 share one phase instead of two (both are "approval/confirmation policy" work), and the two dead-button items (ADMIN-01/02) were folded into the admin-menu-discoverability phase instead of a standalone cleanup phase, avoiding thin single-requirement phases
+- [Phase ?]: 25.1-01: applied migration 0013 to Neon via db:apply-sql only; drizzle-kit push skipped (needs TTY, applies without confirmation)
+- [Phase ?]: [25.1-03] handleGoogleAuthRevoked: only the caller that actually clears the token sends the reconnect message; sweep pauses a business without burning retries when token cleared
+- [Phase ?]: [25.1-04] OAuth state is DB-backed single-use hash; callback derives businessId only from state row; scope calendar.events; live consent check deferred pending Google Cloud setup + deploy
+- [Phase ?]: 25.1-05: escl approve re-reads booking and requires businessId match before calendar processing
 - [Phase 26]: rescheduledFromBookingId appended as bookSessionInstance's 8th (last) parameter, not inserted before initialStatus, so existing call sites passing 'confirmed' as the 7th arg stay unaffected
 - [Phase 26]: rescheduleSessionTool defers old-booking cancellation to owner-approval time (D-03): new booking created pending_owner_approval and linked via rescheduledFromBookingId, old booking stays confirmed/untouched until approve/reject
 - [Phase 26]: sbk:approve cascade-cancels the superseded old booking with no credit restore (its credit was never touched); sbk:reject needs zero new logic since the old booking was never cancelled
@@ -301,6 +313,10 @@ Recent decisions affecting current work:
 - [Phase 26]: CONF-02 reschedule-approval reversal has in-flight data risk — reschedules already auto-confirmed under the old Phase 22 behavior must not become invisible/orphaned once the new approval filter goes live (research PITFALLS.md #2).
 - [Phase 27]: COMP-01/COMP-02 consent-timing fix has a concurrency risk — two threads on the same client's first contact could race past the consent upsert; use an atomic INSERT...ON CONFLICT, not read-then-write (research PITFALLS.md #3).
 - [Phase 26]: tests/session-booking-flow.test.ts SBOK-04 'multi-booking partial success' fails on a pre-existing test bug (duplicate active session catalog for same business+service) unrelated to Phase 26 changes — logged in .planning/phases/26-confirmation-approval-policy/deferred-items.md, needs a future test-suite-health pass.
+
+### Roadmap Evolution
+
+- Phase 25.1 inserted after Phase 25: Google Calendar integration for client and admin bookings (URGENT)
 
 ## Deferred Items
 
@@ -372,9 +388,9 @@ Items acknowledged and deferred at v1.7 milestone close on 2026-07-29:
 
 ## Session Continuity
 
-Last session: 2026-08-13T11:09:13.219Z
-Stopped at: Phase 31 context gathered
-Resume file: .planning/phases/31-google-calendar-self-serve-connect-owner-facing-oauth-flow-t/31-CONTEXT.md
+Last session: 2026-10-08T00:00:00.000Z
+Stopped at: Git-sync merge resolved (local Phase 31 + origin Phase 25.1 Google Calendar branches reconciled); this session's own feature work (date-first picker, membership date-cap, admin clients-list slots, /testrole, notify-clients menu) also complete
+Resume file: None
 
 **Phase 12 Plan 01 completed:** a940588, 6c5830e, 7d64f85
 

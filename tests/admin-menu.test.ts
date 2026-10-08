@@ -51,8 +51,9 @@ jest.mock('../src/onboarding/queries');
 jest.mock('../src/onboarding/ai-owner-agent');
 jest.mock('../src/session/manager');
 jest.mock('../src/scheduler/agenda');
-jest.mock('../src/invites/generator');
+jest.mock('../src/invites/generator', () => ({ sendBusinessInvite: jest.fn() }));
 jest.mock('../src/telegram/handlers/payment-flow');
+jest.mock('../src/telegram/handlers/google-calendar-connect');
 
 // ---------------------------------------------------------------------------
 // Test constants
@@ -101,6 +102,10 @@ describe('parseCallbackData — MenuCallbackResult arm', () => {
     expect(result).toEqual({ menuAction: 'classes:cancel_yes', id: 99 });
   });
 
+  test('parses menu:gcal_connect as menuAction without id', () => {
+    expect(parseCallbackData('menu:gcal_connect')).toEqual({ menuAction: 'gcal_connect', id: undefined });
+  });
+
   test('parses menu:root without id', () => {
     const result = parseCallbackData('menu:root');
     expect(result).toEqual({ menuAction: 'root', id: undefined });
@@ -129,7 +134,7 @@ describe('showAdminRootMenu — keyboard shape', () => {
     telegramClient.sendTelegramMessage.mockResolvedValue({ messageId: 2 });
   });
 
-  test('sends exactly one message with a 5-row keyboard totalling 7 buttons', async () => {
+  test('sends exactly one message with a 6-row keyboard totalling 8 buttons', async () => {
     const telegramClient = require('../src/telegram/client');
     await showAdminRootMenu('123', mockBusiness);
 
@@ -137,8 +142,9 @@ describe('showAdminRootMenu — keyboard shape', () => {
     expect(sendCalls.length).toBe(1);
 
     const keyboard = sendCalls[0][2];
-    // 5 rows: existing 2x2 grid unchanged, plus payment, invite, and notify rows
-    expect(keyboard.length).toBe(5);
+    // 6 rows: existing 2x2 grid unchanged, plus payment, invite, notify, and
+    // Google Calendar connect rows
+    expect(keyboard.length).toBe(6);
     // Pre-existing 2x2 grid content is byte-for-byte unchanged
     expect(keyboard[0].length).toBe(2);
     expect(keyboard[1].length).toBe(2);
@@ -151,9 +157,21 @@ describe('showAdminRootMenu — keyboard shape', () => {
     // 5th row: exactly one button with callback_data menu:notify
     expect(keyboard[4].length).toBe(1);
     expect(keyboard[4][0]).toEqual({ text: 'Ειδοποίηση Πελατών', callback_data: 'menu:notify' });
-    // 7 buttons total
+    // 6th row: Google Calendar connect button
+    expect(keyboard[5]).toEqual([{ text: 'Σύνδεση Google Calendar', callback_data: 'menu:gcal_connect' }]);
+    // 8 buttons total
     const totalButtons = keyboard.flat().length;
-    expect(totalButtons).toBe(7);
+    expect(totalButtons).toBe(8);
+  });
+
+  test('shows the reconnect label when the business already has a Google refresh token', async () => {
+    const telegramClient = require('../src/telegram/client');
+    await showAdminRootMenu('123', { ...mockBusiness, googleRefreshToken: 'rt' });
+
+    const keyboard = (telegramClient.sendTelegramMessageWithKeyboard as jest.Mock).mock.calls[0][2];
+    expect(keyboard[5]).toEqual([
+      { text: 'Google Calendar ✅ (επανασύνδεση)', callback_data: 'menu:gcal_connect' },
+    ]);
   });
 
   test('message text enumerates all 7 button labels as a numbered list', async () => {
@@ -169,6 +187,18 @@ describe('showAdminRootMenu — keyboard shape', () => {
     expect(menuText).toContain('5. Καταχώρηση Πληρωμής');
     expect(menuText).toContain('6. Πρόσκληση Πελάτη');
     expect(menuText).toContain('7. Ειδοποίηση Πελατών');
+  });
+});
+
+describe('handleMenuCallback — gcal_connect action', () => {
+  test('routes to handleGoogleCalendarConnect(chatId, business) exactly once', async () => {
+    const connect = require('../src/telegram/handlers/google-calendar-connect');
+    connect.handleGoogleCalendarConnect.mockResolvedValue(undefined);
+
+    await handleMenuCallback({ menuAction: 'gcal_connect', id: undefined }, mockBusiness, '123');
+
+    expect(connect.handleGoogleCalendarConnect).toHaveBeenCalledTimes(1);
+    expect(connect.handleGoogleCalendarConnect).toHaveBeenCalledWith('123', mockBusiness);
   });
 });
 

@@ -2,6 +2,7 @@ import * as queries from '../src/database/queries';
 import * as sync from '../src/calendar/sync';
 import { logger } from '../src/utils/logger';
 import { runCalendarSyncSweep, startCalendarSyncPoller } from '../src/calendar/poller';
+import { makeBooking, makeBusiness, makeService } from './helpers/calendar-fixtures';
 
 jest.mock('../src/database/queries');
 jest.mock('../src/calendar/sync');
@@ -34,55 +35,7 @@ const mockedDeleteBookingFromCalendar = sync.deleteBookingFromCalendar as jest.M
   typeof sync.deleteBookingFromCalendar
 >;
 
-function makeBusiness(overrides: Partial<queries.Business> = {}): queries.Business {
-  return {
-    id: 1,
-    name: 'Pilates Athens',
-    slug: 'pilates-athens',
-    phoneNumberId: null,
-    ownerTelegramId: 'owner1',
-    googleRefreshToken: 'refresh-token-1',
-    agendaSentDate: null,
-    botToken: null,
-    webhookId: null,
-    webhookSecret: null,
-    enforcementPolicy: 'allow',
-    createdAt: new Date(),
-    ...overrides,
-  };
-}
-
-function makeBooking(overrides: Partial<queries.Booking> = {}): queries.Booking {
-  return {
-    id: 42,
-    businessId: 1,
-    clientPhone: 'c1',
-    serviceId: 2,
-    calendarDate: '2026-07-10',
-    calendarTime: '10:00',
-    bookingStatus: 'confirmed',
-    requestId: 'req-42',
-    ownerTelegramMessageId: null,
-    rescheduledFromBookingId: null,
-    calendarSyncStatus: 'pending',
-    googleCalendarEventId: null,
-    calendarSyncRetryCount: 0,
-    reminder24hSentAt: null,
-    reminder1hSentAt: null,
-    createdAt: new Date(),
-    expiresAt: null,
-    ...overrides,
-  };
-}
-
-const SERVICE = {
-  id: 2,
-  businessId: 1,
-  name: 'Reformer Pilates',
-  durationMin: 50,
-  price: 3500,
-  createdAt: new Date(),
-};
+const SERVICE = makeService();
 
 describe('runCalendarSyncSweep', () => {
   beforeEach(() => {
@@ -100,8 +53,8 @@ describe('runCalendarSyncSweep', () => {
     await runCalendarSyncSweep();
 
     expect(mockedListAllBusinessIds).toHaveBeenCalledTimes(1);
-    expect(mockedFindBookingsNeedingCalendarSync).toHaveBeenCalledWith(1);
-    expect(mockedFindBookingsNeedingCalendarSync).not.toHaveBeenCalledWith(2);
+    expect(mockedFindBookingsNeedingCalendarSync).toHaveBeenCalledWith(1, expect.any(String));
+    expect(mockedFindBookingsNeedingCalendarSync).not.toHaveBeenCalledWith(2, expect.anything());
   });
 
   it('Test 2a: confirmed candidate -> findServiceById + syncBookingToCalendar; success -> no increment, counted', async () => {
@@ -173,8 +126,66 @@ describe('runCalendarSyncSweep', () => {
     });
 
     await expect(runCalendarSyncSweep()).resolves.toBe(0);
-    expect(mockedFindBookingsNeedingCalendarSync).toHaveBeenCalledWith(2);
+    expect(mockedFindBookingsNeedingCalendarSync).toHaveBeenCalledWith(2, expect.any(String));
     expect(logger.error).toHaveBeenCalled();
+  });
+});
+
+describe('runCalendarSyncSweep (phase 25.1 additions)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockedFindServiceById.mockResolvedValue(SERVICE);
+  });
+
+  it('Test 13: queries with the business id and today in Athens (ISO date)', async () => {
+    mockedListAllBusinessIds.mockResolvedValue([1]);
+    mockedFindBusinessById.mockResolvedValue(makeBusiness());
+    mockedFindBookingsNeedingCalendarSync.mockResolvedValue([]);
+
+    await runCalendarSyncSweep();
+
+    expect(mockedFindBookingsNeedingCalendarSync).toHaveBeenCalledWith(1, expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/));
+  });
+
+  it('Test 14: a confirmed session booking is synced with its service', async () => {
+    mockedListAllBusinessIds.mockResolvedValue([1]);
+    mockedFindBusinessById.mockResolvedValue(makeBusiness());
+    const booking = makeBooking({ sessionInstanceId: 100, serviceId: 7 });
+    mockedFindBookingsNeedingCalendarSync.mockResolvedValue([booking]);
+    mockedSyncBookingToCalendar.mockResolvedValue(true);
+
+    await runCalendarSyncSweep();
+
+    expect(mockedFindServiceById).toHaveBeenCalledWith(1, 7);
+    expect(mockedSyncBookingToCalendar).toHaveBeenCalledWith(booking, expect.objectContaining({ id: 1 }), SERVICE);
+  });
+
+  it('Test 15: token cleared mid-sweep stops that business without incrementing retries, next business still runs', async () => {
+    mockedListAllBusinessIds.mockResolvedValue([1, 2]);
+    let business1Reads = 0;
+    mockedFindBusinessById.mockImplementation(async (id: number) => {
+      if (id === 1) {
+        business1Reads += 1;
+        // First read (sweep start) has a token; later reads (after failure) do not.
+        return makeBusiness({ id: 1, googleRefreshToken: business1Reads === 1 ? 'rt' : null });
+      }
+      return makeBusiness({ id: 2 });
+    });
+    const b1a = makeBooking({ id: 10, businessId: 1 });
+    const b1b = makeBooking({ id: 11, businessId: 1 });
+    const b2 = makeBooking({ id: 20, businessId: 2 });
+    mockedFindBookingsNeedingCalendarSync.mockImplementation(async (businessId: number) =>
+      businessId === 1 ? [b1a, b1b] : [b2]
+    );
+    mockedSyncBookingToCalendar.mockImplementation(async (booking) => booking.id === 20);
+
+    const count = await runCalendarSyncSweep();
+
+    expect(mockedSyncBookingToCalendar).toHaveBeenCalledTimes(2);
+    expect(mockedSyncBookingToCalendar).not.toHaveBeenCalledWith(b1b, expect.anything(), expect.anything());
+    expect(mockedIncrementCalendarSyncRetryCount).not.toHaveBeenCalled();
+    expect(mockedSyncBookingToCalendar).toHaveBeenCalledWith(b2, expect.objectContaining({ id: 2 }), SERVICE);
+    expect(count).toBe(1);
   });
 });
 
