@@ -98,7 +98,7 @@ See: `.planning/milestones/v1.6-ROADMAP.md`
 <details>
 <summary>✅ v1.7 UX & Trust Polish (Phases 26-30) — SHIPPED 2026-07-29</summary>
 
-- [x] **Phase 26: Confirmation & Approval Policy** — Uniform Ναι/Όχι confirmation on every destructive owner action, and client reschedules now require owner approval like new bookings (completed 2026-07-28)
+- [x] **Phase 26: Confirmation & Approval Policy** — Uniform Ναι/Όχι confirmation on every destructive owner action, and client reschedules now require owner approval like new bookings (completed 2026-07-28 for plans 26-01/02; ⚠ plans 26-03/04/05, arrived 2026-10-08 via git-sync merge from a coworker's branch, specify a more robust reschedule-approval cascade + a new expiry-notice feature that are NOT yet implemented — see STATE.md Blockers)
 - [x] **Phase 27: Client Consent & Registration** — GDPR consent notice shown before any client relationship row is created, with a real opt-in flag distinguishing registered clients (completed 2026-07-28)
 - [x] **Phase 28: Admin Menu Discoverability** — Payment recording, setup editing, and escalation reply are all reachable from `/menu`; dead decorative buttons removed (completed 2026-07-28)
 - [x] **Phase 29: Booking & List Clarity** — Slots, cancel prompts, and booking lists show accurate, contextual information instead of raw IDs or stale bookable slots (completed 2026-07-28)
@@ -178,7 +178,7 @@ Plans:
 | 24. Bot Access & Diagnostics Polish | v1.6 | 1/1 | Complete | 2026-07-27 |
 | 25. Client Invite Generator | v1.6 | 1/1 | Complete | 2026-07-27 |
 | 25.1. Google Calendar for Client & Admin Bookings (INSERTED) | v1.7 | 6/6 | Complete | 2026-10-02 |
-| 26. Confirmation & Approval Policy | v1.7 | 2/2 | Complete    | 2026-07-28 |
+| 26. Confirmation & Approval Policy | v1.7 | 2/5 | In Progress — 26-03/04/05 not yet executed (found 2026-10-08 via git-sync merge) | - |
 | 27. Client Consent & Registration | v1.7 | 2/2 | Complete    | 2026-07-28 |
 | 28. Admin Menu Discoverability | v1.7 | 2/2 | Complete    | 2026-07-28 |
 | 29. Booking & List Clarity | v1.7 | 6/6 | Complete    | 2026-07-28 |

@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: UX & Trust Polish
-current_phase: 31
-current_phase_name: google-calendar-self-serve-connect-owner-facing-oauth-flow-t
-status: executing
-stopped_at: "Git-sync merge: local (Phase 31, quick tasks 260729-260908) reconciled with origin (Phase 25.1, coworker's parallel Google Calendar branch). Both Phase 31 and Phase 25.1 Calendar implementations existed independently; kept 25.1's DB-backed single-use OAuth state as the surviving connect flow, Phase 31's /calendar command + disconnect action preserved as a thin adapter on top of it."
+current_phase: 26
+current_phase_name: confirmation-approval-policy
+status: in_progress
+stopped_at: "GSD reconciliation pass (2026-10-08): ran gsd-progress after a long session of ad-hoc feature work + a git-sync merge, neither tracked via GSD at the time. Verified via `gsd-tools query init.progress` that Phase 26 is genuinely incomplete (not just undocumented) — plans 26-03/04/05 specify a more robust reschedule-approval cascade + a new expiry-notice feature that were never implemented; the capacity-release piece of 26-03 was independently found and fixed today as quick-261008-a3x, but the fuller design (foreign-original guard, replay-safety, unlimited-membership edge cases, the expiry notice) is still open. User chose to leave Phase 26 honestly in_progress and decide later rather than execute now or descope. Phase 31 is implementation-complete but has no VERIFICATION.md and its 31-01-SUMMARY.md now describes the OAuth-state mechanism superseded by the git-sync merge (see quick-261008-a2x) — also left as-is pending a future verification pass."
 last_updated: "2026-10-08T00:00:00.000Z"
 last_activity: 2026-10-08
-last_activity_desc: "Git-sync merge resolved (195 local commits reconciled with 34 origin commits across 12 overlapping source files); session also shipped date-first booking picker, membership expiry date-cap, admin clients-list remaining-slots display, hidden /testrole dev command, and the admin notify-clients menu"
+last_activity_desc: "GSD reconciliation: retroactively documented 3 quick-tasks (date-first booking/admin-notify features, the git-sync merge, the capacity-release bug fixes) covering work already shipped and pushed; corrected STATE.md's prior over-optimistic 'Phase 26 complete' claim back to in_progress after confirming via gsd-tools that 3 of its plans were never executed"
 progress:
   total_phases: 7
-  completed_phases: 7
-  total_plans: 22
+  completed_phases: 5
+  total_plans: 25
   completed_plans: 22
-  percent: 100
+  percent: 88
 ---
 
 # Project State
@@ -28,10 +28,11 @@ See: .planning/PROJECT.md (updated 2026-07-29 after v1.7 milestone close)
 
 ## Current Position
 
-Phase: 31 (google-calendar-self-serve-connect-owner-facing-oauth-flow-t) and 25.1 (google-calendar-client-admin) — both COMPLETE, merged
-Plan: N/A — git-sync reconciliation complete
-Status: Ready to plan next milestone
-Last activity: 2026-10-08 — Git-sync merge resolved; session also shipped date-first booking picker (client + admin class-cancel), membership expiry date-cap/preview, admin clients-list remaining-slots display, hidden /testrole dev command, and the admin "Ειδοποίηση Πελατών" notify-clients menu
+Phase: 26 (confirmation-approval-policy) — IN PROGRESS (2 of 5 plans executed: 26-01, 26-02; 26-03/04/05 not yet executed)
+Phase 25.1 (google-calendar-client-admin) and Phase 31 (google-calendar-self-serve-connect-owner-facing-oauth-flow-t) — both merged and implementation-complete; 31 still needs a VERIFICATION.md pass and a 31-01-SUMMARY.md correction (its OAuth-state mechanism was superseded during the git-sync merge)
+Plan: 26-03-PLAN.md is the next unexecuted plan (CONF-02 domain core: persist reschedule link, approve-time cascade, reschedule-aware expiry notice)
+Status: Deliberately paused — user chose to leave Phase 26 in_progress and decide later rather than execute 26-03/04/05 now or formally descope them
+Last activity: 2026-10-08 — Git-sync merge resolved; session also shipped date-first booking picker (client + admin class-cancel), membership expiry date-cap/preview, admin clients-list remaining-slots display, hidden /testrole dev command, and the admin "Ειδοποίηση Πελατών" notify-clients menu; today's capacity-release bug fix (quick-261008-a3x) covers the basic case of 26-03's capacity-release requirement but not its fuller edge-case handling
 
 ## Performance Metrics
 
@@ -295,6 +296,9 @@ Recent decisions affecting current work:
 | 260831-e0z | Add Neon cold-start resilience: keep-alive poller + narrowly-scoped connection retry | 2026-08-31 | b05fe45 | [260831-e0z-add-neon-cold-start-resilience-1-lightwe](./quick/260831-e0z-add-neon-cold-start-resilience-1-lightwe/) |
 | 260908-dwj | Status-aware booking-approval CAS-miss messaging (expired/already-approved/already-rejected) | 2026-09-08 | 1055502 | [260908-dwj-fix-generic-booking-approval-failure-mes](./quick/260908-dwj-fix-generic-booking-approval-failure-mes/) |
 | 260908-dxa | Add deterministic view_schedule_for_date owner tool (fixes hallucinated weekday on date queries) | 2026-09-08 | d5ea543 | [260908-dxa-add-a-deterministic-date-query-tool-for-](./quick/260908-dxa-add-a-deterministic-date-query-tool-for-/) |
+| 261008-a1x | Date-first booking picker (client + admin class-cancel), membership date-cap/preview, admin clients-list remaining-slots, hidden /testrole dev command, admin notify-clients menu | 2026-10-08 | 11211cd, 53b0d07, e37b711, ff05899, d8390b4 | [261008-a1x-date-first-booking-and-admin-notify-features](./quick/261008-a1x-date-first-booking-and-admin-notify-features/) |
+| 261008-a2x | Git-sync merge: reconcile 195 local commits against a coworker's 34-commit parallel Google Calendar branch | 2026-10-08 | d2fd98f | [261008-a2x-git-sync-merge-coworker-calendar-branch](./quick/261008-a2x-git-sync-merge-coworker-calendar-branch/) |
+| 261008-a3x | Fix session-instance capacity never being released on client cancel or reschedule-approve | 2026-10-08 | c0d5717 | [261008-a3x-session-capacity-release-bug-fixes](./quick/261008-a3x-session-capacity-release-bug-fixes/) |
 
 ### Blockers/Concerns
 
@@ -313,6 +317,9 @@ Recent decisions affecting current work:
 - [Phase 26]: CONF-02 reschedule-approval reversal has in-flight data risk — reschedules already auto-confirmed under the old Phase 22 behavior must not become invisible/orphaned once the new approval filter goes live (research PITFALLS.md #2).
 - [Phase 27]: COMP-01/COMP-02 consent-timing fix has a concurrency risk — two threads on the same client's first contact could race past the consent upsert; use an atomic INSERT...ON CONFLICT, not read-then-write (research PITFALLS.md #3).
 - [Phase 26]: tests/session-booking-flow.test.ts SBOK-04 'multi-booking partial success' fails on a pre-existing test bug (duplicate active session catalog for same business+service) unrelated to Phase 26 changes — logged in .planning/phases/26-confirmation-approval-policy/deferred-items.md, needs a future test-suite-health pass.
+- [Phase 26]: plans 26-03/04/05 (CONF-02 domain core + reschedule tool + webhook wiring, arrived via the 2026-10-08 git-sync merge from a coworker's branch) are real, unimplemented work — a `completeRescheduleOnApproval` with foreign-original-tampering guard, unlimited-membership handling, replay-safety, and a new "your original booking is still active" expiry notice. Only the basic capacity-release piece was independently fixed (quick-261008-a3x). User explicitly chose to leave this in_progress and decide later (2026-10-08) rather than execute or descope now.
+- [Phase 31]: implementation-complete (both plans have summaries) but has no VERIFICATION.md, and 31-01-SUMMARY.md describes the HMAC-signed stateless OAuth-state mechanism that was superseded during the 2026-10-08 git-sync merge (coworker's DB-backed single-use state now the surviving implementation) — needs a verification pass + summary correction before this phase can be marked truly complete.
+- [Pre-existing, two broken test files unrelated to any work in this session, confirmed via git-stash to predate it]: tests/scheduler-expiry.test.ts and tests/function-executor.test.ts both fail to compile (stale Business/Booking fixtures missing fields added in later phases) — needs a future test-suite-health pass.
 
 ### Roadmap Evolution
 
