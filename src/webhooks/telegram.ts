@@ -22,6 +22,7 @@ import { getOrCreateBotInstance } from '../telegram/registry';
 import { routeConversationMessage } from '../conversation/router';
 import { deleteBookingFromCalendar } from '../calendar/sync';
 import { processBookingConfirmedForCalendar } from '../calendar/confirmation';
+import { sendBookingConfirmationIcs } from '../calendar/ics';
 import { appendCancelCalendarNote } from '../calendar/client-link';
 import { aiOwnerAgent, handleOwnerToolConfirmCallback, OwnerToolConfirmParams } from '../onboarding/ai-owner-agent';
 import { aiOnboardingAgent } from '../onboarding/ai-onboarding-agent';
