@@ -1125,8 +1125,16 @@ async function handleCallbackQuery(
       // credit that was genuinely consumed for the attended session.
       if (updated.rescheduledFromBookingId) {
         await updateBookingStatus(updated.rescheduledFromBookingId, 'cancelled');
+        const oldBooking = await findBookingByIdUnscoped(updated.rescheduledFromBookingId);
+        // Capacity release — the OLD slot's seat was never freed when the
+        // booking was first cancelled above (unlike a plain client cancel,
+        // this cascade doesn't otherwise touch session_instances.bookedCount
+        // at all), so without this the old slot stays permanently "occupied"
+        // after every approved reschedule.
+        if (oldBooking?.sessionInstanceId !== null && oldBooking?.sessionInstanceId !== undefined) {
+          await releaseSessionCapacity(oldBooking.sessionInstanceId);
+        }
         try {
-          const oldBooking = await findBookingByIdUnscoped(updated.rescheduledFromBookingId);
           if (oldBooking) await deleteBookingFromCalendar(oldBooking, business);
         } catch (err) {
           logger.error(

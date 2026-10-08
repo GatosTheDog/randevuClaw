@@ -26,7 +26,7 @@ import {
   botTokenStore,
 } from '../client';
 import { logger } from '../../utils/logger';
-import { listSessions, bookSessionInstance, findSessionInstanceById } from '../../session/manager';
+import { listSessions, bookSessionInstance, findSessionInstanceById, releaseSessionCapacity } from '../../session/manager';
 import { BACK_MENU_LABELS } from '../../utils/greek-messages';
 import { hoursUntilSession, isoDateInAthens, formatExpiryDateGreek } from '../../utils/timezone';
 import { formatDateButtonLabel, dateToCallbackId, callbackIdToDate } from '../../utils/date-picker';
@@ -580,6 +580,16 @@ export async function handleCancelExecute(
 
   // Cancel the booking
   await updateBookingStatus(booking.id, 'cancelled');
+
+  // Capacity release — only fixed_sessions bookings hold a session-instance
+  // seat (sessionInstanceId null for open-slot bookings, which have no
+  // bookedCount counter to release). Mirrors releaseExpiredSessionBooking's
+  // exact guard (conversation/expiry-poller.ts) — without this, a client
+  // self-cancelling a class never frees the seat, so a popular recurring
+  // class silently shows as full forever as clients book-then-cancel it.
+  if (booking.sessionInstanceId !== null) {
+    await releaseSessionCapacity(booking.sessionInstanceId);
+  }
 
   // Credit restore (idempotent — safe to call even if no session was deducted)
   const membershipId = await findMembershipByBooking(booking.id);

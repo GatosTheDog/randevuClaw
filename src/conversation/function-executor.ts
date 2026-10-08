@@ -19,7 +19,7 @@ import { logger } from '../utils/logger';
 import { getClientActiveMembership, deductSession, getClientName, findMembershipByBooking, restoreCredit, linkRescheduledBooking } from '../billing/queries';
 import { checkEnforcementAndGetMembership } from '../billing/enforcement';
 import { formatExpiryDateGreek, isoDateInAthens, hoursUntilSession } from '../utils/timezone';
-import { listSessions, bookSessionInstance } from '../session/manager';
+import { listSessions, bookSessionInstance, releaseSessionCapacity } from '../session/manager';
 import { insertSlotlessRequest, countSlotlessRequestsSinceCheckin } from '../session/slotless-requests';
 
 export interface ToolContext {
@@ -341,6 +341,13 @@ async function cancelAppointmentTool(
       }
       // confirmed=true: cancel without restoring credit (CANC-04)
       await updateBookingStatus(booking.id, 'cancelled');
+      // Capacity release (same guard as the non-forfeiture path below): the
+      // seat frees up regardless of whether the client keeps or forfeits
+      // their session credit — forfeiture is a billing outcome, not a
+      // capacity one.
+      if (booking.sessionInstanceId !== null) {
+        await releaseSessionCapacity(booking.sessionInstanceId);
+      }
       try {
         const fullBusiness = await findBusinessById(context.business.id);
         if (fullBusiness) await deleteBookingFromCalendar(booking, fullBusiness);
@@ -370,6 +377,14 @@ async function cancelAppointmentTool(
   }
 
   await updateBookingStatus(booking.id, 'cancelled');
+
+  // Capacity release — only fixed_sessions bookings hold a session-instance
+  // seat (sessionInstanceId null for open-slot bookings). Without this, a
+  // client cancelling a class via free chat never frees the seat, so a
+  // popular recurring class silently shows as full forever.
+  if (booking.sessionInstanceId !== null) {
+    await releaseSessionCapacity(booking.sessionInstanceId);
+  }
 
   // Phase 8: credit restore (SESS-02/D-03) — after updateBookingStatus, before notifications
   const membershipId = await findMembershipByBooking(booking.id);
