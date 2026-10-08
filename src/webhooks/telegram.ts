@@ -21,8 +21,8 @@ import { answerCallbackQuery, editTelegramMessageReplyMarkup, sendTelegramMessag
 import { getOrCreateBotInstance } from '../telegram/registry';
 import { routeConversationMessage } from '../conversation/router';
 import { deleteBookingFromCalendar } from '../calendar/sync';
-import { sendBookingConfirmationIcs } from '../calendar/ics';
 import { processBookingConfirmedForCalendar } from '../calendar/confirmation';
+import { sendBookingConfirmationIcs } from '../calendar/ics';
 import { appendCancelCalendarNote } from '../calendar/client-link';
 import { aiOwnerAgent, handleOwnerToolConfirmCallback, OwnerToolConfirmParams } from '../onboarding/ai-owner-agent';
 import { aiOnboardingAgent } from '../onboarding/ai-onboarding-agent';
@@ -47,7 +47,6 @@ import {
   showNotifyMenu,
 } from '../telegram/handlers/admin-menu';
 import { handleCalendarCommand } from '../telegram/handlers/calendar-connect';
-import { handleGoogleCalendarConnect } from '../telegram/handlers/google-calendar-connect';
 import {
   ClientMenuCallbackResult,
   showClientRootMenu,
@@ -424,20 +423,6 @@ async function handleFoundBusiness(
         logger.info(
           { updateId, businessId: business.id, elapsedMs: Date.now() - startedAt },
           'handleFoundBusiness: exit (reply-relay branch)'
-        );
-        return;
-      }
-
-      // /calendar command: stale BotFather command lists can still advertise it,
-      // so route it to the Google Calendar connect flow instead of the AI agent.
-      if (messageText.trim() === '/calendar') {
-        await withBusinessContext(business.id, async () => {
-          await handleGoogleCalendarConnect(senderTelegramId, business);
-          await markTelegramUpdateProcessed(updateId, business.id);
-        });
-        logger.info(
-          { updateId, businessId: business.id, elapsedMs: Date.now() - startedAt },
-          'handleFoundBusiness: exit (/calendar branch)'
         );
         return;
       }
@@ -1113,7 +1098,6 @@ async function handleCallbackQuery(
         await sendTelegramMessage(senderTelegramId, resolveSbkCasFailureMessage(currentBooking?.bookingStatus));
         return;
       }
-
       // Phase 26 (CONF-02/D-03): if this booking is a reschedule's new slot,
       // cascade-cancel the OLD (superseded) booking now that the owner has
       // approved the new one. Mirrors the existing reschedule-cascade pattern
@@ -1125,16 +1109,8 @@ async function handleCallbackQuery(
       // credit that was genuinely consumed for the attended session.
       if (updated.rescheduledFromBookingId) {
         await updateBookingStatus(updated.rescheduledFromBookingId, 'cancelled');
-        const oldBooking = await findBookingByIdUnscoped(updated.rescheduledFromBookingId);
-        // Capacity release — the OLD slot's seat was never freed when the
-        // booking was first cancelled above (unlike a plain client cancel,
-        // this cascade doesn't otherwise touch session_instances.bookedCount
-        // at all), so without this the old slot stays permanently "occupied"
-        // after every approved reschedule.
-        if (oldBooking?.sessionInstanceId !== null && oldBooking?.sessionInstanceId !== undefined) {
-          await releaseSessionCapacity(oldBooking.sessionInstanceId);
-        }
         try {
+          const oldBooking = await findBookingByIdUnscoped(updated.rescheduledFromBookingId);
           if (oldBooking) await deleteBookingFromCalendar(oldBooking, business);
         } catch (err) {
           logger.error(
@@ -1143,6 +1119,7 @@ async function handleCallbackQuery(
           );
         }
       }
+
 
       // Booking just became confirmed (D-05): owner calendar sync + client link via
       // the single helper (D-01/D-02). Phase 26 reschedule approval reuses this call.

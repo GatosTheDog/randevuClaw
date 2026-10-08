@@ -144,51 +144,6 @@ describe('cancel_appointment calendar notes (CAL-06)', () => {
   });
 });
 
-// Bug fix (git-sync session): a client cancelling a fixed_sessions booking
-// via cancel_appointment never freed the session instance's held seat —
-// bookedCount stayed incremented forever, so a popular recurring class would
-// silently show as full even with real no-shows. Mirrors the already-proven
-// releaseExpiredSessionBooking guard (conversation/expiry-poller.ts).
-describe('cancel_appointment releases session capacity (bug fix)', () => {
-  it('normal cancel: releases capacity for a session-class booking (sessionInstanceId set)', async () => {
-    const booking = makeBooking({ id: 42, bookingStatus: 'confirmed', sessionInstanceId: 7 });
-    mFindBookingById.mockResolvedValue(booking);
-
-    await executeTool('cancel_appointment', { business_id: 1, booking_id: 42 }, makeContext());
-
-    expect(mReleaseCapacity).toHaveBeenCalledWith(7);
-  });
-
-  it('normal cancel: never calls releaseSessionCapacity for an open-slot booking (sessionInstanceId null)', async () => {
-    const booking = makeBooking({ id: 42, bookingStatus: 'confirmed', sessionInstanceId: null });
-    mFindBookingById.mockResolvedValue(booking);
-
-    await executeTool('cancel_appointment', { business_id: 1, booking_id: 42 }, makeContext());
-
-    expect(mReleaseCapacity).not.toHaveBeenCalled();
-  });
-
-  it('forfeiture branch (within cutoff): still releases capacity even though the credit is forfeited', async () => {
-    const booking = makeBooking({
-      id: 42,
-      bookingStatus: 'confirmed',
-      sessionInstanceId: 7,
-      calendarDate: '2020-01-01',
-      calendarTime: '10:00',
-    });
-    mFindBookingById.mockResolvedValue(booking);
-
-    const res = await executeTool(
-      'cancel_appointment',
-      { business_id: 1, booking_id: 42, confirmed: true },
-      makeContext({ cancellationCutoffEnabled: true, cancellationCutoffHours: 8 })
-    );
-
-    expect(res).toMatchObject({ success: true, credit_forfeited: true });
-    expect(mReleaseCapacity).toHaveBeenCalledWith(7);
-  });
-});
-
 // Merge note (git-sync, Phase 26/CONF-02 kept over a stale pre-Phase-26 draft):
 // reschedule_session no longer touches the calendar directly at all — it
 // creates the new booking as pending_owner_approval and leaves the OLD

@@ -12,9 +12,7 @@ import {
   getClientActiveMembership,
   setBusinessEnforcementPolicy,
   setLastSessionThreshold,
-  adjustMembershipSessions,
 } from './queries';
-import { randomUUID } from 'node:crypto';
 import { setCancellationCutoff } from '../database/queries';
 import { logger } from '../utils/logger';
 
@@ -284,70 +282,4 @@ export async function handleSetLastSessionThreshold(
     return 'Η ειδοποίηση ανανέωσης συνδρομής απενεργοποιήθηκε.';
   }
   return `Η ειδοποίηση ανανέωσης συνδρομής ενεργοποιήθηκε. Θα ειδοποιούνται πελάτες με ${parsed.count} ή λιγότερα μαθήματα.`;
-}
-
-// ---------------------------------------------------------------------------
-// Zod schema + handler for set_client_slots Gemini tool (quick-261008-h82)
-// ---------------------------------------------------------------------------
-
-export const SetClientSlotsSchema = z
-  .object({
-    mode: z.enum(['set', 'add']),
-    sessions: z.number().int().min(-1000).max(1000),
-  })
-  .refine((v) => !(v.mode === 'set' && v.sessions < 0), {
-    message: 'Για mode set ο αριθμός δεν μπορεί να είναι αρνητικός',
-    path: ['sessions'],
-  });
-
-/**
- * Owner override of a client's remaining class balance. Validates args (zod) before
- * any DB call. MUST run inside a single withBusinessContext opened by the caller
- * (the membership row lock is held until that transaction commits).
- *
- * clientDisplayName is the ONLY client identifier allowed in returned text.
- */
-export async function handleSetClientSlots(
-  businessId: number,
-  clientPhone: string,
-  clientDisplayName: string,
-  args: Record<string, unknown>,
-  idempotencyKey?: string
-): Promise<string> {
-  const parsed = SetClientSlotsSchema.safeParse(args);
-  if (!parsed.success) {
-    return 'Μη έγκυρα δεδομένα. Το mode πρέπει να είναι set ή add και τα μαθήματα ακέραιος αριθμός (μη αρνητικός για set).';
-  }
-
-  const { mode, sessions } = parsed.data;
-  const key = idempotencyKey ?? `slots_override:${businessId}:${randomUUID()}`;
-
-  try {
-    const result = await adjustMembershipSessions(businessId, clientPhone, mode, sessions, key);
-
-    switch (result.status) {
-      case 'no_active_membership':
-        return `Ο/Η ${clientDisplayName} δεν έχει ενεργή συνδρομή. Καταχωρήστε πρώτα μια πληρωμή και μετά αλλάξτε τα μαθήματα.`;
-      case 'unlimited_add_unsupported':
-        return `Ο/Η ${clientDisplayName} έχει απεριόριστα μαθήματα, οπότε δεν μπορεί να προστεθεί διαφορά. Ζητήστε να οριστεί ακριβή αριθμό μαθημάτων.`;
-      case 'unchanged':
-        return `Καμία αλλαγή: ο/η ${clientDisplayName} έχει ήδη ${
-          result.sessionsRemaining === null ? 'απεριόριστα' : result.sessionsRemaining
-        } μαθήματα.`;
-      case 'updated': {
-        const before = result.previousRemaining === null ? 'απεριόριστα' : String(result.previousRemaining);
-        const lines = [`✅ Τα μαθήματα του/της ${clientDisplayName} ενημερώθηκαν: ${before} → ${result.newRemaining}.`];
-        if (result.clamped) {
-          lines.push('Το υπόλοιπο δεν μπορεί να πάει κάτω από το 0, οπότε ορίστηκε στο 0.');
-        }
-        lines.push(
-          'Ισχύει για την τρέχουσα συνδρομή — στην επόμενη ανανέωση το υπόλοιπο θα ορίζεται ξανά από το πακέτο.'
-        );
-        return lines.join(' ');
-      }
-    }
-  } catch (err) {
-    logger.error({ err, businessId }, 'handleSetClientSlots failed');
-    return 'Σφάλμα κατά την αλλαγή των μαθημάτων. Δοκιμάστε ξανά.';
-  }
 }

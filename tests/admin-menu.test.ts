@@ -51,7 +51,7 @@ jest.mock('../src/onboarding/queries');
 jest.mock('../src/onboarding/ai-owner-agent');
 jest.mock('../src/session/manager');
 jest.mock('../src/scheduler/agenda');
-jest.mock('../src/invites/generator', () => ({ sendBusinessInvite: jest.fn() }));
+jest.mock('../src/invites/generator');
 jest.mock('../src/telegram/handlers/payment-flow');
 jest.mock('../src/telegram/handlers/google-calendar-connect');
 
@@ -142,8 +142,7 @@ describe('showAdminRootMenu — keyboard shape', () => {
     expect(sendCalls.length).toBe(1);
 
     const keyboard = sendCalls[0][2];
-    // 6 rows: existing 2x2 grid unchanged, plus payment, invite, notify, and
-    // Google Calendar connect rows
+    // 6 rows: existing 2x2 grid unchanged, plus payment, invite, notify and Google Calendar rows
     expect(keyboard.length).toBe(6);
     // Pre-existing 2x2 grid content is byte-for-byte unchanged
     expect(keyboard[0].length).toBe(2);
@@ -164,6 +163,7 @@ describe('showAdminRootMenu — keyboard shape', () => {
     expect(totalButtons).toBe(8);
   });
 
+
   test('shows the reconnect label when the business already has a Google refresh token', async () => {
     const telegramClient = require('../src/telegram/client');
     await showAdminRootMenu('123', { ...mockBusiness, googleRefreshToken: 'rt' });
@@ -174,7 +174,7 @@ describe('showAdminRootMenu — keyboard shape', () => {
     ]);
   });
 
-  test('message text enumerates all 7 button labels as a numbered list', async () => {
+  test('message text enumerates the first 7 button labels as a numbered list', async () => {
     const telegramClient = require('../src/telegram/client');
     await showAdminRootMenu('123', mockBusiness);
 
@@ -187,18 +187,6 @@ describe('showAdminRootMenu — keyboard shape', () => {
     expect(menuText).toContain('5. Καταχώρηση Πληρωμής');
     expect(menuText).toContain('6. Πρόσκληση Πελάτη');
     expect(menuText).toContain('7. Ειδοποίηση Πελατών');
-  });
-});
-
-describe('handleMenuCallback — gcal_connect action', () => {
-  test('routes to handleGoogleCalendarConnect(chatId, business) exactly once', async () => {
-    const connect = require('../src/telegram/handlers/google-calendar-connect');
-    connect.handleGoogleCalendarConnect.mockResolvedValue(undefined);
-
-    await handleMenuCallback({ menuAction: 'gcal_connect', id: undefined }, mockBusiness, '123');
-
-    expect(connect.handleGoogleCalendarConnect).toHaveBeenCalledTimes(1);
-    expect(connect.handleGoogleCalendarConnect).toHaveBeenCalledWith('123', mockBusiness);
   });
 });
 
@@ -454,6 +442,18 @@ describe('handleMenuCallback — settings example-phrase actions', () => {
     const msgCalls = (telegramClient.sendTelegramMessage as jest.Mock).mock.calls;
     expect(msgCalls.length).toBe(1);
     expect((msgCalls[0][1].match(/•/g) || []).length).toBe(3);
+  });
+});
+
+describe('handleMenuCallback — gcal_connect action', () => {
+  test('routes to handleGoogleCalendarConnect(chatId, business) exactly once', async () => {
+    const connect = require('../src/telegram/handlers/google-calendar-connect');
+    connect.handleGoogleCalendarConnect.mockResolvedValue(undefined);
+
+    await handleMenuCallback({ menuAction: 'gcal_connect', id: undefined }, mockBusiness, '123');
+
+    expect(connect.handleGoogleCalendarConnect).toHaveBeenCalledTimes(1);
+    expect(connect.handleGoogleCalendarConnect).toHaveBeenCalledWith('123', mockBusiness);
   });
 });
 

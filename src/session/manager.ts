@@ -8,7 +8,6 @@ import {
   getConn,
   withBusinessContext,
   isInBusinessContext,
-  withAmbientBusinessContext,
   findActiveBookingsForSessionInstance,
 } from '../database/queries';
 import type { Business } from '../database/queries';
@@ -212,21 +211,6 @@ export async function createSessionCatalogWithExpansion(
  * call site that already passes 'confirmed' as the 7th positional argument
  * (telegram.ts's escl:approve branch, ai-owner-agent.ts's
  * assign_client_to_session case) keeps working unchanged.
- *
- * Transaction scope (book-session-rollback-timeout): a caller that passes a
- * non-null `activeMembership` obtained it via checkEnforcementAndGetMembership /
- * getActiveMembershipForDeduction, i.e. SELECT ... FOR UPDATE on that
- * memberships row under ITS ambient withBusinessContext transaction (the
- * client conversation turn / callback handler). The deduction below must
- * therefore run in that SAME transaction (SESS-01 / T-08-01 invariant: lock
- * held until the booking + deduction commit together). withBusinessContext
- * would open a separate transaction that blocks forever on the caller's row
- * lock (the caller awaits us), so in that case we join the ambient transaction
- * as a SAVEPOINT via withAmbientBusinessContext. With no ambient transaction
- * this still opens its own, exactly like before. Callers passing null (e.g.
- * escl:approve, which re-reads the new booking through the admin pool right
- * after) or undefined (owner assign: we lock the membership ourselves below)
- * keep the independent short transaction.
  */
 export async function bookSessionInstance(
   businessId: number,
@@ -243,30 +227,27 @@ export async function bookSessionInstance(
   initialStatus: 'pending_owner_approval' | 'confirmed' = 'pending_owner_approval',
   rescheduledFromBookingId?: number | null
 ): Promise<BookSessionResult> {
-  // Debug (book-session-deadlock-with-membership / book-session-rollback-timeout,
-  // confirmed via live DB reproduction): this function used to unconditionally
-  // open a NEW withBusinessContext transaction here. When called from
-  // handleBookSessionExecute (client-menu.ts), which itself runs inside
+  // Debug (book-session-deadlock-with-membership, confirmed via live DB
+  // reproduction): this function used to unconditionally open a NEW
+  // withBusinessContext transaction here, with no isInBusinessContext()
+  // guard — unlike the WR-02-guarded pattern in
+  // src/telegram/handlers/payment-flow.ts's showClientSelection. When called
+  // from handleBookSessionExecute (client-menu.ts), which itself runs inside
   // telegram.ts's outer withBusinessContext wrap AND has already taken a
   // SELECT ... FOR UPDATE lock on the client's memberships row (via
   // checkEnforcementAndGetMembership -> getActiveMembershipForDeduction,
   // billing/queries.ts, .for('update')), opening a SECOND transaction here
   // checks out a DIFFERENT pooled connection whose deductSession write
   // (billing/queries.ts) contends for a lock the FIRST (outer) connection is
-  // already holding — while that outer connection is itself blocked awaiting
-  // THIS call's promise to resolve. Self-deadlock: two connections from the
-  // same Node process blocked on each other, invisible to Postgres's own
-  // deadlock detector, resolved only by the ~10s client-side statement_timeout
-  // (src/database/db.ts) — and then masked further by a second ~10s ROLLBACK
-  // timeout on the way out. withAmbientBusinessContext joins the ambient
-  // transaction as a SAVEPOINT instead of opening a second connection, so the
-  // membership deduction below runs in the SAME transaction as the
-  // lock-holding read — no second connection, no contention.
-  const runInContext =
-    activeMembership !== null && activeMembership !== undefined
-      ? withAmbientBusinessContext
-      : withBusinessContext;
-  return runInContext(businessId, async () => {
+  // already holding — while that outer connection is itself blocked
+  // awaiting THIS call's promise to resolve. Self-deadlock: two connections
+  // from the same Node process blocked on each other, invisible to
+  // Postgres's own deadlock detector, resolved only by the ~10s client-side
+  // statement_timeout (src/database/db.ts). Reusing the ambient transaction
+  // via getConn() when one is already open closes this — the membership
+  // deduction below then runs in the SAME transaction as the lock-holding
+  // read, no second connection, no contention.
+  const run = async (): Promise<BookSessionResult> => {
     // SELECT FOR UPDATE: serialize concurrent bookings on the same instance.
     // Ownership guard via subquery: catalogId IN (SELECT id FROM session_catalog WHERE business_id = businessId).
     // T-10-02: prevents cross-tenant booking even if RLS is misconfigured.
@@ -377,7 +358,9 @@ export async function bookSessionInstance(
     }
 
     return { status: 'success', bookingId };
-  });
+  };
+
+  return isInBusinessContext() ? run() : withBusinessContext(businessId, run);
 }
 
 // ---------------------------------------------------------------------------

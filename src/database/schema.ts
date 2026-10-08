@@ -352,8 +352,6 @@ export const membershipLedger = pgTable(
       .notNull()
       .references(() => memberships.id),
     // Phase 7: 'payment_recorded' | 'session_deducted' | 'credit_restored'
-    // | 'admin_adjustment' (owner override of the balance; positive sessionsDeducted =
-    // balance reduced by the owner, negative = increased; no migration needed, free TEXT).
     operationType: text('operation_type').notNull(),
     // Phase 7: positive for deductions, negative for credits (e.g. on cancel);
     // 0 for payment-recorded entries with no session count.

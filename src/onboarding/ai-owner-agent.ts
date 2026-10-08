@@ -27,7 +27,6 @@ import {
   handleListPackages,
   handleDeactivatePackage,
   handleViewClientMembership,
-  handleSetClientSlots,
   handleSetEnforcementPolicy,
   handleSetCancellationCutoff,
   handleSetLastSessionThreshold,
@@ -356,32 +355,6 @@ export const OWNER_TOOLS = [
       required: ['client_name'],
     },
   },
-  {
-    type: 'function' as const,
-    name: 'set_client_slots',
-    description:
-      'Αλλάζει το υπόλοιπο μαθημάτων της ΕΝΕΡΓΗΣ συνδρομής ενός πελάτη, ανεξάρτητα από το πακέτο που πλήρωσε (προφορική συμφωνία ή έκπτωση). mode "set" = το υπόλοιπο γίνεται ακριβώς `sessions`. mode "add" = προσθέτει (θετικός) ή αφαιρεί (αρνητικός) `sessions` από το τρέχον υπόλοιπο.',
-    parameters: {
-      type: 'object',
-      properties: {
-        client_name: {
-          type: 'string',
-          description: 'Όνομα πελάτη (αρκεί μερικό ταίριασμα)',
-        },
-        mode: {
-          type: 'string',
-          enum: ['set', 'add'],
-          description: 'set = ακριβές υπόλοιπο, add = διαφορά (θετική ή αρνητική)',
-        },
-        sessions: {
-          type: 'integer',
-          description:
-            'Για set: ο μη αρνητικός στόχος υπολοίπου. Για add: η προσημασμένη διαφορά, π.χ. 4 ή -2.',
-        },
-      },
-      required: ['client_name', 'mode', 'sessions'],
-    },
-  },
   // ---------------------------------------------------------------------------
   // Phase 8: Enforcement policy tool (ENFC-01)
   // ---------------------------------------------------------------------------
@@ -625,7 +598,6 @@ function buildOwnerSystemPrompt(
     '- Αν δεν καταλαβαίνεις τι θέλει ο ιδιοκτήτης, ρώτησέ τον συνοπτικά.',
     '- Μην κάνεις ενέργειες εκτός των παραπάνω εργαλείων.',
     '- Για αλλαγή τιμής ή διαγραφή υπηρεσίας, αν δεν βρίσκεις ακριβές match ονόματος, κάνε partial match (case-insensitive).',
-    '- Όταν ο ιδιοκτήτης θέλει ένας πελάτης να έχει διαφορετικό αριθμό μαθημάτων από το πακέτο που πλήρωσε (προφορική συμφωνία, έκπτωση ή λιγότερα μαθήματα), χρησιμοποίησε το set_client_slots. Χρησιμοποίησε mode add με την προσημασμένη ΔΙΑΦΟΡΑ όταν ο ιδιοκτήτης λέει πόσα πλήρωσε και πόσα παίρνει, ή "N παραπάνω/λιγότερα" (πλήρωσε 8, παίρνει 12 σημαίνει add 4· πλήρωσε 8, παίρνει 6 σημαίνει add -2). Χρησιμοποίησε mode set μόνο όταν ο ιδιοκτήτης λέει ότι το υπόλοιπο πρέπει να γίνει ακριβώς N. Αν δεν είναι σαφές αν ο αριθμός είναι η διαφορά, το σύνολο ή το υπόλοιπο, ρώτησε μία σύντομη διευκρινιστική ερώτηση πριν καλέσεις το εργαλείο. Ο πελάτης πρέπει να έχει ήδη ενεργή συνδρομή (καταγεγραμμένη πληρωμή).',
     '- Για ερωτήσεις σχετικά με άλλη ημερομηνία εκτός της σημερινής, χρησιμοποίησε το view_schedule_for_date με τα ίδια λόγια του ιδιοκτήτη στο date_query — μην υπολογίζεις ή δηλώνεις μόνος σου ημερομηνία/ημέρα, το αποτέλεσμα του εργαλείου την περιέχει ήδη.',
   ].join('\n');
 }
@@ -651,8 +623,6 @@ interface ToolArgs {
   client_name?: string;
   // Phase 8: enforcement policy (ENFC-01)
   policy?: string;
-  // quick-261008-h82: set_client_slots (mode already declared below)
-  sessions?: number;
   // Phase 10: session catalog fields (CLSS-01 through CLSS-05)
   weekdays?: string[];
   start_time?: string;
@@ -917,24 +887,6 @@ async function executeOwnerTool(
       // Wrap in withBusinessContext so RLS enforcement applies (T-07-03)
       return withBusinessContext(business.id, () =>
         handleViewClientMembership(business.id, resolved.match.senderPhone)
-      );
-    }
-
-    case 'set_client_slots': {
-      // quick-261008-h82: owner override of a client's class balance. Client is resolved
-      // by name; the business always comes from the owner session. Validation of
-      // mode/sessions is owned by the handler's zod schema. No confirmation keyboard
-      // (Phase 26 locked that scope); the reply echoes before -> after numbers.
-      const resolved = await resolveClientByName(business.id, String(args.client_name ?? ''));
-      if (resolved.kind === 'none') return CLIENT_NOT_FOUND_MSG;
-      if (resolved.kind === 'ambiguous') return formatClientDisambiguation(resolved.matches);
-      const clientPhone = resolved.match.senderPhone;
-      const clientDisplayName = resolved.match.clientName ?? '(χωρίς όνομα)';
-      return withBusinessContext(business.id, () =>
-        handleSetClientSlots(business.id, clientPhone, clientDisplayName, {
-          mode: args.mode,
-          sessions: args.sessions,
-        })
       );
     }
 
@@ -1367,13 +1319,9 @@ export async function handleOwnerToolConfirmCallback(
         );
         return;
       }
-      // Owner assignment is a confirmed point (D-02 satisfied: the booking row
-      // is already 'confirmed'): sync to the owner's calendar (D-05) and
-      // append the client's tap-to-add link. Booking is re-read by id, scoped
-      // to this business. Relocated here (post-Phase-26/CONF-01) from the
-      // tool-call path above, which now only sends the confirmation prompt —
-      // the actual bookSessionInstance call (and so the real confirmed
-      // booking row) only exists once the owner taps Ναι, here.
+      // Owner assignment is a confirmed point (D-02: the booking row is already
+      // 'confirmed'): sync to the owner's calendar (D-05) and append the client's
+      // tap-to-add link. Best-effort — never blocks the notifications below.
       let calendarMessage = '';
       if (bookResult.bookingId !== undefined) {
         try {

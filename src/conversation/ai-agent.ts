@@ -152,7 +152,7 @@ const BOOKING_TOOLS = [
   {
     type: 'function' as const,
     name: 'book_session',
-    description: 'Κλείνει συγκεκριμένο μάθημα για τον πελάτη. Χρησιμοποίησε list_sessions_for_client αν χρειάζεσαι να βρεις το ακριβές session_instance_id. Αν allow_multi_booking είναι ενεργό, μπορείς να στείλεις λίστα session_instance_ids για πολλαπλές κρατήσεις μαζί (τα ids μπορεί να προέρχονται και από το list_previous_month_slots). Αν το αποτέλεσμα περιέχει insufficient_credit_instance_ids, πες στον πελάτη ότι αυτά τα μαθήματα δεν κλείστηκαν επειδή τα εναπομείναντα μαθήματα της συνδρομής του δεν επαρκούν.',
+    description: 'Κλείνει συγκεκριμένο μάθημα για τον πελάτη. Χρησιμοποίησε list_sessions_for_client αν χρειάζεσαι να βρεις το ακριβές session_instance_id. Αν allow_multi_booking είναι ενεργό, μπορείς να στείλεις λίστα session_instance_ids για πολλαπλές κρατήσεις μαζί.',
     parameters: {
       type: 'object',
       properties: {
@@ -175,20 +175,6 @@ const BOOKING_TOOLS = [
         new_session_instance_id: { type: 'integer', description: 'ID του νέου μαθήματος' },
       },
       required: ['business_id', 'booking_id', 'new_session_instance_id'],
-    },
-  },
-  // quick-261008-gqb: rebook last month's weekly slots. The client phone is
-  // never a parameter (same spoofing rule documented above BOOKING_TOOLS).
-  {
-    type: 'function' as const,
-    name: 'list_previous_month_slots',
-    description: 'Επιστρέφει τα μαθήματα που είχε ο πελάτης (επιβεβαιωμένα) τον προηγούμενο ημερολογιακό μήνα, ομαδοποιημένα ως εβδομαδιαίες θέσεις (ημέρα + ώρα + μάθημα), μαζί με τα αντίστοιχα επερχόμενα μαθήματα (session instances) και εναλλακτικές θέσεις. Κάλεσέ το ΠΡΙΝ προτείνεις επανάληψη του προγράμματος του προηγούμενου μήνα.',
-    parameters: {
-      type: 'object',
-      properties: {
-        business_id: { type: 'integer', description: 'Το αναγνωριστικό της επιχείρησης' },
-      },
-      required: ['business_id'],
     },
   },
 ];
@@ -242,12 +228,7 @@ function buildSystemInstruction(
       '- Αυτή η επιχείρηση λειτουργεί με ΣΤΑΘΕΡΑ ΜΑΘΗΜΑΤΑ. Χρησιμοποίησε list_sessions_for_client για να δεις τα διαθέσιμα μαθήματα και book_session για να κλείσεις.',
       '- ΜΗΝ χρησιμοποιείς check_availability ή book_appointment για κρατήσεις — χρησιμοποίησε ΜΟΝΟ book_session.',
       ...(business.allowMultiBooking
-        ? [
-            '- Ο πελάτης μπορεί να κλείσει ΠΟΛΛΑΠΛΑ μαθήματα σε ένα μήνυμα — χρησιμοποίησε session_instance_ids (λίστα) αντί για session_instance_id.',
-            '- Όταν ο πελάτης ζητά να ξανακλείσει/επαναλάβει τα μαθήματα του προηγούμενου μήνα (π.χ. "τα ίδια με τον προηγούμενο μήνα", "ανανέωση προγράμματος") Ή θέλει να κλείσει μαθήματα για τον επόμενο μήνα και δεν έχει επερχόμενες κρατήσεις, κάλεσε ΠΡΩΤΑ το list_previous_month_slots.',
-            '- Αν το list_previous_month_slots επιστρέψει previous_slots, παρουσίασε τα summary_lines και ρώτησε ρητά (με βάση το suggested_question) αν ο πελάτης θέλει να κλείσεις ΟΛΑ ξανά ή να κρατήσετε κάποια ίδια και να αλλάξετε άλλα. ΜΗΝ καλέσεις το book_session πριν απαντήσει ο πελάτης.',
-            '- Για "όλα ίδια": κάλεσε book_session με session_instance_ids = τα instance_id όλων των upcoming_instances κάθε previous_slot. Για αλλαγές: κράτα τα upcoming_instances των θέσεων που μένουν και πρόσθεσε τα instance_id των θέσεων αντικατάστασης από τα other_weekly_slots. ΠΟΤΕ μην υπολογίζεις ημέρα της εβδομάδας από ημερομηνία — χρησιμοποίησε ΜΟΝΟ το πεδίο weekday_name. Αν το exceeds_credits είναι true, πες στον πελάτη ότι η συνδρομή του καλύπτει max_bookable μαθήματα και ρώτησέ τον ποια να προτιμήσεις πριν κλείσεις.',
-          ]
+        ? ['- Ο πελάτης μπορεί να κλείσει ΠΟΛΛΑΠΛΑ μαθήματα σε ένα μήνυμα — χρησιμοποίησε session_instance_ids (λίστα) αντί για session_instance_id.']
         : []),
     ];
     rules.push(...sessionRules);

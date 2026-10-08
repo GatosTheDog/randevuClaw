@@ -3,42 +3,41 @@ gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: UX & Trust Polish
 current_phase: 26
-current_phase_name: confirmation-approval-policy
-status: in_progress
-stopped_at: "GSD reconciliation pass (2026-10-08): ran gsd-progress after a long session of ad-hoc feature work + a git-sync merge, neither tracked via GSD at the time. Verified via `gsd-tools query init.progress` that Phase 26 is genuinely incomplete (not just undocumented) — plans 26-03/04/05 specify a more robust reschedule-approval cascade + a new expiry-notice feature that were never implemented; the capacity-release piece of 26-03 was independently found and fixed today as quick-261008-a3x, but the fuller design (foreign-original guard, replay-safety, unlimited-membership edge cases, the expiry notice) is still open. User chose to leave Phase 26 honestly in_progress and decide later rather than execute now or descope. Phase 31 is implementation-complete but has no VERIFICATION.md and its 31-01-SUMMARY.md now describes the OAuth-state mechanism superseded by the git-sync merge (see quick-261008-a2x) — also left as-is pending a future verification pass."
-last_updated: "2026-10-08T00:00:00.000Z"
-last_activity: 2026-10-08
-last_activity_desc: "GSD reconciliation: retroactively documented 3 quick-tasks (date-first booking/admin-notify features, the git-sync merge, the capacity-release bug fixes) covering work already shipped and pushed; corrected STATE.md's prior over-optimistic 'Phase 26 complete' claim back to in_progress after confirming via gsd-tools that 3 of its plans were never executed"
+current_phase_name: Confirmation & Approval Policy
+status: planning
+stopped_at: Completed 25.1-06-PLAN.md
+last_updated: "2026-10-02T11:08:22.632Z"
+last_activity: 2026-10-02
+last_activity_desc: Phase 25.1 complete, transitioned to Phase 26
 progress:
-  total_phases: 7
-  completed_phases: 5
-  total_plans: 25
-  completed_plans: 22
-  percent: 88
+  total_phases: 6
+  completed_phases: 1
+  total_plans: 11
+  completed_plans: 6
+  percent: 17
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-07-29 after v1.7 milestone close)
+See: .planning/PROJECT.md (updated 2026-07-28 after v1.6 milestone close)
 
 **Core value:** A client can book or cancel an appointment with a Greek business entirely through a chat conversation, in Greek, with zero friction — and the owner's calendar updates automatically.
-**Current focus:** Post-git-sync stabilization — both Phase 31 and Phase 25.1 (Google Calendar) are shipped and reconciled; ready to plan the next milestone.
+**Current focus:** Phase 25.1 — google-calendar-client-admin
 
 ## Current Position
 
-Phase: 26 (confirmation-approval-policy) — IN PROGRESS (2 of 5 plans executed: 26-01, 26-02; 26-03/04/05 not yet executed)
-Phase 25.1 (google-calendar-client-admin) and Phase 31 (google-calendar-self-serve-connect-owner-facing-oauth-flow-t) — both merged and implementation-complete; 31 still needs a VERIFICATION.md pass and a 31-01-SUMMARY.md correction (its OAuth-state mechanism was superseded during the git-sync merge)
-Plan: 26-03-PLAN.md is the next unexecuted plan (CONF-02 domain core: persist reschedule link, approve-time cascade, reschedule-aware expiry notice)
-Status: Deliberately paused — user chose to leave Phase 26 in_progress and decide later rather than execute 26-03/04/05 now or formally descope them
-Last activity: 2026-10-08 — Completed quick task 261008-h82 (admin slot override); prior: 261008-gqb (rebook previous month slots); prior: Git-sync merge resolved; session also shipped date-first booking picker (client + admin class-cancel), membership expiry date-cap/preview, admin clients-list remaining-slots display, hidden /testrole dev command, and the admin "Ειδοποίηση Πελατών" notify-clients menu; today's capacity-release bug fix (quick-261008-a3x) covers the basic case of 26-03's capacity-release requirement but not its fuller edge-case handling
+Phase: 26 — Confirmation & Approval Policy
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-10-02 — Phase 25.1 complete, transitioned to Phase 26
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 61
+- Total plans completed: 47
 - Average duration: - min
 - Total execution time: 0 hours
 
@@ -56,12 +55,6 @@ Last activity: 2026-10-08 — Completed quick task 261008-h82 (admin slot overri
 | 19 | 3 | - | - |
 | 21 | 3 | - | - |
 | 25.1 | 6 | - | - |
-| 26 | 2 | - | - |
-| 27 | 2 | - | - |
-| 28 | 2 | - | - |
-| 29 | 6 | - | - |
-| 30 | 2 | - | - |
-| 31 | 2 | - | - |
 
 **Recent Trend:**
 
@@ -114,27 +107,14 @@ Last activity: 2026-10-08 — Completed quick task 261008-h82 (admin slot overri
 | Phase 21 P01 | 55 | 2 tasks | 3 files |
 | Phase 21 P03 | 20min | 2 tasks | 10 files |
 | Phase quick P260725-hlh | 8min | 2 tasks | 3 files |
-| Phase 25.1 P01 | n/a | 3 tasks | 10 files |
 | Phase 25.1 P02 | 15min | 2 tasks | 8 files |
+| Phase 25.1 P01 | n/a | 3 tasks | 10 files |
 | Phase 25.1 P03 | 25min | 3 tasks | 8 files |
 | Phase 25.1 P04 | 20min | 3 tasks | 11 files |
 | Phase 25.1 P05 | 20min | 2 tasks | 4 files |
 | Phase 25.1 P06 | 20min | 3 tasks | 8 files |
-| Phase 26 P01 | 25min | 3 tasks | 6 files |
-| Phase 26 P02 | 23min | 3 tasks | 7 files |
-| Phase 27 P01 | 8min | 3 tasks | 3 files |
-| Phase 27 P02 | 15min | 3 tasks | 6 files |
-| Phase quick P260729-mlr | 5min | 3 tasks | 8 files |
-| Phase quick P260729-n05 | 35min | 3 tasks | 4 files |
-| Phase quick P260729-rjv | 8min | 3 tasks | 6 files |
-| Phase quick P260729-s9c | 12min | 2 tasks | 6 files |
-| Phase quick-260813-jgj P01 | 10min | 2 tasks tasks | 2 files files |
 
 ## Accumulated Context
-
-### Roadmap Evolution
-
-- Phase 31 added: Google Calendar Self-Serve Connect — owner-facing OAuth flow to connect Google Calendar without a dev manually running `scripts/setup-google-calendar.ts`; scope also covers whether client-side gets an `.ics` invite link (no OAuth) or is deferred entirely.
 
 ### Decisions
 
@@ -252,21 +232,6 @@ Recent decisions affecting current work:
 - [Phase ?]: [25.1-03] handleGoogleAuthRevoked: only the caller that actually clears the token sends the reconnect message; sweep pauses a business without burning retries when token cleared
 - [Phase ?]: [25.1-04] OAuth state is DB-backed single-use hash; callback derives businessId only from state row; scope calendar.events; live consent check deferred pending Google Cloud setup + deploy
 - [Phase ?]: 25.1-05: escl approve re-reads booking and requires businessId match before calendar processing
-- [Phase 26]: rescheduledFromBookingId appended as bookSessionInstance's 8th (last) parameter, not inserted before initialStatus, so existing call sites passing 'confirmed' as the 7th arg stay unaffected
-- [Phase 26]: rescheduleSessionTool defers old-booking cancellation to owner-approval time (D-03): new booking created pending_owner_approval and linked via rescheduledFromBookingId, old booking stays confirmed/untouched until approve/reject
-- [Phase 26]: sbk:approve cascade-cancels the superseded old booking with no credit restore (its credit was never touched); sbk:reject needs zero new logic since the old booking was never cancelled
-- [Phase 26]: [Phase 26-02]: pendingServicePriceChanges Map created in Task 1's commit (not Task 2's) so Task 1's own case compiles/behaves correctly at its own commit boundary
-- [Phase 26]: [Phase 26-02]: pending-price-change cleanup timer uses .unref() (unlike the pendingRenewalBatches precedent it mirrors) because it is exercised by direct unit tests, not gated behind a JEST_WORKER_ID poller
-- [Phase 27]: Repurposed the existing consentGiven column (default flip true->false) rather than adding a new column, per research ARCHITECTURE.md sec(b) and 27-CONTEXT.md D-01
-- [Phase 27]: insertClientBusinessRelationship's onConflictDoUpdate SET clause left untouched -- continues to exclude consentGiven so a racing/repeat first-contact upsert can never reset an already-accepted consent back to false (PITFALLS.md Pitfall 3)
-- [Phase 27]: CONSENT_LABELS kept separate from CONFIRM_LABELS (Phase 26) -- different audience (client-facing vs owner-facing) and callback_data convention (consent:yes/no vs otc:.../menu:...)
-- [Phase 27]: getOrCreateClientRelationship's hardcoded-true bug fixed to return the real inserted row's consentGiven -- load-bearing, without it the whole gate would be silently defeated
-- [Phase 27]: routeConversationMessage's hard gate checks consentGiven (not isFirstContact) and returns before findLatestConversationTurn/aiBookingAgent/insertConversationTurn -- real behavior change replacing the old soft/prepended notice (D-03)
-- [Phase ?]: [Quick 260729-mlr]: CONSENT_PROMPT_GREEK_TEMPLATE signature changed businessName:string -> business:Business to support a per-business policy summary appended before the consent question
-- [Phase ?]: [Quick 260729-n05]: Admin client deletion offers two actions (Πλήρης διαγραφή full-erase across 8 tables vs Αφαίρεση από λίστα unlink-only) rather than one, per explicit user request; both re-verify rel.businessId === business.id at handler AND query layer (defense-in-depth) before any mutation; no message sent to the deleted client (they naturally see the consent/intro flow again next contact since isFirstContact keys off clientBusinessRelationships row presence)
-- [Phase ?]: [Quick 260729-rjv]: Client's native Telegram command menu (☰ button) expanded from 1 command (/start) to 5 (start/book/mybookings/cancel/balance), each independently routed in handleFoundBusiness behind the same consent gate as /start, per explicit user request after clarifying they wanted the native command list itself populated (not just the in-chat menu text, which was already fixed by 260729-mlr)
-- [Phase ?]: [Quick 260729-s9c]: Owner's native Telegram command menu expanded from 1 command (/menu) to 7 (menu/settings/classes/clients/agenda/payment/invite), mirroring 260729-rjv's client-side pattern exactly — each routes directly to its admin sub-menu with no consent gate (ownerTelegramId match already gates entry), skipping the root menu entirely
-- [Phase ?]: [Quick 260813-jgj]: showClientSelection always merges never-booked clients (getAllClientsForBusiness) with recent-booking clients (getRecentClientsForBusiness) via a single Promise.all, deduplicated by clientBusinessRelationshipId, instead of gating the all-time fetch behind clients.length === 0
 
 ### Pending Todos
 
@@ -281,26 +246,10 @@ Recent decisions affecting current work:
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260716-heo | keyboard buttons UX | 2026-07-16 | 0425059 | [260716-heo-keyboard-buttons-ux](./quick/260716-heo-keyboard-buttons-ux/) |
-| 261008-h82 | Admin override of granted slots per client (set_client_slots owner tool) | 2026-10-08 | 277fa9b | [261008-h82-admin-override-of-granted-slots-per-clie](./quick/261008-h82-admin-override-of-granted-slots-per-clie/) |
-| 261008-gqb | Rebook previous month slots flow for clients | 2026-10-08 | 1f521cd | [261008-gqb-rebook-previous-month-slots-flow-for-cli](./quick/261008-gqb-rebook-previous-month-slots-flow-for-cli/) |
 | 260716-hxo | streamline hours onboarding: single time range + split hours | 2026-07-16 | 587f338 | [260716-hxo-streamline-hours-onboarding-single-time-](./quick/260716-hxo-streamline-hours-onboarding-single-time-/) |
 | 260716-oaa | AI-powered owner agent: Gemini NLU replaces keyword matching | 2026-07-16 | 14fe0d1 | [260716-oaa-ai-owner-agent](./quick/260716-oaa-ai-owner-agent/) |
 | 260725-hlh | fix silent-hang bug — add Gemini API request timeout | 2026-07-25 | cbb7310 | [260725-hlh-fix-silent-hang-bug-add-gemini-api-reque](./quick/260725-hlh-fix-silent-hang-bug-add-gemini-api-reque/) |
 | 260726-vfm | show resolved client name (not phone/telegram id) in owner notifications | 2026-07-26 | e82b49f | [260726-vfm-show-resolved-client-name-not-phone-tele](./quick/260726-vfm-show-resolved-client-name-not-phone-tele/) |
-| 260729-mlr | show all 4 menu options in root menu text + surface configured policies on first-contact consent message | 2026-07-29 | 7805eb7 | [260729-mlr-show-all-menu-options-in-root-menu-text-](./quick/260729-mlr-show-all-menu-options-in-root-menu-text-/) |
-| 260729-n05 | admin can view client list and delete clients (full erase or unlink-only) + fix nonsensical Greek settings-menu toggle labels | 2026-07-29 | d7af8db | [260729-n05-admin-can-view-client-list-and-delete-cl](./quick/260729-n05-admin-can-view-client-list-and-delete-cl/) |
-| 260729-rjv | enumerate admin root menu options in message text + add /book /mybookings /cancel /balance as routed client Telegram commands | 2026-07-29 | a725eec | [260729-rjv-enumerate-admin-root-menu-options-in-mes](./quick/260729-rjv-enumerate-admin-root-menu-options-in-mes/) |
-| 260729-s9c | add owner-side native Telegram menu-button parity: register /settings /classes /clients /agenda /payment /invite alongside /menu, each routed directly to its sub-menu | 2026-07-29 | a1464d1 | [260729-s9c-add-owner-side-native-telegram-menu-butt](./quick/260729-s9c-add-owner-side-native-telegram-menu-butt/) |
-| 260813-g86 | Fix admin daily agenda push to include pending_owner_approval bookings | 2026-08-13 | 7a64ccd | [260813-g86-fix-admin-daily-agenda-push-src-schedule](./quick/260813-g86-fix-admin-daily-agenda-push-src-schedule/) |
-| 260813-ixq | Resolve client display name in agenda messages instead of raw phone/id | 2026-08-13 | 8b74373 | [260813-ixq-fix-agenda-message-to-show-client-name-i](./quick/260813-ixq-fix-agenda-message-to-show-client-name-i/) |
-| 260813-jgj | Fix payment client-selection list to always include never-booked clients | 2026-08-13 | 2c5bc2e | [260813-jgj-fix-payment-client-selection-list-to-alw](./quick/260813-jgj-fix-payment-client-selection-list-to-alw/) |
-| 260813-ji5 | Reconcile unbilled bookings into new memberships + always-on owner alert for no-subscription bookings | 2026-08-13 | 99a762a | [260813-ji5-implement-unbilled-booking-reconciliatio](./quick/260813-ji5-implement-unbilled-booking-reconciliatio/) |
-| 260831-e0z | Add Neon cold-start resilience: keep-alive poller + narrowly-scoped connection retry | 2026-08-31 | b05fe45 | [260831-e0z-add-neon-cold-start-resilience-1-lightwe](./quick/260831-e0z-add-neon-cold-start-resilience-1-lightwe/) |
-| 260908-dwj | Status-aware booking-approval CAS-miss messaging (expired/already-approved/already-rejected) | 2026-09-08 | 1055502 | [260908-dwj-fix-generic-booking-approval-failure-mes](./quick/260908-dwj-fix-generic-booking-approval-failure-mes/) |
-| 260908-dxa | Add deterministic view_schedule_for_date owner tool (fixes hallucinated weekday on date queries) | 2026-09-08 | d5ea543 | [260908-dxa-add-a-deterministic-date-query-tool-for-](./quick/260908-dxa-add-a-deterministic-date-query-tool-for-/) |
-| 261008-a1x | Date-first booking picker (client + admin class-cancel), membership date-cap/preview, admin clients-list remaining-slots, hidden /testrole dev command, admin notify-clients menu | 2026-10-08 | 11211cd, 53b0d07, e37b711, ff05899, d8390b4 | [261008-a1x-date-first-booking-and-admin-notify-features](./quick/261008-a1x-date-first-booking-and-admin-notify-features/) |
-| 261008-a2x | Git-sync merge: reconcile 195 local commits against a coworker's 34-commit parallel Google Calendar branch | 2026-10-08 | d2fd98f | [261008-a2x-git-sync-merge-coworker-calendar-branch](./quick/261008-a2x-git-sync-merge-coworker-calendar-branch/) |
-| 261008-a3x | Fix session-instance capacity never being released on client cancel or reschedule-approve | 2026-10-08 | c0d5717 | [261008-a3x-session-capacity-release-bug-fixes](./quick/261008-a3x-session-capacity-release-bug-fixes/) |
 
 ### Blockers/Concerns
 
@@ -318,10 +267,6 @@ Recent decisions affecting current work:
 - [Phase 23]: CLSS-07's credit restore must reuse the existing restoreCredit path from Phase 8 (billing/queries.ts) rather than duplicating unlimited-membership/null-guard logic.
 - [Phase 26]: CONF-02 reschedule-approval reversal has in-flight data risk — reschedules already auto-confirmed under the old Phase 22 behavior must not become invisible/orphaned once the new approval filter goes live (research PITFALLS.md #2).
 - [Phase 27]: COMP-01/COMP-02 consent-timing fix has a concurrency risk — two threads on the same client's first contact could race past the consent upsert; use an atomic INSERT...ON CONFLICT, not read-then-write (research PITFALLS.md #3).
-- [Phase 26]: tests/session-booking-flow.test.ts SBOK-04 'multi-booking partial success' fails on a pre-existing test bug (duplicate active session catalog for same business+service) unrelated to Phase 26 changes — logged in .planning/phases/26-confirmation-approval-policy/deferred-items.md, needs a future test-suite-health pass.
-- [Phase 26]: plans 26-03/04/05 (CONF-02 domain core + reschedule tool + webhook wiring, arrived via the 2026-10-08 git-sync merge from a coworker's branch) are real, unimplemented work — a `completeRescheduleOnApproval` with foreign-original-tampering guard, unlimited-membership handling, replay-safety, and a new "your original booking is still active" expiry notice. Only the basic capacity-release piece was independently fixed (quick-261008-a3x). User explicitly chose to leave this in_progress and decide later (2026-10-08) rather than execute or descope now.
-- [Phase 31]: implementation-complete (both plans have summaries) but has no VERIFICATION.md, and 31-01-SUMMARY.md describes the HMAC-signed stateless OAuth-state mechanism that was superseded during the 2026-10-08 git-sync merge (coworker's DB-backed single-use state now the surviving implementation) — needs a verification pass + summary correction before this phase can be marked truly complete.
-- [Pre-existing, two broken test files unrelated to any work in this session, confirmed via git-stash to predate it]: tests/scheduler-expiry.test.ts and tests/function-executor.test.ts both fail to compile (stale Business/Booking fixtures missing fields added in later phases) — needs a future test-suite-health pass.
 
 ### Roadmap Evolution
 
@@ -386,19 +331,10 @@ Items acknowledged and deferred at v1.6 milestone close on 2026-07-28:
 | todo | 2026-07-27-run-full-ux-audit-before-scoping-v1-7.md | planning (done — v1.7 research/requirements/roadmap complete) |
 | known_deferred: 8 (see above) | | |
 
-Items acknowledged and deferred at v1.7 milestone close on 2026-07-29:
-
-| Category | Item | Status |
-|----------|------|--------|
-| debug | knowledge-base | unknown (static reference doc used by gsd-debugger, not a real session — audit-tool false positive, no frontmatter status field by design; recurring since v1.6 close) |
-| todo | 2026-07-07-pivot-to-per-business-whatsapp-numbers-post-poc.md | planning (carry-forward from v1.0/v1.2/v1.4/v1.5/v1.6, still moot under Telegram-first pivot) |
-| todo | 2026-07-09-meta-business-verification-not-submitted.md | phase-1 (carry-forward, blocked on external Meta process) |
-| known_deferred: 3 (see above) | | |
-
 ## Session Continuity
 
-Last session: 2026-10-08T00:00:00.000Z
-Stopped at: Git-sync merge resolved (local Phase 31 + origin Phase 25.1 Google Calendar branches reconciled); this session's own feature work (date-first picker, membership date-cap, admin clients-list slots, /testrole, notify-clients menu) also complete
+Last session: 2026-10-02T10:58:49.664Z
+Stopped at: Completed 25.1-06-PLAN.md
 Resume file: None
 
 **Phase 12 Plan 01 completed:** a940588, 6c5830e, 7d64f85
@@ -433,4 +369,4 @@ Resume file: None
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Run `/gsd-plan-phase 26` to start planning Phase 26 (Confirmation & Approval Policy), the first phase of v1.7.

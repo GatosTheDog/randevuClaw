@@ -8,7 +8,6 @@ import {
   updateBookingStatus,
   updateBookingOwnerMessageId,
   listClientBookings,
-  listClientConfirmedSessionBookingsInRange,
   Booking,
   Service,
 } from '../database/queries';
@@ -16,21 +15,12 @@ import { checkAvailability } from '../business/availability';
 import { sendTelegramMessage, sendTelegramMessageWithKeyboard, InlineKeyboard } from '../telegram/client';
 import { deleteBookingFromCalendar } from '../calendar/sync';
 import { appendCancelCalendarNote } from '../calendar/client-link';
+import { processBookingConfirmedForCalendar } from '../calendar/confirmation';
 import { logger } from '../utils/logger';
-import type { ActiveMembershipForDeduction } from '../billing/queries';
 import { getClientActiveMembership, deductSession, getClientName, findMembershipByBooking, restoreCredit, linkRescheduledBooking } from '../billing/queries';
 import { checkEnforcementAndGetMembership } from '../billing/enforcement';
 import { formatExpiryDateGreek, isoDateInAthens, hoursUntilSession } from '../utils/timezone';
-import { listSessions, bookSessionInstance, releaseSessionCapacity } from '../session/manager';
-import type { SessionInstance } from '../session/manager';
-import {
-  previousMonthRange,
-  deriveWeeklySlots,
-  groupUpcomingByWeeklySlot,
-  buildRebookProposal,
-  formatWeeklySlotLine,
-  GREEK_WEEKDAY_NAMES,
-} from '../session/rebook';
+import { listSessions, bookSessionInstance } from '../session/manager';
 import { insertSlotlessRequest, countSlotlessRequestsSinceCheckin } from '../session/slotless-requests';
 
 export interface ToolContext {
@@ -116,10 +106,6 @@ const RescheduleSessionArgsSchema = z.object({
   new_session_instance_id: z.number().int(),
 });
 
-const ListPreviousMonthSlotsArgsSchema = z.object({
-  business_id: z.number().int(),
-});
-
 export async function executeTool(
   name: string,
   args: Record<string, unknown>,
@@ -156,9 +142,6 @@ export async function executeTool(
         return await bookSessionTool(args, context);
       case 'reschedule_session':
         return await rescheduleSessionTool(args, context);
-      // quick-261008-gqb: rebook last month's weekly slots
-      case 'list_previous_month_slots':
-        return await listPreviousMonthSlotsTool(args, context);
       default:
         return { error: `Tool '${name}' not found` };
     }
@@ -359,13 +342,6 @@ async function cancelAppointmentTool(
       }
       // confirmed=true: cancel without restoring credit (CANC-04)
       await updateBookingStatus(booking.id, 'cancelled');
-      // Capacity release (same guard as the non-forfeiture path below): the
-      // seat frees up regardless of whether the client keeps or forfeits
-      // their session credit — forfeiture is a billing outcome, not a
-      // capacity one.
-      if (booking.sessionInstanceId !== null) {
-        await releaseSessionCapacity(booking.sessionInstanceId);
-      }
       try {
         const fullBusiness = await findBusinessById(context.business.id);
         if (fullBusiness) await deleteBookingFromCalendar(booking, fullBusiness);
@@ -395,14 +371,6 @@ async function cancelAppointmentTool(
   }
 
   await updateBookingStatus(booking.id, 'cancelled');
-
-  // Capacity release — only fixed_sessions bookings hold a session-instance
-  // seat (sessionInstanceId null for open-slot bookings). Without this, a
-  // client cancelling a class via free chat never frees the seat, so a
-  // popular recurring class silently shows as full forever.
-  if (booking.sessionInstanceId !== null) {
-    await releaseSessionCapacity(booking.sessionInstanceId);
-  }
 
   // Phase 8: credit restore (SESS-02/D-03) — after updateBookingStatus, before notifications
   const membershipId = await findMembershipByBooking(booking.id);
@@ -582,229 +550,6 @@ async function listSessionsForClientTool(
   };
 }
 
-// quick-261008-gqb: shared multi-booking loop (SBOK-04), now credit-safe.
-// - de-duplicates ids, processes them chronologically, strictly sequentially
-//   (T-11-07 capacity race guard);
-// - stops at the membership's remaining credits so a bulk booking can never
-//   write ledger rows beyond the real balance (extra ids -> insufficientCredit).
-async function bookSessionInstancesInOrder(
-  context: ToolContext,
-  instanceIds: number[],
-  sessions: SessionInstance[],
-  membership: ActiveMembershipForDeduction | null
-): Promise<{ booked: number[]; full: number[]; conflict: number[]; insufficientCredit: number[] }> {
-  const booked: number[] = [];
-  const full: number[] = [];
-  const conflict: number[] = [];
-  const insufficientCredit: number[] = [];
-
-  const uniqueIds = Array.from(new Set(instanceIds));
-  const known: SessionInstance[] = [];
-  for (const id of uniqueIds) {
-    const session = sessions.find((s) => s.instanceId === id);
-    if (!session) conflict.push(id);
-    else known.push(session);
-  }
-  known.sort(
-    (a, b) =>
-      (a.sessionDate < b.sessionDate ? -1 : a.sessionDate > b.sessionDate ? 1 : 0) ||
-      (a.sessionTime < b.sessionTime ? -1 : a.sessionTime > b.sessionTime ? 1 : 0)
-  );
-
-  let creditsLeft: number | null =
-    membership && membership.sessionsRemaining !== null ? membership.sessionsRemaining : null;
-
-  // Sequential loop — intentional: parallel booking could cause capacity races (T-11-07)
-  for (const session of known) {
-    const instanceId = session.instanceId;
-    if (creditsLeft !== null && creditsLeft <= 0) {
-      insufficientCredit.push(instanceId);
-      continue;
-    }
-    const key = context.idempotencyKey + ':' + instanceId;
-    const result = await bookSessionInstance(
-      context.business.id,
-      instanceId,
-      context.clientPhone,
-      session.serviceId,
-      key,
-      membership
-    );
-    if (result.status === 'success') {
-      booked.push(instanceId);
-      if (creditsLeft !== null) creditsLeft -= 1;
-      // Phase 22 (OWNR-05/06): every newly pending multi-booked instance
-      // needs its own approval keyboard. Best-effort, mirrors the
-      // single-booking branch.
-      try {
-        if (context.business.ownerTelegramId && result.bookingId) {
-          const approveData = `sbk:approve:${result.bookingId}`;
-          const rejectData = `sbk:reject:${result.bookingId}`;
-          const keyboard: InlineKeyboard = [
-            [
-              { text: 'Έγκριση', callback_data: approveData },
-              { text: 'Απόρριψη', callback_data: rejectData },
-            ],
-          ];
-          const msgResp = await sendTelegramMessageWithKeyboard(
-            context.business.ownerTelegramId,
-            'Νέα κράτηση αναμονής ' + session.sessionDate + ' ' + session.sessionTime + ' — πελάτης: ' + context.clientPhone,
-            keyboard
-          );
-          await updateBookingOwnerMessageId(result.bookingId, msgResp.messageId);
-        }
-      } catch (err) {
-        logger.error({ err }, 'Multi-booking session owner alert failed (best-effort)');
-      }
-    } else if (result.status === 'full') full.push(instanceId);
-    else conflict.push(instanceId);
-  }
-
-  return { booked, full, conflict, insufficientCredit };
-}
-
-// quick-261008-gqb: read-only. Proposes the client's last-month weekly slots
-// mapped onto real upcoming instances. All weekday/date arithmetic is done here
-// so the model never derives a weekday itself. clientPhone comes only from the
-// ToolContext (T-gqb-01).
-async function listPreviousMonthSlotsTool(
-  args: Record<string, unknown>,
-  context: ToolContext
-): Promise<Record<string, unknown>> {
-  ListPreviousMonthSlotsArgsSchema.parse(args);
-
-  if (context.business.bookingMode !== 'fixed_sessions') {
-    return {
-      success: false,
-      error: 'not_fixed_sessions',
-      message: 'Η επιχείρηση δεν λειτουργεί με σταθερό πρόγραμμα μαθημάτων, οπότε δεν υπάρχει επανάληψη προηγούμενου μήνα.',
-    };
-  }
-  if (!context.business.allowMultiBooking) {
-    return {
-      success: false,
-      error: 'multi_booking_disabled',
-      message: 'Η επιχείρηση δεν επιτρέπει πολλαπλές κρατήσεις μαζί. Ο πελάτης μπορεί να κλείσει τα μαθήματα ένα-ένα.',
-    };
-  }
-
-  const membership = await getClientActiveMembership(context.business.id, context.clientPhone);
-  const hasCapacity = membership !== null && (membership.sessionsRemaining === null || membership.sessionsRemaining > 0);
-  if (!hasCapacity && context.business.enforcementPolicy === 'block') {
-    return {
-      success: false,
-      error: 'no_membership',
-      message: 'Χρειάζεστε ενεργή συνδρομή για να κλείσετε μάθημα. Επικοινωνήστε με ' + context.business.name + ' για ανανέωση.',
-    };
-  }
-
-  const todayIso = isoDateInAthens(new Date());
-  const range = previousMonthRange(todayIso);
-  const rows = await listClientConfirmedSessionBookingsInRange(
-    context.business.id,
-    context.clientPhone,
-    range.start,
-    range.end
-  );
-  if (rows.length === 0) {
-    return {
-      success: true,
-      has_previous_slots: false,
-      previous_month: range.monthLabel,
-      message: 'Δεν βρέθηκαν κρατήσεις μαθημάτων τον προηγούμενο μήνα. Πρότεινε στον πελάτη να δει τα διαθέσιμα μαθήματα με list_sessions_for_client.',
-    };
-  }
-
-  const previousSlots = deriveWeeklySlots(
-    rows.map((r) => ({ calendarDate: r.calendarDate, calendarTime: r.calendarTime, serviceId: r.serviceId }))
-  );
-  const upcoming = await listSessions(context.business.id, 30, true);
-  const clientBookings = await listClientBookings(context.business.id, context.clientPhone);
-  const held = new Set<number>();
-  for (const b of clientBookings) {
-    if (b.sessionInstanceId !== null && b.sessionInstanceId !== undefined) held.add(b.sessionInstanceId);
-  }
-  const membershipExpiryDate = membership ? isoDateInAthens(membership.expiresAt) : null;
-  const grouped = groupUpcomingByWeeklySlot(upcoming, held, membershipExpiryDate);
-  const proposal = buildRebookProposal(previousSlots, grouped);
-
-  const serviceNames = new Map<number, string>();
-  const serviceIds = new Set<number>([
-    ...proposal.previous.map((p) => p.serviceId),
-    ...proposal.other.map((o) => o.serviceId),
-  ]);
-  for (const id of serviceIds) {
-    const svc = await findServiceById(context.business.id, id);
-    serviceNames.set(id, svc ? svc.name : '(άγνωστη υπηρεσία)');
-  }
-
-  const mapInstances = (g: { instances: { instanceId: number; sessionDate: string; sessionTime: string; spotsLeft: number }[]; unavailable: { sessionDate: string; sessionTime: string; reason: string }[] }) => ({
-    upcoming_instances: g.instances.map((i) => ({
-      instance_id: i.instanceId,
-      session_date: i.sessionDate,
-      session_time: i.sessionTime,
-      spots_left: i.spotsLeft,
-    })),
-    unavailable: g.unavailable.map((u) => ({
-      session_date: u.sessionDate,
-      session_time: u.sessionTime,
-      reason: u.reason,
-    })),
-  });
-
-  const previousOut = proposal.previous.map((p) => ({
-    weekday: p.weekday,
-    weekday_name: GREEK_WEEKDAY_NAMES[p.weekday],
-    time: p.time,
-    service_id: p.serviceId,
-    service_name: serviceNames.get(p.serviceId),
-    previous_month_count: p.previousCount,
-    ...mapInstances(p),
-  }));
-
-  const otherOut = proposal.other.slice(0, 20).map((o) => ({
-    weekday: o.weekday,
-    weekday_name: GREEK_WEEKDAY_NAMES[o.weekday],
-    time: o.time,
-    service_id: o.serviceId,
-    service_name: serviceNames.get(o.serviceId),
-    ...mapInstances(o),
-  }));
-
-  const summaryLines = proposal.previous.map((p) => {
-    const line = formatWeeklySlotLine(p, serviceNames.get(p.serviceId) ?? '(άγνωστη υπηρεσία)');
-    const prevText = p.previousCount === 1 ? '1 φορά' : p.previousCount + ' φορές';
-    return line + ' (' + prevText + ' τον προηγούμενο μήνα, ' + p.instances.length + ' διαθέσιμα επερχόμενα μαθήματα)';
-  });
-
-  const totalProposed = proposal.previous.reduce((sum, p) => sum + p.instances.length, 0);
-  const maxBookable =
-    membership && membership.sessionsRemaining !== null && membership.sessionsRemaining > 0
-      ? membership.sessionsRemaining
-      : null;
-
-  return {
-    success: true,
-    has_previous_slots: true,
-    previous_month: range.monthLabel,
-    previous_slots: previousOut,
-    other_weekly_slots: otherOut,
-    summary_lines: summaryLines,
-    suggested_question:
-      'Θέλετε να κλείσω ΟΛΑ αυτά τα μαθήματα ξανά για το επόμενο διάστημα ή να κρατήσουμε κάποια ίδια και να αλλάξουμε άλλα;',
-    membership: membership
-      ? {
-          package_name: membership.packageName,
-          sessions_remaining: membership.sessionsRemaining,
-          valid_until: formatExpiryDateGreek(membership.expiresAt),
-        }
-      : null,
-    max_bookable: maxBookable,
-    total_proposed_sessions: totalProposed,
-    exceeds_credits: maxBookable !== null && totalProposed > maxBookable,
-  };
-}
-
 // SBOK-01 + SBOK-04: book one or multiple session instances for the client.
 // T-11-06: enforcement check is mandatory before bookSessionInstance — blocked
 // clients receive error:no_membership regardless of enforcement policy.
@@ -839,19 +584,61 @@ async function bookSessionTool(
     // D-01 (Phase 29, UX-01): excludePastToday=true — a same-day past-time
     // instance must be treated as a conflict, same as any other unavailable one.
     const sessions = await listSessions(context.business.id, 90, true);
-    const { booked, full, conflict, insufficientCredit } = await bookSessionInstancesInOrder(
-      context,
-      parsed.session_instance_ids,
-      sessions,
-      enfResult.membership
-    );
+    const booked: number[] = [];
+    const full: number[] = [];
+    const conflict: number[] = [];
+
+    // Sequential loop — intentional: parallel booking could cause capacity races (T-11-07)
+    for (const instanceId of parsed.session_instance_ids) {
+      const session = sessions.find((s) => s.instanceId === instanceId);
+      if (!session) {
+        conflict.push(instanceId);
+        continue;
+      }
+      const key = context.idempotencyKey + ':' + instanceId;
+      const result = await bookSessionInstance(
+        context.business.id,
+        instanceId,
+        context.clientPhone,
+        session.serviceId,
+        key,
+        enfResult.membership
+      );
+      if (result.status === 'success') {
+        booked.push(instanceId);
+        // Phase 22 (OWNR-05/06): every newly pending multi-booked instance
+        // needs its own approval keyboard — this branch previously sent NO
+        // owner notification at all. Best-effort, mirrors the single-booking
+        // branch below.
+        try {
+          if (context.business.ownerTelegramId && result.bookingId) {
+            const approveData = `sbk:approve:${result.bookingId}`;
+            const rejectData = `sbk:reject:${result.bookingId}`;
+            const keyboard: InlineKeyboard = [
+              [
+                { text: 'Έγκριση', callback_data: approveData },
+                { text: 'Απόρριψη', callback_data: rejectData },
+              ],
+            ];
+            const msgResp = await sendTelegramMessageWithKeyboard(
+              context.business.ownerTelegramId,
+              'Νέα κράτηση αναμονής ' + session.sessionDate + ' ' + session.sessionTime + ' — πελάτης: ' + context.clientPhone,
+              keyboard
+            );
+            await updateBookingOwnerMessageId(result.bookingId, msgResp.messageId);
+          }
+        } catch (err) {
+          logger.error({ err }, 'Multi-booking session owner alert failed (best-effort)');
+        }
+      } else if (result.status === 'full') full.push(instanceId);
+      else conflict.push(instanceId);
+    }
 
     return {
       success: booked.length > 0,
       booked_instance_ids: booked,
       full_instance_ids: full,
       conflict_instance_ids: conflict,
-      insufficient_credit_instance_ids: insufficientCredit,
       booked_count: booked.length,
     };
   }

@@ -1582,26 +1582,6 @@ describe('Suite D: cancel flow via handleClientMenuCallback', () => {
     );
   });
 
-  // Bug fix (git-sync session): a client self-cancelling a fixed_sessions
-  // booking via /cancel never freed the session instance's held seat —
-  // bookedCount stayed incremented forever, so a popular recurring class
-  // would silently show as full even with real no-shows.
-  it('cancel:yes — session-class booking (sessionInstanceId set) → releaseSessionCapacity called with that id', async () => {
-    mockedFindBookingByIdUnscoped.mockResolvedValue({ ...BASE_BOOKING, sessionInstanceId: 7 } as any);
-
-    const result: ClientMenuCallbackResult = { clientMenuAction: 'cancel:yes', id: bookingId };
-    await handleClientMenuCallback(result, BASE_BUSINESS as any, senderTelegramId);
-
-    expect(mockedReleaseSessionCapacity).toHaveBeenCalledWith(7);
-  });
-
-  it('cancel:yes — open-slot booking (sessionInstanceId null) → releaseSessionCapacity NOT called', async () => {
-    const result: ClientMenuCallbackResult = { clientMenuAction: 'cancel:yes', id: bookingId };
-    await handleClientMenuCallback(result, BASE_BUSINESS as any, senderTelegramId);
-
-    expect(mockedReleaseSessionCapacity).not.toHaveBeenCalled();
-  });
-
   it('cancel:yes — client has a name on file → owner alert shows the resolved name, not the raw phone', async () => {
     mockedGetClientName.mockResolvedValue('Γιάννης Παπαδόπουλος');
 
@@ -2041,29 +2021,6 @@ describe('Suite F: sbk: session booking approval routing', () => {
     expect(res.status).toBe(200);
     expect(mockedUpdateBookingStatus).toHaveBeenCalledWith(OLD_BOOKING_ID, 'cancelled');
     expect(mockedDeleteBookingFromCalendar).toHaveBeenCalledWith(oldBooking, expect.objectContaining({ id: BASE_BUSINESS.id }));
-  });
-
-  // Bug fix (git-sync session): approving a reschedule cascade-cancelled the
-  // OLD booking but never released ITS session-instance seat — the old slot
-  // stayed permanently "occupied" after every approved reschedule, on top of
-  // (correctly) incrementing the new slot's bookedCount.
-  it('owner taps Έγκριση on a rescheduled booking → also releases the OLD booking\'s session-instance capacity', async () => {
-    const OLD_BOOKING_ID = 4;
-    const OLD_SESSION_INSTANCE_ID = 7;
-    const oldBooking = { ...SESSION_BOOKING, id: OLD_BOOKING_ID, bookingStatus: 'confirmed', sessionInstanceId: OLD_SESSION_INSTANCE_ID };
-    const newBookingBeforeApprove = { ...SESSION_BOOKING, id: 5, rescheduledFromBookingId: OLD_BOOKING_ID };
-    const newBookingAfterApprove = { ...newBookingBeforeApprove, bookingStatus: 'confirmed' };
-
-    mockedFindBookingByIdUnscoped.mockImplementation(async (bookingId: number) =>
-      bookingId === OLD_BOOKING_ID ? (oldBooking as any) : (newBookingBeforeApprove as any)
-    );
-    mockedUpdateBookingStatusIfPending.mockResolvedValue(newBookingAfterApprove as any);
-    mockedDeleteBookingFromCalendar.mockResolvedValue(true as any);
-
-    const res = await postToWebhook(makeCallbackQueryUpdate(17, OWNER_TELEGRAM_ID, 'sbk:approve:5'));
-
-    expect(res.status).toBe(200);
-    expect(mockedReleaseSessionCapacity).toHaveBeenCalledWith(OLD_SESSION_INSTANCE_ID);
   });
 
   it('owner taps Έγκριση on a non-rescheduled booking (rescheduledFromBookingId=null) → updateBookingStatus is never called for a cascade', async () => {

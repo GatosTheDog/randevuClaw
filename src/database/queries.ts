@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'async_hooks';
-import { and, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
 import { db, appPool, runInTransaction, withConnectionRetry } from './db';
 import { logger } from '../utils/logger';
 import {
@@ -18,14 +18,10 @@ import {
 // Within withBusinessContext, queries use the appDb transaction (RLS enforced).
 // Outside withBusinessContext (pollers, routing lookups), queries fall back to
 // admin db (superuser) which bypasses RLS — this is intentional for cross-tenant ops.
-//
-// The store also records WHICH business the ambient transaction was opened for,
-// so withAmbientBusinessContext() can refuse to reuse an RLS context that was
-// set for a different tenant.
-const currentTx = new AsyncLocalStorage<{ tx: typeof db; businessId: number }>();
+const currentTx = new AsyncLocalStorage<typeof db>();
 
 export function getConn(): typeof db {
-  return currentTx.getStore()?.tx ?? db;
+  return currentTx.getStore() ?? db;
 }
 
 /**
@@ -136,21 +132,8 @@ export async function withBusinessContext<T>(
   // statement. runInTransaction checks out the client itself and guarantees
   // release in all cases. See src/database/db.ts and the resolved debug
   // session for the full root-cause writeup.
-  //
-  // Debug (book-session-rollback-timeout): withBusinessContext is NOT
-  // re-entrant -- a call made while another withBusinessContext is ambient
-  // opens a SEPARATE transaction on a SEPARATE pooled connection. If the outer
-  // transaction already holds a row lock the nested one needs (e.g. the
-  // memberships FOR UPDATE taken by checkEnforcementAndGetMembership), the
-  // nested statement blocks while the outer awaits it in JS -- a deadlock
-  // Postgres cannot detect, resolved only by timeouts (24s via the Neon
-  // pooler, which ignores the statement_timeout startup param). Callers that
-  // must run in the SAME transaction as the ambient one use
-  // withAmbientBusinessContext() below. `nested` is logged so any other
-  // instance of this pattern is visible in fly logs.
   const startedAt = Date.now();
-  const nested = currentTx.getStore() !== undefined;
-  logger.info({ businessId, nested }, 'withBusinessContext: entry (opening transaction)');
+  logger.info({ businessId }, 'withBusinessContext: entry (opening transaction)');
   try {
     const result = await runInTransaction(appPool, async (tx) => {
       // WR-03: use set_config() via parameterized sql template instead of sql.raw() with string
@@ -161,10 +144,7 @@ export async function withBusinessContext<T>(
       await tx.execute(
         sql`SELECT set_config('app.current_business_id', ${String(Number(businessId))}, true)`
       );
-      return currentTx.run(
-        { tx: tx as unknown as typeof db, businessId: Number(businessId) },
-        callback
-      );
+      return currentTx.run(tx as unknown as typeof db, callback);
     });
     logger.info(
       { businessId, elapsedMs: Date.now() - startedAt },
@@ -178,42 +158,6 @@ export async function withBusinessContext<T>(
     );
     throw err;
   }
-}
-
-/**
- * Like withBusinessContext, but when a withBusinessContext transaction for the
- * SAME business is already ambient, runs `callback` INSIDE that transaction
- * (as a SAVEPOINT, via drizzle's nested tx) instead of opening a second,
- * independent one. Otherwise behaves exactly like withBusinessContext.
- *
- * Use ONLY when the callback must see/extend locks or writes already held by
- * the ambient transaction -- e.g. bookSessionInstance deducting from a
- * membership row the caller locked FOR UPDATE under the ambient transaction.
- * A separate transaction there would block on the ambient one's lock while the
- * ambient one awaits it (undetectable deadlock; see the withBusinessContext
- * comment). The SAVEPOINT preserves failure isolation: if `callback` throws,
- * only its own writes are rolled back and the ambient transaction stays
- * usable, matching the old independent-transaction behaviour for errors.
- *
- * Trade-off: work done here commits with the ambient transaction, not
- * immediately -- so do NOT use it where the caller reads the result through a
- * different connection (e.g. the admin `db` pool) before the ambient
- * transaction ends. The different-business case never joins: RLS context
- * (app.current_business_id) is per-transaction and must not be reused across
- * tenants.
- */
-export async function withAmbientBusinessContext<T>(
-  businessId: string | number,
-  callback: () => Promise<T>
-): Promise<T> {
-  const ambient = currentTx.getStore();
-  if (!ambient || ambient.businessId !== Number(businessId)) {
-    return withBusinessContext(businessId, callback);
-  }
-  logger.debug({ businessId }, 'withAmbientBusinessContext: joining ambient transaction (savepoint)');
-  return ambient.tx.transaction(async (sp) =>
-    currentTx.run({ tx: sp as unknown as typeof db, businessId: ambient.businessId }, callback)
-  ) as Promise<T>;
 }
 
 export async function findLatestBusinessForClient(
@@ -795,30 +739,6 @@ export async function listClientBookings(
         eq(bookings.businessId, businessId),
         eq(bookings.clientPhone, clientPhone),
         inArray(bookings.bookingStatus, ['pending_owner_approval', 'confirmed'])
-      )
-    )
-    .orderBy(bookings.calendarDate, bookings.calendarTime);
-}
-
-// quick-261008-gqb: confirmed session-instance bookings of ONE client in an
-// inclusive ISO date range (used to derive last month's weekly slots).
-export async function listClientConfirmedSessionBookingsInRange(
-  businessId: number,
-  clientPhone: string,
-  startDate: string,
-  endDate: string
-): Promise<Booking[]> {
-  return getConn()
-    .select()
-    .from(bookings)
-    .where(
-      and(
-        eq(bookings.businessId, businessId),
-        eq(bookings.clientPhone, clientPhone),
-        eq(bookings.bookingStatus, 'confirmed'),
-        isNotNull(bookings.sessionInstanceId),
-        gte(bookings.calendarDate, startDate),
-        lte(bookings.calendarDate, endDate)
       )
     )
     .orderBy(bookings.calendarDate, bookings.calendarTime);
