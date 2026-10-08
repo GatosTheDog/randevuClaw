@@ -240,6 +240,45 @@ export const conversationTurns = pgTable('conversation_turns', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 
+/**
+ * Unified, role-aware conversation memory (debug: bot-loses-conversation-memory).
+ *
+ * One row per (business, agent role, participant). Holds the head of the
+ * Gemini server-side interaction chain plus everything needed to manage the
+ * context window client-side: the last observed prompt size, the number of
+ * user turns in the active chain, a rolling summary of turns that fell out of
+ * earlier chains, and a bounded verbatim transcript (`recent_exchanges`,
+ * JSON) used to re-seed a fresh chain when the old one is retired.
+ *
+ * agent_role: 'client' | 'owner' | 'onboarding'. The same Telegram id can be
+ * both an owner and a client (e.g. /testrole), so role is part of the key.
+ */
+export const conversationMemory = pgTable(
+  'conversation_memory',
+  {
+    id: serial('id').primaryKey(),
+    businessId: integer('business_id')
+      .notNull()
+      .references(() => businesses.id),
+    agentRole: text('agent_role').notNull(),
+    participantId: text('participant_id').notNull(),
+    interactionId: text('interaction_id'), // head of the active Gemini chain; null = next turn starts a fresh (seeded) chain
+    summary: text('summary'), // rolling summary of everything before the verbatim tail
+    contextTokens: integer('context_tokens').notNull().default(0), // prompt+output tokens of the chain's last model call
+    chainTurns: integer('chain_turns').notNull().default(0), // user turns since the active chain started
+    recentExchanges: text('recent_exchanges'), // JSON array of {u, a, at}; bounded
+    lastActiveAt: timestamp('last_active_at').notNull().defaultNow(),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('unique_conversation_memory_participant').on(
+      table.businessId,
+      table.agentRole,
+      table.participantId
+    ),
+  ]
+);
+
 export const telegramUpdates = pgTable('telegram_updates', {
   id: serial('id').primaryKey(),
   updateId: text('update_id').notNull().unique(), // Telegram's update.update_id (text to avoid integer-range assumptions)

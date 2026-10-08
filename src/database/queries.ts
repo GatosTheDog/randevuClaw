@@ -9,6 +9,7 @@ import {
   businessHours,
   bookings,
   conversationTurns,
+  conversationMemory,
   telegramUpdates,
   slotlessRequests,
   googleOauthStates,
@@ -39,6 +40,26 @@ export function getConn(): typeof db {
  */
 export function isInBusinessContext(): boolean {
   return currentTx.getStore() !== undefined;
+}
+
+/**
+ * Runs `fn` such that a failure inside it can never poison the caller's
+ * surrounding transaction.
+ *
+ * Inside withBusinessContext a failed statement puts the whole Postgres
+ * transaction into the aborted state (every later statement errors with
+ * "current transaction is aborted"), so best-effort side work — here, the
+ * conversation-memory reads/writes — runs inside a SAVEPOINT (drizzle's nested
+ * `transaction()`), which is rolled back on error while the outer transaction
+ * stays healthy. Outside withBusinessContext (admin connection, autocommit)
+ * there is nothing to protect, so `fn` runs directly (avoiding a second
+ * pool.connect(), see runInTransaction in db.ts).
+ */
+export async function runIsolated<T>(fn: (conn: typeof db) => Promise<T>): Promise<T> {
+  if (isInBusinessContext()) {
+    return getConn().transaction(async (sp) => fn(sp as unknown as typeof db));
+  }
+  return fn(getConn());
 }
 
 export interface Business {
@@ -616,6 +637,94 @@ export async function insertConversationTurn(values: {
   return rows[0];
 }
 
+// ---------------------------------------------------------------------------
+// Unified conversation memory (debug: bot-loses-conversation-memory)
+// ---------------------------------------------------------------------------
+
+export type ConversationAgentRole = 'client' | 'owner' | 'onboarding';
+
+export interface ConversationMemoryRow {
+  id: number;
+  businessId: number;
+  agentRole: string;
+  participantId: string;
+  interactionId: string | null;
+  summary: string | null;
+  contextTokens: number;
+  chainTurns: number;
+  /** JSON array of {u, a, at}; parsed/bounded by src/conversation/memory.ts. */
+  recentExchanges: string | null;
+  lastActiveAt: Date;
+  createdAt: Date;
+}
+
+export interface ConversationMemoryValues {
+  interactionId: string | null;
+  summary: string | null;
+  contextTokens: number;
+  chainTurns: number;
+  recentExchanges: string | null;
+  lastActiveAt: Date;
+}
+
+// `conn` defaults to getConn() (RLS-scoped transaction inside
+// withBusinessContext, admin connection outside it). Every query is filtered by
+// the explicit (businessId, agentRole, participantId) key so the admin-connection
+// path (owner/onboarding agents run outside any transaction) stays tenant-scoped.
+export async function findConversationMemory(
+  businessId: number,
+  agentRole: ConversationAgentRole,
+  participantId: string,
+  conn: typeof db = getConn()
+): Promise<ConversationMemoryRow | null> {
+  const rows = await conn
+    .select()
+    .from(conversationMemory)
+    .where(
+      and(
+        eq(conversationMemory.businessId, businessId),
+        eq(conversationMemory.agentRole, agentRole),
+        eq(conversationMemory.participantId, participantId)
+      )
+    )
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export async function upsertConversationMemory(
+  businessId: number,
+  agentRole: ConversationAgentRole,
+  participantId: string,
+  values: ConversationMemoryValues,
+  conn: typeof db = getConn()
+): Promise<void> {
+  await conn
+    .insert(conversationMemory)
+    .values({ businessId, agentRole, participantId, ...values })
+    .onConflictDoUpdate({
+      target: [conversationMemory.businessId, conversationMemory.agentRole, conversationMemory.participantId],
+      set: values,
+    });
+}
+
+/** Erases a participant's memory (all roles when agentRole is omitted). */
+export async function deleteConversationMemory(
+  businessId: number,
+  participantId: string,
+  agentRole?: ConversationAgentRole,
+  conn: typeof db = getConn()
+): Promise<void> {
+  await conn
+    .delete(conversationMemory)
+    .where(
+      and(
+        eq(conversationMemory.businessId, businessId),
+        eq(conversationMemory.participantId, participantId),
+        agentRole ? eq(conversationMemory.agentRole, agentRole) : undefined
+      )
+    );
+}
+
 export async function insertOrIgnoreTelegramUpdate(
   updateId: string,
   businessId: number | null,
@@ -921,6 +1030,15 @@ export async function deleteClientBookingData(businessId: number, clientPhone: s
   await conn
     .delete(conversationTurns)
     .where(and(eq(conversationTurns.businessId, businessId), eq(conversationTurns.clientPhone, clientPhone)));
+
+  // Conversation memory (summary + verbatim transcript) is personal data too —
+  // erase it with the rest. Isolated in a savepoint so an environment where
+  // migration 0014 has not been applied yet cannot abort the erase transaction.
+  try {
+    await runIsolated((c) => deleteConversationMemory(businessId, clientPhone, 'client', c));
+  } catch (err) {
+    logger.warn({ err, businessId }, 'deleteClientBookingData: conversation_memory erase skipped');
+  }
 }
 
 /**
