@@ -25,13 +25,7 @@ jest.mock('../src/utils/logger', () => ({
 import { updateBusinessGoogleRefreshToken } from '../src/database/queries';
 import { logger } from '../src/utils/logger';
 import { google } from 'googleapis';
-import {
-  getOAuth2AuthUrl,
-  exchangeAuthCodeForTokens,
-  getOAuth2Client,
-  signOAuthState,
-  verifyOAuthState,
-} from '../src/google/oauth';
+import { getOAuth2AuthUrl, exchangeAuthCodeForTokens, getOAuth2Client } from '../src/google/oauth';
 
 const mockedUpdateBusinessGoogleRefreshToken = updateBusinessGoogleRefreshToken as jest.MockedFunction<
   typeof updateBusinessGoogleRefreshToken
@@ -104,45 +98,5 @@ describe('src/google/oauth.ts', () => {
 
     expect(mockedUpdateBusinessGoogleRefreshToken).toHaveBeenCalledWith(1, 'rt-1');
     expect(logger.info).toHaveBeenCalledWith({ businessId: 1 }, 'Google refresh token stored');
-  });
-});
-
-// Phase 31 (T-31-01): pure functions -- no new module mocks needed, they only
-// use config.googleClientSecret (already available via tests/jest.setup.ts).
-describe('signOAuthState / verifyOAuthState', () => {
-  it('signOAuthState(5) returns "5.<64-hex-char>" and round-trips through verifyOAuthState', () => {
-    const state = signOAuthState(5);
-    expect(state).toMatch(/^5\.[0-9a-f]{64}$/);
-    expect(verifyOAuthState(state)).toBe(5);
-  });
-
-  it('returns null when the HMAC portion has one hex character flipped', () => {
-    const state = signOAuthState(5);
-    const [businessIdPart, hmacPart] = state.split('.');
-    const flippedChar = hmacPart[0] === 'a' ? 'b' : 'a';
-    const tampered = `${businessIdPart}.${flippedChar}${hmacPart.slice(1)}`;
-    expect(verifyOAuthState(tampered)).toBeNull();
-  });
-
-  it('returns null for a state missing the separator, with too many separators, or a non-numeric/zero/negative businessId portion', () => {
-    const validHmacLength = signOAuthState(5).split('.')[1].length;
-    const fillerHex = 'a'.repeat(validHmacLength);
-
-    expect(verifyOAuthState('no-separator-here')).toBeNull();
-    expect(verifyOAuthState(`5.${fillerHex}.extra`)).toBeNull();
-    expect(verifyOAuthState(`abc.${fillerHex}`)).toBeNull();
-    expect(verifyOAuthState(`0.${fillerHex}`)).toBeNull();
-    expect(verifyOAuthState(`-5.${fillerHex}`)).toBeNull();
-  });
-
-  it('never throws for any input, including empty string, garbage input, and a wrong-length HMAC portion', () => {
-    expect(() => verifyOAuthState('')).not.toThrow();
-    expect(verifyOAuthState('')).toBeNull();
-
-    expect(() => verifyOAuthState('not-a-state-at-all')).not.toThrow();
-    expect(verifyOAuthState('not-a-state-at-all')).toBeNull();
-
-    expect(() => verifyOAuthState('5.abcd')).not.toThrow();
-    expect(verifyOAuthState('5.abcd')).toBeNull();
   });
 });

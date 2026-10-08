@@ -112,7 +112,8 @@ async function reassertMenuButtonAndCommands(
 
 /**
  * Sends the admin root menu keyboard to the owner (AMENU-01): a 2x2 grid, then
- * single-button rows for the client invite and Google Calendar connect/reconnect.
+ * single-button rows for payment, client invite, client notify, and Google
+ * Calendar connect/reconnect.
  */
 export async function showAdminRootMenu(chatId: string, business: Business): Promise<void> {
   const callbackDataSettings = 'menu:settings';
@@ -160,7 +161,8 @@ export async function showAdminRootMenu(chatId: string, business: Business): Pro
 4. Ατζέντα Σήμερα
 5. Καταχώρηση Πληρωμής
 6. Πρόσκληση Πελάτη
-7. Ειδοποίηση Πελατών`;
+7. Ειδοποίηση Πελατών
+8. Google Calendar`;
 
   await sendTelegramMessageWithKeyboard(
     chatId,

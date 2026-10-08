@@ -2,10 +2,12 @@
  * Tests for the /calendar command / Settings menu Google Calendar
  * connect-disconnect flow — Phase 31 Plan 01 (D-01, D-02, D-06, D-07).
  *
- * Mirrors tests/admin-menu.test.ts's mock/fixture conventions. src/google/oauth
- * is left REAL (mirrors tests/google-oauth.test.ts's pattern of mocking only
- * the underlying `googleapis` package) so signOAuthState/getOAuth2AuthUrl
- * exercise genuine behavior instead of a stubbed signature check.
+ * Merge note (post git-sync): the connect/reconnect link generation now
+ * delegates to handleGoogleCalendarConnect (DB-backed single-use OAuth
+ * state, google-calendar-connect.ts) — mocked wholesale here, since its real
+ * implementation does its own DB write. This file only still exercises the
+ * genuine googleapis-backed revokeToken() call (handleCalendarDisconnect),
+ * the one capability this file retains independently of that flow.
  *
  * NEVER run bare `npm test` — machine crashes on full suite.
  * Use: npm test -- --testPathPattern="telegram-calendar-command" --testTimeout=20000
@@ -37,9 +39,10 @@ jest.mock('../src/session/manager');
 jest.mock('../src/scheduler/agenda');
 jest.mock('../src/invites/generator');
 jest.mock('../src/telegram/handlers/payment-flow');
+jest.mock('../src/telegram/handlers/google-calendar-connect');
 
-import { signOAuthState } from '../src/google/oauth';
 import { handleCalendarCommand, handleCalendarDisconnect } from '../src/telegram/handlers/calendar-connect';
+import { handleGoogleCalendarConnect } from '../src/telegram/handlers/google-calendar-connect';
 import { handleMenuCallback, showSettingsMenu } from '../src/telegram/handlers/admin-menu';
 import { Business, updateBusinessGoogleRefreshToken } from '../src/database/queries';
 import { sendTelegramMessage, sendTelegramMessageWithKeyboard } from '../src/telegram/client';
@@ -50,6 +53,9 @@ const mockedSendTelegramMessageWithKeyboard = sendTelegramMessageWithKeyboard as
 >;
 const mockedUpdateBusinessGoogleRefreshToken = updateBusinessGoogleRefreshToken as jest.MockedFunction<
   typeof updateBusinessGoogleRefreshToken
+>;
+const mockedHandleGoogleCalendarConnect = handleGoogleCalendarConnect as jest.MockedFunction<
+  typeof handleGoogleCalendarConnect
 >;
 
 const mockBusiness: Business = {
@@ -80,19 +86,22 @@ describe('handleCalendarCommand', () => {
     jest.clearAllMocks();
     mockedSendTelegramMessage.mockResolvedValue({ messageId: 1 });
     mockedSendTelegramMessageWithKeyboard.mockResolvedValue({ messageId: 2 });
-    mockGenerateAuthUrl.mockImplementation(
-      (opts: { state: string }) => `https://accounts.google.com/o/oauth2/v2/auth?state=${opts.state}`
-    );
+    mockedHandleGoogleCalendarConnect.mockResolvedValue(undefined);
   });
 
-  test('sends an OAuth URL containing the exact state from signOAuthState when disconnected', async () => {
-    const expectedState = signOAuthState(mockBusiness.id);
+  // Merge note (post git-sync): the disconnected branch now delegates to
+  // handleGoogleCalendarConnect (DB-backed single-use OAuth state) instead of
+  // generating the link inline via signOAuthState — see calendar-connect.ts.
+  test('delegates to handleGoogleCalendarConnect(chatId, business) when disconnected', async () => {
+    const business = { ...mockBusiness, googleRefreshToken: null };
+    await handleCalendarCommand('123', business);
 
-    await handleCalendarCommand('123', { ...mockBusiness, googleRefreshToken: null });
-
-    expect(mockGenerateAuthUrl).toHaveBeenCalledWith(expect.objectContaining({ state: expectedState }));
-    const msgCalls = mockedSendTelegramMessage.mock.calls;
-    expect(msgCalls.some((call) => call[1].includes(expectedState))).toBe(true);
+    expect(mockedHandleGoogleCalendarConnect).toHaveBeenCalledTimes(1);
+    expect(mockedHandleGoogleCalendarConnect).toHaveBeenCalledWith('123', business);
+    // The disconnected branch returns immediately after delegating — it must
+    // never also send its own messages (that's handleGoogleCalendarConnect's job).
+    expect(mockedSendTelegramMessage).not.toHaveBeenCalled();
+    expect(mockedSendTelegramMessageWithKeyboard).not.toHaveBeenCalled();
   });
 
   test('sends a disconnect-offer message with a menu:settings:calendar_disconnect button when already connected', async () => {
@@ -105,17 +114,13 @@ describe('handleCalendarCommand', () => {
     ]);
   });
 
-  test('always ends with the back-to-menu keyboard, in both states', async () => {
-    await handleCalendarCommand('123', { ...mockBusiness, googleRefreshToken: null });
-    let kbCalls = mockedSendTelegramMessageWithKeyboard.mock.calls;
-    expect(kbCalls[kbCalls.length - 1][2]).toEqual([[{ text: '« Πίσω στο Μενού', callback_data: 'menu:root' }]]);
-
-    jest.clearAllMocks();
-    mockedSendTelegramMessage.mockResolvedValue({ messageId: 1 });
-    mockedSendTelegramMessageWithKeyboard.mockResolvedValue({ messageId: 2 });
-
+  // Note: the disconnected branch no longer sends its own back-to-menu
+  // keyboard — it fully delegates to handleGoogleCalendarConnect and returns
+  // (covered by the delegation test above). Only the connected/disconnect-
+  // offer branch still owns a trailing back-to-menu keyboard.
+  test('ends with the back-to-menu keyboard when already connected', async () => {
     await handleCalendarCommand('123', { ...mockBusiness, googleRefreshToken: 'rt-1' });
-    kbCalls = mockedSendTelegramMessageWithKeyboard.mock.calls;
+    const kbCalls = mockedSendTelegramMessageWithKeyboard.mock.calls;
     expect(kbCalls[kbCalls.length - 1][2]).toEqual([[{ text: '« Πίσω στο Μενού', callback_data: 'menu:root' }]]);
   });
 });
@@ -176,18 +181,15 @@ describe('handleMenuCallback — calendar dispatch', () => {
     mockedSendTelegramMessage.mockResolvedValue({ messageId: 1 });
     mockedSendTelegramMessageWithKeyboard.mockResolvedValue({ messageId: 2 });
     mockedUpdateBusinessGoogleRefreshToken.mockResolvedValue(undefined);
-    mockGenerateAuthUrl.mockReturnValue('https://accounts.google.com/o/oauth2/v2/auth?state=x');
+    mockedHandleGoogleCalendarConnect.mockResolvedValue(undefined);
   });
 
   test("dispatches 'settings:calendar' to handleCalendarCommand, not handleSettingsToggle's default branch", async () => {
-    await handleMenuCallback(
-      { menuAction: 'settings:calendar', id: undefined },
-      { ...mockBusiness, googleRefreshToken: null },
-      '123'
-    );
+    const business = { ...mockBusiness, googleRefreshToken: null };
+    await handleMenuCallback({ menuAction: 'settings:calendar', id: undefined }, business, '123');
 
+    expect(mockedHandleGoogleCalendarConnect).toHaveBeenCalledWith('123', business);
     const msgCalls = mockedSendTelegramMessage.mock.calls;
-    expect(msgCalls.some((call) => call[1].includes('accounts.google.com'))).toBe(true);
     expect(msgCalls.some((call) => call[1] === 'Άγνωστη ρύθμιση.')).toBe(false);
   });
 

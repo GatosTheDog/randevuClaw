@@ -8,7 +8,7 @@ import * as calendarSync from '../src/calendar/sync';
 import * as confirmation from '../src/calendar/confirmation';
 import * as billingQueries from '../src/billing/queries';
 import * as sessionManager from '../src/session/manager';
-import { CALENDAR_REMOVE_NOTE_GREEK, CALENDAR_RESCHEDULE_NOTE_GREEK } from '../src/calendar/client-link';
+import { CALENDAR_REMOVE_NOTE_GREEK } from '../src/calendar/client-link';
 import { makeBooking, makeBusiness } from './helpers/calendar-fixtures';
 
 jest.mock('../src/database/queries', () => ({
@@ -18,12 +18,12 @@ jest.mock('../src/database/queries', () => ({
   updateBookingStatus: jest.fn(),
   insertBooking: jest.fn(),
   findBookingByRequestId: jest.fn(),
-  updateBookingOwnerMessageId: jest.fn(),
+  updateBookingOwnerMessageId: jest.fn().mockResolvedValue(undefined),
   listClientBookings: jest.fn(),
 }));
 jest.mock('../src/telegram/client', () => ({
   sendTelegramMessage: jest.fn(),
-  sendTelegramMessageWithKeyboard: jest.fn(),
+  sendTelegramMessageWithKeyboard: jest.fn().mockResolvedValue({ messageId: 1 }),
 }));
 jest.mock('../src/calendar/sync', () => ({ deleteBookingFromCalendar: jest.fn() }));
 jest.mock('../src/calendar/confirmation', () => ({ processBookingConfirmedForCalendar: jest.fn() }));
@@ -37,7 +37,11 @@ jest.mock('../src/billing/queries', () => ({
   linkRescheduledBooking: jest.fn(),
 }));
 jest.mock('../src/billing/enforcement', () => ({ checkEnforcementAndGetMembership: jest.fn() }));
-jest.mock('../src/session/manager', () => ({ listSessions: jest.fn(), bookSessionInstance: jest.fn() }));
+jest.mock('../src/session/manager', () => ({
+  listSessions: jest.fn(),
+  bookSessionInstance: jest.fn(),
+  releaseSessionCapacity: jest.fn(),
+}));
 jest.mock('../src/session/slotless-requests', () => ({
   insertSlotlessRequest: jest.fn(),
   countSlotlessRequestsSinceCheckin: jest.fn(),
@@ -51,14 +55,18 @@ const mFindBookingById = queries.findBookingById as jest.Mock;
 const mFindBusinessById = queries.findBusinessById as jest.Mock;
 const mFindServiceById = queries.findServiceById as jest.Mock;
 const mUpdateStatus = queries.updateBookingStatus as jest.Mock;
+const mUpdateOwnerMessageId = queries.updateBookingOwnerMessageId as jest.Mock;
 const mSend = telegramClient.sendTelegramMessage as jest.Mock;
+const mSendKeyboard = telegramClient.sendTelegramMessageWithKeyboard as jest.Mock;
 const mDelete = calendarSync.deleteBookingFromCalendar as jest.Mock;
 const mProcess = confirmation.processBookingConfirmedForCalendar as jest.Mock;
 const mFindMembership = billingQueries.findMembershipByBooking as jest.Mock;
 const mGetActive = billingQueries.getActiveMembershipForDeduction as jest.Mock;
 const mGetClientActive = billingQueries.getClientActiveMembership as jest.Mock;
+const mLinkRescheduled = billingQueries.linkRescheduledBooking as jest.Mock;
 const mListSessions = sessionManager.listSessions as jest.Mock;
 const mBookSession = sessionManager.bookSessionInstance as jest.Mock;
+const mReleaseCapacity = sessionManager.releaseSessionCapacity as jest.Mock;
 
 const FULL_BUSINESS = makeBusiness();
 
@@ -136,91 +144,79 @@ describe('cancel_appointment calendar notes (CAL-06)', () => {
   });
 });
 
-describe('reschedule_session calendar handling (CAL-05/07)', () => {
+// Merge note (git-sync, Phase 26/CONF-02 kept over a stale pre-Phase-26 draft):
+// reschedule_session no longer touches the calendar directly at all — it
+// creates the new booking as pending_owner_approval and leaves the OLD
+// booking completely untouched (no delete, no cancel) until the owner taps
+// Έγκριση/Απόρριψη. Calendar sync (processBookingConfirmedForCalendar) and the
+// old booking's cascade-cancel both happen later, in the sbk:approve handler
+// (webhooks/telegram.ts, covered by tests/telegram-webhook.test.ts) — a
+// reject must never destroy the client's only active booking (CONF-02).
+describe('reschedule_session pending-approval behavior (Phase 26/CONF-02)', () => {
   const original = makeBooking({ id: 10, bookingStatus: 'confirmed', sessionInstanceId: 5, googleCalendarEventId: 'evt-old' });
-  const newBooking = makeBooking({ id: 11, bookingStatus: 'confirmed', sessionInstanceId: 6, calendarDate: '2026-07-17', calendarTime: '18:00' });
   const args = { business_id: 1, booking_id: 10, new_session_instance_id: 6 };
 
   beforeEach(() => {
-    mFindBookingById.mockImplementation(async (_b: number, id: number) => (id === 10 ? original : id === 11 ? newBooking : null));
+    mFindBookingById.mockImplementation(async (_b: number, id: number) => (id === 10 ? original : null));
     mListSessions.mockResolvedValue([
       { instanceId: 6, catalogId: 1, sessionDate: '2026-07-17', sessionTime: '18:00', bookedCount: 1, capacity: 8, serviceId: 2 },
     ]);
   });
 
-  it('success: deletes old event, processes new booking as reschedule, sends the link message', async () => {
+  it('success: new booking created pending approval; old booking and calendar are untouched; owner gets an Έγκριση/Απόρριψη prompt', async () => {
     mBookSession.mockResolvedValue({ status: 'success', bookingId: 11 });
-    const linkMsg = `\n\n📅 Προσθήκη στο Google Calendar σας (πατήστε τον σύνδεσμο):\nhttps://calendar.google.com/x\n\n${CALENDAR_RESCHEDULE_NOTE_GREEK}`;
-    mProcess.mockResolvedValue({ clientCalendarMessage: linkMsg, ownerSynced: true });
+    mFindMembership.mockResolvedValue(77);
 
     const res = await executeTool('reschedule_session', args, makeContext());
 
     expect(res).toEqual({
       success: true,
       booking_id: 11,
-      cancelled_booking_id: 10,
+      status: 'pending_owner_approval',
       new_session_date: '2026-07-17',
       new_session_time: '18:00',
+      message:
+        'Το αίτημα μετακίνησης στάλθηκε στην επιχείρηση για έγκριση. Η αρχική σας κράτηση παραμένει ενεργή μέχρι να απαντήσει η επιχείρηση.',
     });
-    expect(mDelete).toHaveBeenCalledWith(original, FULL_BUSINESS);
-    expect(mProcess).toHaveBeenCalledTimes(1);
-    expect(mProcess).toHaveBeenCalledWith({ booking: newBooking, business: FULL_BUSINESS, isReschedule: true });
-    const msgs = clientMessages();
-    expect(msgs).toHaveLength(1);
-    expect(msgs[0]).toBe(linkMsg.trim());
-    expect(msgs[0]).toContain('https://calendar.google.com/x');
-    expect(msgs[0]).toContain(CALENDAR_RESCHEDULE_NOTE_GREEK);
+    // Calendar and old-booking mutation are deferred to sbk:approve — neither
+    // runs here.
+    expect(mDelete).not.toHaveBeenCalled();
+    expect(mProcess).not.toHaveBeenCalled();
+    expect(mUpdateStatus).not.toHaveBeenCalled();
+    // bookSessionInstance is called credit-neutral (null membership) and
+    // linked (not re-deducted) to the original's ledger row.
+    expect(mBookSession).toHaveBeenCalledWith(1, 6, '3941234567', 2, expect.any(String), null, undefined, 10);
+    expect(mLinkRescheduled).toHaveBeenCalledWith(77, 11);
+    // Owner gets the approve/reject keyboard, not a plain FYI message.
+    expect(mSendKeyboard).toHaveBeenCalledWith(
+      '999',
+      expect.stringContaining('2026-07-17'),
+      [[
+        { text: 'Έγκριση', callback_data: 'sbk:approve:11' },
+        { text: 'Απόρριψη', callback_data: 'sbk:reject:11' },
+      ]]
+    );
+    expect(mUpdateOwnerMessageId).toHaveBeenCalledWith(11, 1);
   });
 
-  it('new session full: old event still deleted, helper not called, no link message', async () => {
+  it('new session full: no booking created, old booking untouched, no owner prompt sent', async () => {
     mBookSession.mockResolvedValue({ status: 'full' });
 
     const res = await executeTool('reschedule_session', args, makeContext());
 
     expect(res).toMatchObject({ success: false, error: 'reschedule_failed_full' });
-    expect(mDelete).toHaveBeenCalledWith(original, FULL_BUSINESS);
+    expect(mDelete).not.toHaveBeenCalled();
     expect(mProcess).not.toHaveBeenCalled();
-    expect(clientMessages()).toEqual([]);
+    expect(mUpdateStatus).not.toHaveBeenCalled();
+    expect(mSendKeyboard).not.toHaveBeenCalled();
   });
 
-  it('helper rejecting never turns a successful reschedule into an error', async () => {
+  it('owner alert failure never turns a successful reschedule into an error', async () => {
     mBookSession.mockResolvedValue({ status: 'success', bookingId: 11 });
-    mProcess.mockRejectedValue(new Error('boom'));
+    mSendKeyboard.mockRejectedValueOnce(new Error('telegram down'));
 
     const res = await executeTool('reschedule_session', args, makeContext());
 
-    expect(res).toMatchObject({ success: true, booking_id: 11 });
-    expect(clientMessages()).toEqual([]);
-  });
-
-  it('empty helper message sends nothing and stays successful', async () => {
-    mBookSession.mockResolvedValue({ status: 'success', bookingId: 11 });
-    mProcess.mockResolvedValue({ clientCalendarMessage: '', ownerSynced: false });
-
-    const res = await executeTool('reschedule_session', args, makeContext());
-
-    expect(res).toMatchObject({ success: true, booking_id: 11 });
-    expect(clientMessages()).toEqual([]);
-  });
-
-  it('old-event delete failure does not block the reschedule', async () => {
-    mBookSession.mockResolvedValue({ status: 'success', bookingId: 11 });
-    mProcess.mockResolvedValue({ clientCalendarMessage: '', ownerSynced: false });
-    mDelete.mockRejectedValue(new Error('google down'));
-
-    const res = await executeTool('reschedule_session', args, makeContext());
-
-    expect(res).toMatchObject({ success: true, booking_id: 11 });
-    expect(mProcess).toHaveBeenCalledTimes(1);
-  });
-
-  it('link send failure is swallowed', async () => {
-    mBookSession.mockResolvedValue({ status: 'success', bookingId: 11 });
-    mProcess.mockResolvedValue({ clientCalendarMessage: '\n\nlink', ownerSynced: true });
-    mSend.mockRejectedValue(new Error('telegram down'));
-
-    const res = await executeTool('reschedule_session', args, makeContext());
-
-    expect(res).toMatchObject({ success: true, booking_id: 11 });
+    expect(res).toMatchObject({ success: true, booking_id: 11, status: 'pending_owner_approval' });
   });
 });
