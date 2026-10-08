@@ -29,7 +29,7 @@ import { logger } from '../../utils/logger';
 import { listSessions, bookSessionInstance, findSessionInstanceById } from '../../session/manager';
 import { BACK_MENU_LABELS } from '../../utils/greek-messages';
 import { hoursUntilSession, isoDateInAthens, formatExpiryDateGreek } from '../../utils/timezone';
-import { buildWeekGridRows, callbackIdToDate } from '../../utils/date-picker';
+import { buildWeekGridRows, callbackIdToDate, formatDateButtonLabel } from '../../utils/date-picker';
 import { checkEnforcementAndGetMembership } from '../../billing/enforcement';
 import {
   getClientActiveMembership,
@@ -251,23 +251,78 @@ export async function showBookSessionList(
   await sendTelegramMessageWithKeyboard(chatId, 'Επίλεξε μάθημα:', rows);
 }
 
+// Max extra weekly repeats offered alongside the chosen session.
+const SERIES_MAX_EXTRA = 4;
+
+/**
+ * Later instances of the same weekly class (same catalog) the client could
+ * also be booked into: not full, inside the booking window, and — when the
+ * client has a membership — not past its expiry (D-11).
+ */
+async function findSeriesInstances(
+  business: Business,
+  chatId: string,
+  base: { instanceId: number; catalogId: number; sessionDate: string }
+) {
+  const membership = await getClientActiveMembership(business.id, chatId);
+  const cappedAtDate = membership ? isoDateInAthens(membership.expiresAt) : null;
+  const sessions = await listSessions(business.id, BOOKING_WINDOW_DAYS, true);
+  return sessions
+    .filter(
+      (s) =>
+        s.catalogId === base.catalogId &&
+        s.sessionDate > base.sessionDate &&
+        s.bookedCount < s.capacity &&
+        (!cappedAtDate || s.sessionDate <= cappedAtDate)
+    )
+    .slice(0, SERIES_MAX_EXTRA);
+}
+
 /**
  * Shows a Ναι/Όχι confirmation prompt for the selected session instance.
+ * When the business allows multi-booking and the same weekly class has later
+ * open dates, also offers booking those in the same tap.
  */
-export async function showBookConfirm(chatId: string, instanceId: number): Promise<void> {
+export async function showBookConfirm(
+  chatId: string,
+  instanceId: number,
+  business?: Business
+): Promise<void> {
   const yesData = `cmenu:book:yes:${instanceId}`;
   const noData = 'cmenu:root';
   assertCallbackDataSize(yesData);
   assertCallbackDataSize(noData);
 
-  const keyboard: InlineKeyboard = [
-    [
-      { text: 'Ναι', callback_data: yesData },
-      { text: 'Όχι', callback_data: noData },
-    ],
-  ];
+  let extras: Awaited<ReturnType<typeof findSeriesInstances>> = [];
+  if (business?.allowMultiBooking) {
+    const base = await findSessionInstanceById(business.id, instanceId);
+    if (base) extras = await findSeriesInstances(business, chatId, base);
+  }
 
-  await sendTelegramMessageWithKeyboard(chatId, 'Να κρατηθεί αυτό το μάθημα;', keyboard);
+  if (extras.length === 0) {
+    const keyboard: InlineKeyboard = [
+      [
+        { text: 'Ναι', callback_data: yesData },
+        { text: 'Όχι', callback_data: noData },
+      ],
+    ];
+    await sendTelegramMessageWithKeyboard(chatId, 'Να κρατηθεί αυτό το μάθημα;', keyboard);
+    return;
+  }
+
+  const seriesData = `cmenu:book:series:${instanceId}`;
+  assertCallbackDataSize(seriesData);
+  const keyboard: InlineKeyboard = [
+    [{ text: 'Ναι, μόνο αυτό', callback_data: yesData }],
+    [{ text: `Ναι, και τις επόμενες ${extras.length}`, callback_data: seriesData }],
+    [{ text: 'Όχι', callback_data: noData }],
+  ];
+  const dateList = extras.map((e) => `• ${formatDateButtonLabel(e.sessionDate)}`).join('\n');
+  await sendTelegramMessageWithKeyboard(
+    chatId,
+    `Να κρατηθεί αυτό το μάθημα;\n\nΜπορώ να κρατήσω θέση και στις επόμενες εβδομάδες (ίδια ώρα):\n${dateList}`,
+    keyboard
+  );
 }
 
 /**
@@ -275,32 +330,35 @@ export async function showBookConfirm(chatId: string, instanceId: number): Promi
  * Runs enforcement gate before calling bookSessionInstance.
  * senderTelegramId === chatId for private Telegram chats.
  */
-export async function handleBookSessionExecute(
-  chatId: string,
+type BookOneResult =
+  | { kind: 'success'; session: { sessionDate: string; sessionTime: string } }
+  | { kind: 'not_allowed' }
+  | { kind: 'not_found' }
+  | { kind: 'full' }
+  | { kind: 'conflict'; status: string };
+
+/**
+ * Books one session instance for the client: enforcement gate, booking,
+ * owner approval notification. Returns the outcome without messaging the
+ * client, so single and series flows share it.
+ */
+async function bookOneInstance(
   business: Business,
   senderTelegramId: string,
   instanceId: number
-): Promise<void> {
+): Promise<BookOneResult> {
   const enforcementResult = await checkEnforcementAndGetMembership(
     business.id,
     senderTelegramId
   );
-  if (!enforcementResult.allowed) {
-    await sendTelegramMessage(chatId, 'Δυστυχώς δεν ήταν δυνατή η κράτησή σας. Ο διαχειριστής ειδοποιήθηκε.');
-    await sendEscalationToAdmin(business, senderTelegramId, 'κράτηση μαθήματος', 'membership_expired');
-    logger.info({ businessId: business.id, senderTelegramId, reason: 'membership_expired' }, 'escalation triggered');
-    return;
-  }
+  if (!enforcementResult.allowed) return { kind: 'not_allowed' };
 
   // Resolve serviceId, sessionDate, and sessionTime via the shared,
   // businessId-scoped lookup (D-06) — also pulls sessionDate/sessionTime
   // here (rather than a second round-trip later) so the owner-alert text
   // below can reference them.
   const session = await findSessionInstanceById(business.id, instanceId);
-  if (!session) {
-    await sendTelegramMessage(chatId, 'Το μάθημα δεν βρέθηκε.');
-    return;
-  }
+  if (!session) return { kind: 'not_found' };
   const serviceId = session.serviceId;
 
   const idempotencyKey = `cmenu:book:${senderTelegramId}:${instanceId}`;
@@ -313,18 +371,8 @@ export async function handleBookSessionExecute(
     enforcementResult.membership
   );
 
-  if (!bookResult || bookResult.status === 'full') {
-    await sendTelegramMessage(chatId, 'Δυστυχώς δεν ήταν δυνατή η κράτησή σας. Ο διαχειριστής ειδοποιήθηκε.');
-    await sendEscalationToAdmin(business, senderTelegramId, 'κράτηση μαθήματος', 'class_full', instanceId);
-    logger.info({ businessId: business.id, senderTelegramId, instanceId, reason: 'class_full' }, 'escalation triggered');
-    return;
-  }
-
-  if (bookResult.status !== 'success') {
-    await sendTelegramMessage(chatId, 'Το μάθημα δεν βρέθηκε ή δεν είναι πλέον διαθέσιμο.');
-    logger.info({ businessId: business.id, senderTelegramId, instanceId, status: bookResult.status }, 'book session conflict');
-    return;
-  }
+  if (!bookResult || bookResult.status === 'full') return { kind: 'full' };
+  if (bookResult.status !== 'success') return { kind: 'conflict', status: bookResult.status };
 
   // Owner notification — best-effort (mirrors handleCancelExecute's pattern
   // below and bookSessionTool's equivalent AI-chat alert in
@@ -361,14 +409,114 @@ export async function handleBookSessionExecute(
     logger.error({ err, businessId: business.id, senderTelegramId, instanceId }, 'Owner booking notification failed (best-effort)');
   }
 
+  logger.info({ businessId: business.id, senderTelegramId, instanceId }, 'client session booked');
+  return { kind: 'success', session };
+}
+
+/**
+ * Executes the booking after the client confirms (CMENU-04).
+ * senderTelegramId === chatId for private Telegram chats.
+ */
+export async function handleBookSessionExecute(
+  chatId: string,
+  business: Business,
+  senderTelegramId: string,
+  instanceId: number
+): Promise<void> {
+  const result = await bookOneInstance(business, senderTelegramId, instanceId);
+
+  switch (result.kind) {
+    case 'not_allowed':
+      await sendTelegramMessage(chatId, 'Δυστυχώς δεν ήταν δυνατή η κράτησή σας. Ο διαχειριστής ειδοποιήθηκε.');
+      await sendEscalationToAdmin(business, senderTelegramId, 'κράτηση μαθήματος', 'membership_expired');
+      logger.info({ businessId: business.id, senderTelegramId, reason: 'membership_expired' }, 'escalation triggered');
+      return;
+    case 'not_found':
+      await sendTelegramMessage(chatId, 'Το μάθημα δεν βρέθηκε.');
+      return;
+    case 'full':
+      await sendTelegramMessage(chatId, 'Δυστυχώς δεν ήταν δυνατή η κράτησή σας. Ο διαχειριστής ειδοποιήθηκε.');
+      await sendEscalationToAdmin(business, senderTelegramId, 'κράτηση μαθήματος', 'class_full', instanceId);
+      logger.info({ businessId: business.id, senderTelegramId, instanceId, reason: 'class_full' }, 'escalation triggered');
+      return;
+    case 'conflict':
+      await sendTelegramMessage(chatId, 'Το μάθημα δεν βρέθηκε ή δεν είναι πλέον διαθέσιμο.');
+      logger.info({ businessId: business.id, senderTelegramId, instanceId, status: result.status }, 'book session conflict');
+      return;
+  }
+
   await sendTelegramMessage(chatId, 'Το αίτημά σας στάλθηκε στον διαχειριστή! Αναμονή επιβεβαίωσης...');
 
   const backKeyboard: InlineKeyboard = [
     [{ text: BACK_MENU_LABELS.CLIENT, callback_data: 'cmenu:root' }],
   ];
   await sendTelegramMessageWithKeyboard(chatId, 'Τι άλλο θέλεις να κάνεις;', backKeyboard);
+}
 
-  logger.info({ businessId: business.id, senderTelegramId, instanceId }, 'client session booked');
+/**
+ * Books the chosen session plus its upcoming weekly repeats in one go.
+ * Sequential on purpose (capacity races, membership deduction per booking).
+ * Gated on allowMultiBooking, same as the AI-chat multi-booking path.
+ */
+export async function handleBookSeriesExecute(
+  chatId: string,
+  business: Business,
+  senderTelegramId: string,
+  instanceId: number
+): Promise<void> {
+  if (!business.allowMultiBooking) {
+    await handleBookSessionExecute(chatId, business, senderTelegramId, instanceId);
+    return;
+  }
+
+  const base = await findSessionInstanceById(business.id, instanceId);
+  if (!base) {
+    await sendTelegramMessage(chatId, 'Το μάθημα δεν βρέθηκε.');
+    return;
+  }
+  const extras = await findSeriesInstances(business, chatId, base);
+  const ids = [instanceId, ...extras.map((e) => e.instanceId)];
+
+  const booked: string[] = [];
+  const failed: string[] = [];
+  let blocked = false;
+  for (const id of ids) {
+    const res = await bookOneInstance(business, senderTelegramId, id);
+    const label =
+      id === instanceId
+        ? formatDateButtonLabel(base.sessionDate)
+        : formatDateButtonLabel(extras.find((e) => e.instanceId === id)!.sessionDate);
+    if (res.kind === 'success') {
+      booked.push(label);
+    } else {
+      failed.push(label);
+      if (res.kind === 'not_allowed') {
+        blocked = true;
+        break; // no active membership / credits left — later dates would fail too
+      }
+    }
+  }
+
+  if (blocked && booked.length === 0) {
+    await sendTelegramMessage(chatId, 'Δυστυχώς δεν ήταν δυνατή η κράτησή σας. Ο διαχειριστής ειδοποιήθηκε.');
+    await sendEscalationToAdmin(business, senderTelegramId, 'κράτηση μαθήματος', 'membership_expired');
+    return;
+  }
+
+  let text = '';
+  if (booked.length > 0) {
+    text += `Στάλθηκαν στον διαχειριστή ${booked.length} αιτήματα κράτησης:\n${booked.map((d) => `• ${d}`).join('\n')}\nΑναμονή επιβεβαίωσης...`;
+  }
+  if (failed.length > 0) {
+    text += `${text ? '\n\n' : ''}Δεν ήταν δυνατή η κράτηση για:\n${failed.map((d) => `• ${d}`).join('\n')}`;
+    if (blocked) text += '\n(Δεν υπάρχουν αρκετά διαθέσιμα μαθήματα στη συνδρομή σου.)';
+  }
+  await sendTelegramMessage(chatId, text);
+
+  const backKeyboard: InlineKeyboard = [
+    [{ text: BACK_MENU_LABELS.CLIENT, callback_data: 'cmenu:root' }],
+  ];
+  await sendTelegramMessageWithKeyboard(chatId, 'Τι άλλο θέλεις να κάνεις;', backKeyboard);
 }
 
 // ---------------------------------------------------------------------------
@@ -695,7 +843,7 @@ export async function handleClientMenuCallback(
       if (result.id === undefined) {
         await sendTelegramMessage(chatId, 'Σφάλμα: δεν βρέθηκε το μάθημα.');
       } else {
-        await showBookConfirm(chatId, result.id);
+        await showBookConfirm(chatId, result.id, business);
       }
       break;
 
@@ -705,6 +853,14 @@ export async function handleClientMenuCallback(
       } else {
         // chatId === senderTelegramId for private Telegram chats
         await handleBookSessionExecute(chatId, business, chatId, result.id);
+      }
+      break;
+
+    case clientMenuAction === 'book:series':
+      if (result.id === undefined) {
+        await sendTelegramMessage(chatId, 'Σφάλμα: δεν βρέθηκε το μάθημα.');
+      } else {
+        await handleBookSeriesExecute(chatId, business, chatId, result.id);
       }
       break;
 
