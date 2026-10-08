@@ -359,4 +359,40 @@ describe('aiBookingAgent', () => {
       expect(line.toLowerCase()).toContain('μην');
     }
   });
+
+  describe('quick-261008-gqb: list_previous_month_slots', () => {
+    it('declares list_previous_month_slots with required business_id on every call', async () => {
+      mockCreate.mockResolvedValueOnce({ id: 'int1', steps: [], output_text: 'ok' });
+
+      await aiBookingAgent('γεια', BUSINESS, 'c1', null);
+
+      const tools = mockCreate.mock.calls[0][0].tools as Array<{ name: string; parameters: { required: string[] } }>;
+      const tool = tools.find((t) => t.name === 'list_previous_month_slots');
+      expect(tool).toBeDefined();
+      expect(tool!.parameters.required).toContain('business_id');
+    });
+
+    it('adds the rebook rules for fixed_sessions + allowMultiBooking', async () => {
+      mockCreate.mockResolvedValueOnce({ id: 'int1', steps: [], output_text: 'ok' });
+      const business = { ...BUSINESS, bookingMode: 'fixed_sessions', allowMultiBooking: true };
+
+      await aiBookingAgent('γεια', business, 'c1', null);
+
+      const systemInstruction = mockCreate.mock.calls[0][0].system_instruction as string;
+      expect(systemInstruction).toContain('list_previous_month_slots');
+      expect(systemInstruction).toContain('book_session πριν απαντήσει');
+      expect(systemInstruction).toContain('weekday_name');
+    });
+
+    it('omits the rebook rules when multi-booking is disabled or mode is open_slots', async () => {
+      mockCreate.mockResolvedValueOnce({ id: 'int1', steps: [], output_text: 'ok' });
+      mockCreate.mockResolvedValueOnce({ id: 'int2', steps: [], output_text: 'ok' });
+
+      await aiBookingAgent('γεια', { ...BUSINESS, bookingMode: 'fixed_sessions', allowMultiBooking: false }, 'c1', null);
+      await aiBookingAgent('γεια', BUSINESS, 'c1', null);
+
+      expect(mockCreate.mock.calls[0][0].system_instruction as string).not.toContain('list_previous_month_slots');
+      expect(mockCreate.mock.calls[1][0].system_instruction as string).not.toContain('list_previous_month_slots');
+    });
+  });
 });
