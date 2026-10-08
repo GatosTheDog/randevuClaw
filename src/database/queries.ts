@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'async_hooks';
-import { and, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, or, sql } from 'drizzle-orm';
 import { db, appPool, runInTransaction, withConnectionRetry } from './db';
 import { logger } from '../utils/logger';
 import {
@@ -795,6 +795,30 @@ export async function listClientBookings(
         eq(bookings.businessId, businessId),
         eq(bookings.clientPhone, clientPhone),
         inArray(bookings.bookingStatus, ['pending_owner_approval', 'confirmed'])
+      )
+    )
+    .orderBy(bookings.calendarDate, bookings.calendarTime);
+}
+
+// quick-261008-gqb: confirmed session-instance bookings of ONE client in an
+// inclusive ISO date range (used to derive last month's weekly slots).
+export async function listClientConfirmedSessionBookingsInRange(
+  businessId: number,
+  clientPhone: string,
+  startDate: string,
+  endDate: string
+): Promise<Booking[]> {
+  return getConn()
+    .select()
+    .from(bookings)
+    .where(
+      and(
+        eq(bookings.businessId, businessId),
+        eq(bookings.clientPhone, clientPhone),
+        eq(bookings.bookingStatus, 'confirmed'),
+        isNotNull(bookings.sessionInstanceId),
+        gte(bookings.calendarDate, startDate),
+        lte(bookings.calendarDate, endDate)
       )
     )
     .orderBy(bookings.calendarDate, bookings.calendarTime);
