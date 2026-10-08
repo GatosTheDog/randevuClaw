@@ -21,6 +21,7 @@ import {
 import { sendEscalationToAdmin, EscalationReason } from '../escalation';
 import {
   InlineKeyboard,
+  editTelegramMessageReplyMarkup,
   sendTelegramMessage,
   sendTelegramMessageWithKeyboard,
   botTokenStore,
@@ -253,6 +254,11 @@ export async function showBookSessionList(
 
 // Max extra weekly repeats offered alongside the chosen session.
 const SERIES_MAX_EXTRA = 4;
+// Max dates offered in the pick-specific-dates screen (selection is a bitmask in callback_data).
+const PICK_MAX = 12;
+
+const dateTimeLabel = (s: { sessionDate: string; sessionTime: string }) =>
+  `${formatDateButtonLabel(s.sessionDate)} ${s.sessionTime}`;
 
 /**
  * Later instances of the same weekly class (same catalog) the client could
@@ -262,7 +268,8 @@ const SERIES_MAX_EXTRA = 4;
 async function findSeriesInstances(
   business: Business,
   chatId: string,
-  base: { instanceId: number; catalogId: number; sessionDate: string }
+  base: { instanceId: number; catalogId: number; sessionDate: string },
+  max = SERIES_MAX_EXTRA
 ) {
   const membership = await getClientActiveMembership(business.id, chatId);
   const cappedAtDate = membership ? isoDateInAthens(membership.expiresAt) : null;
@@ -275,7 +282,7 @@ async function findSeriesInstances(
         s.bookedCount < s.capacity &&
         (!cappedAtDate || s.sessionDate <= cappedAtDate)
     )
-    .slice(0, SERIES_MAX_EXTRA);
+    .slice(0, max);
 }
 
 /**
@@ -293,11 +300,12 @@ export async function showBookConfirm(
   assertCallbackDataSize(yesData);
   assertCallbackDataSize(noData);
 
-  let extras: Awaited<ReturnType<typeof findSeriesInstances>> = [];
+  let all: Awaited<ReturnType<typeof findSeriesInstances>> = [];
   if (business?.allowMultiBooking) {
     const base = await findSessionInstanceById(business.id, instanceId);
-    if (base) extras = await findSeriesInstances(business, chatId, base);
+    if (base) all = await findSeriesInstances(business, chatId, base, PICK_MAX);
   }
+  const extras = all.slice(0, SERIES_MAX_EXTRA);
 
   if (extras.length === 0) {
     const keyboard: InlineKeyboard = [
@@ -315,12 +323,17 @@ export async function showBookConfirm(
   const keyboard: InlineKeyboard = [
     [{ text: 'Ναι, μόνο αυτό', callback_data: yesData }],
     [{ text: `Ναι, και τις επόμενες ${extras.length}`, callback_data: seriesData }],
-    [{ text: 'Όχι', callback_data: noData }],
   ];
-  const dateList = extras.map((e) => `• ${formatDateButtonLabel(e.sessionDate)}`).join('\n');
+  if (all.length > 1) {
+    const pickData = `cmenu:book:pick:${instanceId}`;
+    assertCallbackDataSize(pickData);
+    keyboard.push([{ text: 'Επιλογή συγκεκριμένων ημερομηνιών', callback_data: pickData }]);
+  }
+  keyboard.push([{ text: 'Όχι', callback_data: noData }]);
+  const dateList = extras.map((e) => `• ${dateTimeLabel(e)}`).join('\n');
   await sendTelegramMessageWithKeyboard(
     chatId,
-    `Να κρατηθεί αυτό το μάθημα;\n\nΜπορώ να κρατήσω θέση και στις επόμενες εβδομάδες (ίδια ώρα):\n${dateList}`,
+    `Να κρατηθεί αυτό το μάθημα;\n\nΜπορώ να κρατήσω θέση και σε επόμενες ημερομηνίες:\n${dateList}`,
     keyboard
   );
 }
@@ -454,6 +467,67 @@ export async function handleBookSessionExecute(
 }
 
 /**
+ * Pick-specific-dates screen. Selection state lives in callback_data as a
+ * bitmask over the (date-ordered) candidate list: each button carries the mask
+ * that results from tapping it, so toggling needs no server-side state.
+ * With messageId the existing message's keyboard is edited in place.
+ */
+export async function showBookPicker(
+  chatId: string,
+  business: Business,
+  baseId: number,
+  mask: number,
+  messageId?: number
+): Promise<void> {
+  const base = business.allowMultiBooking ? await findSessionInstanceById(business.id, baseId) : null;
+  const candidates = base ? await findSeriesInstances(business, chatId, base, PICK_MAX) : [];
+  if (!base || candidates.length === 0) {
+    await sendTelegramMessage(chatId, 'Δεν υπάρχουν διαθέσιμες επόμενες ημερομηνίες.');
+    return;
+  }
+
+  const selected = candidates.filter((_, i) => mask & (1 << i)).length;
+  const keyboard: InlineKeyboard = candidates.map((c, i) => {
+    const data = `cmenu:book:pick:${baseId}:${mask ^ (1 << i)}`;
+    assertCallbackDataSize(data);
+    return [{ text: `${mask & (1 << i) ? '✅' : '⬜'} ${dateTimeLabel(c)}`, callback_data: data }];
+  });
+  const doneData = `cmenu:book:picked:${baseId}:${mask}`;
+  assertCallbackDataSize(doneData);
+  keyboard.push([
+    { text: `Κράτηση (${selected + 1} μαθήματα)`, callback_data: doneData },
+    { text: 'Άκυρο', callback_data: 'cmenu:root' },
+  ]);
+
+  if (messageId !== undefined) {
+    await editTelegramMessageReplyMarkup(chatId, messageId, keyboard);
+    return;
+  }
+  await sendTelegramMessageWithKeyboard(
+    chatId,
+    `Θα κρατηθεί το επιλεγμένο μάθημα (${dateTimeLabel(base)}). Πάτα στις ημερομηνίες που θέλεις να προστεθούν:`,
+    keyboard
+  );
+}
+
+/** Books the base session plus the extras selected in the picker bitmask. */
+async function handleBookPickedExecute(
+  chatId: string,
+  business: Business,
+  baseId: number,
+  mask: number
+): Promise<void> {
+  const base = await findSessionInstanceById(business.id, baseId);
+  if (!base) {
+    await sendTelegramMessage(chatId, 'Το μάθημα δεν βρέθηκε.');
+    return;
+  }
+  const candidates = await findSeriesInstances(business, chatId, base, PICK_MAX);
+  const ids = candidates.filter((_, i) => mask & (1 << i)).map((c) => c.instanceId);
+  await handleBookSeriesExecute(chatId, business, chatId, baseId, ids);
+}
+
+/**
  * Books the chosen session plus its upcoming weekly repeats in one go.
  * Sequential on purpose (capacity races, membership deduction per booking).
  * Gated on allowMultiBooking, same as the AI-chat multi-booking path.
@@ -462,7 +536,9 @@ export async function handleBookSeriesExecute(
   chatId: string,
   business: Business,
   senderTelegramId: string,
-  instanceId: number
+  instanceId: number,
+  // When given (pick-specific-dates flow), book only these extras; otherwise the first SERIES_MAX_EXTRA.
+  extraInstanceIds?: number[]
 ): Promise<void> {
   if (!business.allowMultiBooking) {
     await handleBookSessionExecute(chatId, business, senderTelegramId, instanceId);
@@ -474,7 +550,10 @@ export async function handleBookSeriesExecute(
     await sendTelegramMessage(chatId, 'Το μάθημα δεν βρέθηκε.');
     return;
   }
-  const extras = await findSeriesInstances(business, chatId, base);
+  const candidates = await findSeriesInstances(business, chatId, base, PICK_MAX);
+  const extras = extraInstanceIds
+    ? candidates.filter((c) => extraInstanceIds.includes(c.instanceId))
+    : candidates.slice(0, SERIES_MAX_EXTRA);
   const ids = [instanceId, ...extras.map((e) => e.instanceId)];
 
   const booked: string[] = [];
@@ -482,10 +561,7 @@ export async function handleBookSeriesExecute(
   let blocked = false;
   for (const id of ids) {
     const res = await bookOneInstance(business, senderTelegramId, id);
-    const label =
-      id === instanceId
-        ? formatDateButtonLabel(base.sessionDate)
-        : formatDateButtonLabel(extras.find((e) => e.instanceId === id)!.sessionDate);
+    const label = dateTimeLabel(id === instanceId ? base : extras.find((e) => e.instanceId === id)!);
     if (res.kind === 'success') {
       booked.push(label);
     } else {
@@ -813,9 +889,12 @@ export async function showClientBalance(chatId: string, business: Business): Pro
 export async function handleClientMenuCallback(
   result: ClientMenuCallbackResult,
   business: Business,
-  chatId: string
+  chatId: string,
+  messageId?: number
 ): Promise<void> {
   const { clientMenuAction } = result;
+  const pickToggle = clientMenuAction.match(/^book:pick:(\d+)$/);
+  const pickDone = clientMenuAction.match(/^book:picked:(\d+)$/);
 
   switch (true) {
     case clientMenuAction === 'root':
@@ -854,6 +933,22 @@ export async function handleClientMenuCallback(
         // chatId === senderTelegramId for private Telegram chats
         await handleBookSessionExecute(chatId, business, chatId, result.id);
       }
+      break;
+
+    case clientMenuAction === 'book:pick':
+      if (result.id === undefined) {
+        await sendTelegramMessage(chatId, 'Σφάλμα: δεν βρέθηκε το μάθημα.');
+      } else {
+        await showBookPicker(chatId, business, result.id, 0);
+      }
+      break;
+
+    case pickToggle !== null:
+      await showBookPicker(chatId, business, Number(pickToggle![1]), result.id ?? 0, messageId);
+      break;
+
+    case pickDone !== null:
+      await handleBookPickedExecute(chatId, business, Number(pickDone![1]), result.id ?? 0);
       break;
 
     case clientMenuAction === 'book:series':

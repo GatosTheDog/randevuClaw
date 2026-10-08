@@ -252,6 +252,7 @@ Recent decisions affecting current work:
 | 260726-vfm | show resolved client name (not phone/telegram id) in owner notifications | 2026-07-26 | e82b49f | [260726-vfm-show-resolved-client-name-not-phone-tele](./quick/260726-vfm-show-resolved-client-name-not-phone-tele/) |
 | 261008-n4y | Weekly 7-day calendar grid for client booking dates | 2026-10-08 | HEAD | [261008-n4y-telegram-booking-weekly-7-day-calendar-b](./quick/261008-n4y-telegram-booking-weekly-7-day-calendar-b/) |
 | 261008-o7k | Book weekly repeats of a session in one tap | 2026-10-08 | HEAD | [261008-o7k-book-weekly-repeats-of-session](./quick/261008-o7k-book-weekly-repeats-of-session/) |
+| 261008-p3x | Pick specific dates when booking repeats | 2026-10-08 | HEAD | [261008-p3x-pick-specific-session-dates](./quick/261008-p3x-pick-specific-session-dates/) |
 
 ### Blockers/Concerns
 

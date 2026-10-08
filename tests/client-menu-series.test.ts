@@ -33,7 +33,7 @@ beforeEach(() => {
 test('offers series: same catalog, later, not full', async () => {
   await showBookConfirm('42', 1, business);
   const [, text, kb] = (client.sendTelegramMessageWithKeyboard as jest.Mock).mock.calls[0];
-  expect(kb.flat().map((b: any) => b.callback_data)).toEqual(['cmenu:book:yes:1', 'cmenu:book:series:1', 'cmenu:root']);
+  expect(kb.flat().map((b: any) => b.callback_data)).toEqual(['cmenu:book:yes:1', 'cmenu:book:series:1', 'cmenu:book:pick:1', 'cmenu:root']);
   expect(kb[1][0].text).toBe('Ναι, και τις επόμενες 2'); // instances 2 and 5
   expect(text).toContain('16/10/2099');
   expect(text).not.toContain('23/10/2099');
@@ -50,4 +50,22 @@ test('series execute books base + extras sequentially', async () => {
   (manager.bookSessionInstance as jest.Mock).mockResolvedValue({ status: 'success', bookingId: 9 });
   await handleBookSeriesExecute('42', business, '42', 1);
   expect((manager.bookSessionInstance as jest.Mock).mock.calls.map((c) => c[1])).toEqual([1, 2, 5]);
+});
+
+import { showBookPicker } from '../src/telegram/handlers/client-menu';
+
+test('picker: bitmask toggles, selected marked, done carries mask', async () => {
+  await showBookPicker('42', business, 1, 0b01); // candidates: 2, 5 -> first selected
+  const kb = (client.sendTelegramMessageWithKeyboard as jest.Mock).mock.calls[0][2];
+  expect(kb[0][0].text.startsWith('✅')).toBe(true);
+  expect(kb[1][0].text.startsWith('⬜')).toBe(true);
+  expect(kb[0][0].callback_data).toBe('cmenu:book:pick:1:0'); // tapping again clears
+  expect(kb[1][0].callback_data).toBe('cmenu:book:pick:1:3');
+  expect(kb[2][0].callback_data).toBe('cmenu:book:picked:1:1');
+});
+
+test('picker with messageId edits keyboard in place', async () => {
+  await showBookPicker('42', business, 1, 0, 77);
+  expect(client.editTelegramMessageReplyMarkup).toHaveBeenCalledWith('42', 77, expect.any(Array));
+  expect(client.sendTelegramMessageWithKeyboard).not.toHaveBeenCalled();
 });

@@ -1030,10 +1030,12 @@ async function handleCallbackQuery(
     const clientResult = parsed as ClientMenuCallbackResult;
     // Inert calendar cells (book:none) must leave the grid in place.
     if (clientResult.clientMenuAction === 'book:none') return;
-    if (callbackQuery.message?.message_id) {
+    // Picker toggles edit the keyboard in place, so don't clear it first.
+    const isPickToggle = /^book:pick:\d+$/.test(clientResult.clientMenuAction);
+    if (callbackQuery.message?.message_id && !isPickToggle) {
       await editTelegramMessageReplyMarkup(senderTelegramId, callbackQuery.message.message_id, []);
     }
-    await handleClientMenuCallback(clientResult, business, senderTelegramId);
+    await handleClientMenuCallback(clientResult, business, senderTelegramId, callbackQuery.message?.message_id);
     return;
   }
 

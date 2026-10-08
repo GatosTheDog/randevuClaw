@@ -911,7 +911,7 @@ describe('Suite C: booking flow via handleClientMenuCallback', () => {
     expect(mockedListSessions).toHaveBeenCalledWith(BASE_BUSINESS.id, 30, true);
   });
 
-  it('book — renders one date button per distinct available date, deduped (Phase 30)', async () => {
+  it('book — renders a week-per-row calendar grid with one pickable day per distinct available date', async () => {
     mockedListSessions.mockResolvedValue([
       {
         instanceId: 101,
@@ -947,10 +947,11 @@ describe('Suite C: booking flow via handleClientMenuCallback', () => {
 
     expect(mockedSendTelegramMessageWithKeyboard).toHaveBeenCalledWith(
       senderTelegramId,
-      expect.stringContaining('Επίλεξε ημερομηνία:'),
+      expect.stringContaining('Επίλεξε ημέρα'),
+      // Week-per-row calendar grid (7 buttons per row, Monday first); 1st of month labelled D/M
       expect.arrayContaining([
-        [{ text: 'Σαβ 01/08/2026', callback_data: 'cmenu:book:date:20260801' }],
-        [{ text: 'Δευ 03/08/2026', callback_data: 'cmenu:book:date:20260803' }],
+        expect.arrayContaining([{ text: '1/8', callback_data: 'cmenu:book:date:20260801' }]),
+        expect.arrayContaining([{ text: '3', callback_data: 'cmenu:book:date:20260803' }]),
       ])
     );
   });
@@ -1018,7 +1019,7 @@ describe('Suite C: booking flow via handleClientMenuCallback', () => {
         senderTelegramId,
         expect.stringContaining('Δεν έχεις ενεργή συνδρομή'),
         expect.arrayContaining([
-          [{ text: 'Σαβ 01/08/2026', callback_data: 'cmenu:book:date:20260801' }],
+          expect.arrayContaining([{ text: '1/8', callback_data: 'cmenu:book:date:20260801' }]),
         ])
       );
     });
