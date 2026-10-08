@@ -38,6 +38,19 @@ import { createSessionCatalogWithExpansion, bookSessionInstance, cancelSession, 
 import { sendBusinessInvite } from '../invites/generator';
 import { CONFIRM_LABELS } from '../utils/greek-messages';
 import { processBookingConfirmedForCalendar } from '../calendar/confirmation';
+import {
+  beginTurn,
+  buildFirstInput,
+  closeToolTurn,
+  CONVERSATION_CONTINUITY_RULE,
+  describeToolReply,
+  extractContextTokens,
+  finishTurn,
+  isChainRejected,
+  restartChain,
+  TOOL_NOT_EXECUTED_RESULT,
+  TOOL_REPLY_ALREADY_SENT_RESULT,
+} from '../conversation/memory';
 
 // Bounds the Gemini HTTP call to 25s so a stalled owner-agent response settles
 // instead of hanging silently — the existing try/catch already logs + returns
@@ -599,6 +612,7 @@ function buildOwnerSystemPrompt(
     '- Μην κάνεις ενέργειες εκτός των παραπάνω εργαλείων.',
     '- Για αλλαγή τιμής ή διαγραφή υπηρεσίας, αν δεν βρίσκεις ακριβές match ονόματος, κάνε partial match (case-insensitive).',
     '- Για ερωτήσεις σχετικά με άλλη ημερομηνία εκτός της σημερινής, χρησιμοποίησε το view_schedule_for_date με τα ίδια λόγια του ιδιοκτήτη στο date_query — μην υπολογίζεις ή δηλώνεις μόνος σου ημερομηνία/ημέρα, το αποτέλεσμα του εργαλείου την περιέχει ήδη.',
+    CONVERSATION_CONTINUITY_RULE,
   ].join('\n');
 }
 
@@ -1382,6 +1396,7 @@ interface GeminiInteractionResult {
   id: string;
   output_text?: string;
   steps?: Array<{ type: string; name?: string; arguments?: Record<string, unknown>; id?: string }>;
+  usage?: { total_input_tokens?: number; total_output_tokens?: number };
 }
 
 // ---------------------------------------------------------------------------
@@ -1401,13 +1416,33 @@ export async function aiOwnerAgent(
   const hoursList = await listBusinessHours(business.id);
   const systemInstruction = buildOwnerSystemPrompt(business, svcList, hoursList, today);
 
-  let input: string | GeminiFunctionResultInput[] = messageText;
-  let currentInteractionId: string | undefined;
+  // Unified conversation memory + context-window policy (see
+  // src/conversation/memory.ts). Before this, `currentInteractionId` started
+  // undefined on EVERY message, so a bare "yes" to the bot's own suggestion
+  // arrived with zero history and the model restarted with a greeting.
+  let turn = await beginTurn({ businessId: business.id, role: 'owner', participantId: ownerTelegramId });
+  let input: string | GeminiFunctionResultInput[] = buildFirstInput(turn, messageText);
+  let currentInteractionId: string | undefined = turn.previousInteractionId;
   let round = 0;
+  const executedToolNames: string[] = [];
+
+  // A turn that executed tools but never reached a final model text leaves the
+  // chain ending in an unanswered function_call (malformed for the next
+  // request): record the exchange but force the next turn onto a fresh,
+  // seeded chain.
+  const recordAbortedTurn = async (botText: string): Promise<void> => {
+    if (executedToolNames.length === 0) return; // nothing changed; keep chain as-is
+    await finishTurn(turn, {
+      userText: messageText,
+      botText: `${botText} [η απάντηση διακόπηκε· εκτελέστηκαν εργαλεία: ${executedToolNames.join(', ')}]`,
+      interactionId: null,
+    });
+  };
 
   while (true) {
     if (++round > MAX_TOOL_ROUNDS) {
       logger.error({ businessId: business.id, ownerTelegramId }, 'aiOwnerAgent exceeded MAX_TOOL_ROUNDS');
+      await recordAbortedTurn('Συγγνώμη, κάτι πήγε στραβά.');
       return 'Συγγνώμη, κάτι πήγε στραβά. Δοκιμάστε ξανά.';
     }
 
@@ -1436,10 +1471,24 @@ export async function aiOwnerAgent(
         'aiOwnerAgent: ai.interactions.create() returned'
       );
     } catch (err) {
+      // 404 (expired) / 400 (malformed) on the stored chain: retire it and
+      // retry once on a fresh chain seeded with summary + recent exchanges.
+      if (isChainRejected(err) && currentInteractionId && round === 1 && typeof input === 'string') {
+        logger.warn(
+          { err, businessId: business.id },
+          'aiOwnerAgent: stored interaction chain rejected (404/400), retrying on a fresh seeded chain'
+        );
+        turn = await restartChain(turn);
+        input = buildFirstInput(turn, messageText);
+        currentInteractionId = undefined;
+        round = 0;
+        continue;
+      }
       logger.error(
         { err, businessId: business.id, round, elapsedMs: Date.now() - callStartedAt },
         'aiOwnerAgent Gemini call failed'
       );
+      await recordAbortedTurn('Το σύστημα δεν απόκρινε.');
       return 'Το σύστημα δεν απόκρινε. Δοκιμάστε ξανά σε λίγο.';
     }
 
@@ -1457,11 +1506,31 @@ export async function aiOwnerAgent(
         { businessId: business.id, round, elapsedMs: Date.now() - agentStartedAt },
         'aiOwnerAgent: exit (final text, no more tool calls)'
       );
-      return interaction.output_text ?? 'Συγγνώμη, δεν κατάλαβα. Μπορείτε να επαναδιατυπώσετε;';
+      const finalText = interaction.output_text ?? 'Συγγνώμη, δεν κατάλαβα. Μπορείτε να επαναδιατυπώσετε;';
+      await finishTurn(turn, {
+        userText: messageText,
+        botText: finalText,
+        interactionId: currentInteractionId,
+        contextTokens: extractContextTokens(interaction),
+      });
+      return finalText;
     }
 
     const functionResults: GeminiFunctionResultInput[] = [];
+    let toolRepliedItself: { name: string; args: Record<string, unknown> } | null = null;
     for (const call of functionCalls) {
+      // A previous call in this round already replied to the user itself:
+      // later calls are skipped (unchanged behaviour) but must still receive a
+      // result so the chain stays well-formed.
+      if (toolRepliedItself) {
+        functionResults.push({
+          type: 'function_result',
+          name: call.name,
+          call_id: call.id,
+          result: [{ type: 'text', text: TOOL_NOT_EXECUTED_RESULT }],
+        });
+        continue;
+      }
       const toolStartedAt = Date.now();
       const result = await executeOwnerTool(
         call.name,
@@ -1481,15 +1550,21 @@ export async function aiOwnerAgent(
         'Owner tool executed'
       );
 
+      executedToolNames.push(call.name);
+
       // D-03 / D-08: '' signals the tool already sent its own Telegram message
-      // (keyboard or direct reply). Break the Gemini loop immediately — the
+      // (keyboard or direct reply). Stop the Gemini loop after this round — the
       // caller must NOT send an additional reply when this function returns ''.
+      // Remaining calls in this round are skipped (not executed).
       if (result === '') {
-        logger.info(
-          { businessId: business.id, round, elapsedMs: Date.now() - agentStartedAt },
-          'aiOwnerAgent: exit (tool sent its own reply)'
-        );
-        return '';
+        toolRepliedItself = { name: call.name, args: call.arguments };
+        functionResults.push({
+          type: 'function_result',
+          name: call.name,
+          call_id: call.id,
+          result: [{ type: 'text', text: TOOL_REPLY_ALREADY_SENT_RESULT }],
+        });
+        continue;
       }
 
       functionResults.push({
@@ -1498,6 +1573,40 @@ export async function aiOwnerAgent(
         call_id: call.id,
         result: [{ type: 'text', text: result }],
       });
+    }
+
+    if (toolRepliedItself) {
+      // Keep the memory chain well-formed: the model's last step is a
+      // function_call, so answer it (throw-away call, text discarded) before
+      // recording the new chain head. Skipped entirely when memory is disabled
+      // so the stateless fallback behaves exactly as before.
+      let closed: { interactionId: string | null; contextTokens?: number } = { interactionId: null };
+      if (turn.enabled) {
+        const closingParams = (results: GeminiFunctionResultInput[]): GeminiCreateParams => ({
+          model: GEMINI_MODEL,
+          input: results,
+          tools: OWNER_TOOLS,
+          system_instruction: systemInstruction,
+          previous_interaction_id: currentInteractionId,
+          generation_config: { temperature: 0.4, max_output_tokens: 256, top_p: 0.95 },
+        });
+        closed = await closeToolTurn(
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          async (results) => (await (ai.interactions.create as any)(closingParams(results), { timeout: 25000, maxRetries: 0 })) as GeminiInteractionResult,
+          functionResults
+        );
+      }
+      await finishTurn(turn, {
+        userText: messageText,
+        botText: describeToolReply(toolRepliedItself.name, toolRepliedItself.args),
+        interactionId: closed.interactionId,
+        contextTokens: closed.contextTokens,
+      });
+      logger.info(
+        { businessId: business.id, round, elapsedMs: Date.now() - agentStartedAt },
+        'aiOwnerAgent: exit (tool sent its own reply)'
+      );
+      return '';
     }
 
     input = functionResults;

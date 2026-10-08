@@ -5,6 +5,15 @@ import { listServicesForBusiness, listBusinessHours, Business, Service, Business
 import { executeTool } from './function-executor';
 import { logger } from '../utils/logger';
 import { botTokenStore, sendTelegramMessage } from '../telegram/client';
+import {
+  beginTurn,
+  buildFirstInput,
+  CONVERSATION_CONTINUITY_RULE,
+  extractContextTokens,
+  finishTurn,
+  isChainRejected,
+  restartChain,
+} from './memory';
 
 // Bounds the Gemini HTTP call to 25s so a stalled booking-conversation response
 // rejects instead of hanging silently — the existing try/catch already logs
@@ -220,6 +229,7 @@ function buildSystemInstruction(
     '- Όταν ο πελάτης θέλει να δει τις κρατήσεις του, να ακυρώσει ή να αλλάξει ραντεβού χωρίς να αναφέρει booking_id, κάλεσε πρώτα list_client_bookings για να δεις τι έχει και ρώτησέ τον ποιο ραντεβού εννοεί.',
     '- Αν το αίτημα είναι εκτός θέματος (όχι σχετικό με ραντεβού ή την επιχείρηση), αρνήσου ευγενικά χωρίς να προσπαθήσεις να βοηθήσεις εκτός θέματος.',
     `- Χρησιμοποίησε πάντα business_id=${business.id} σε κάθε κλήση εργαλείου.`,
+    CONVERSATION_CONTINUITY_RULE,
   ];
 
   // Phase 11 (CLSS-01/SBOK-01): fixed_sessions mode — redirect Gemini to session tools
@@ -253,13 +263,6 @@ function is429(err: unknown): boolean {
     (err as { status?: number } | null | undefined)?.status ??
     (err as { error?: { status?: number } } | null | undefined)?.error?.status;
   return status === 429;
-}
-
-function is404(err: unknown): boolean {
-  const status =
-    (err as { status?: number } | null | undefined)?.status ??
-    (err as { error?: { status?: number } } | null | undefined)?.error?.status;
-  return status === 404;
 }
 
 // Debug (webhook-hang-no-reply): distinguishes a bounded per-call timeout
@@ -303,6 +306,7 @@ interface GeminiInteractionResult {
   id: string;
   output_text?: string;
   steps?: Array<{ type: string; name?: string; arguments?: Record<string, unknown>; id?: string }>;
+  usage?: { total_input_tokens?: number; total_output_tokens?: number };
 }
 
 async function callGeminiWithRetry(
@@ -369,13 +373,36 @@ export async function aiBookingAgent(
   const systemInstruction = buildSystemInstruction(business, services, businessHours);
 
   const accumulatedToolCalls: Array<{ name: string; args: Record<string, unknown> }> = [];
-  let input: string | GeminiFunctionResultInput[] = userMessage;
-  let currentInteractionId: string | undefined = previousInteractionId ?? undefined;
+
+  // Unified conversation memory + context-window policy (see memory.ts). The
+  // conversation_turns-derived `previousInteractionId` is only the legacy
+  // fallback for clients that have no conversation_memory row yet.
+  let turn = await beginTurn(
+    { businessId: business.id, role: 'client', participantId: clientPhone },
+    { legacyInteractionId: previousInteractionId }
+  );
+  let input: string | GeminiFunctionResultInput[] = buildFirstInput(turn, userMessage);
+  let currentInteractionId: string | undefined = turn.previousInteractionId;
   let round = 0;
+
+  // A turn that already executed tools but never reached a final model text
+  // leaves the Gemini chain ending in an unanswered function_call, which would
+  // make the NEXT request on that chain malformed. Record the exchange but
+  // force the next turn onto a fresh, seeded chain.
+  const recordAbortedTurn = async (botText: string): Promise<void> => {
+    if (accumulatedToolCalls.length === 0) return; // nothing changed; keep chain as-is
+    const toolNames = accumulatedToolCalls.map((t) => t.name).join(', ');
+    await finishTurn(turn, {
+      userText: userMessage,
+      botText: `${botText} [η απάντηση διακόπηκε· εκτελέστηκαν εργαλεία: ${toolNames}]`,
+      interactionId: null,
+    });
+  };
 
   while (true) {
     if (++round > MAX_TOOL_ROUNDS) {
       logger.error({ requestId, round }, 'aiBookingAgent exceeded MAX_TOOL_ROUNDS, aborting turn');
+      await recordAbortedTurn('Συγγνώμη, κάτι πήγε στραβά.');
       return {
         text: 'Συγγνώμη, κάτι πήγε στραβά. Δοκιμάστε ξανά.',
         interactionId: currentInteractionId ?? null,
@@ -404,15 +431,19 @@ export async function aiBookingAgent(
       );
     } catch (err) {
       // Stored interaction ids expire server-side (Gemini retention window),
-      // so a 404 on the first round with a previous id means the id is
-      // stale. Drop it and retry as a fresh interaction; otherwise the
-      // fallback would re-persist the same dead id and every later message
-      // would fail the same way.
-      if (is404(err) && currentInteractionId && round === 1 && typeof input === 'string') {
+      // so a 404 (expired) or 400 (malformed/dangling chain) on the first round
+      // with a previous id means the stored chain is unusable. Retire it and
+      // retry as a fresh interaction SEEDED with the rolling summary + recent
+      // exchanges (so the user does not lose context); otherwise the fallback
+      // would re-persist the same dead id and every later message would fail
+      // the same way.
+      if (isChainRejected(err) && currentInteractionId && round === 1 && typeof input === 'string') {
         logger.warn(
           { requestId, businessId: business.id },
-          'aiBookingAgent: previous_interaction_id expired (404), retrying without it'
+          'aiBookingAgent: stored interaction chain rejected (404/400), retrying on a fresh seeded chain'
         );
+        turn = await restartChain(turn);
+        input = buildFirstInput(turn, userMessage);
         currentInteractionId = undefined;
         previousInteractionId = null;
         round = 0;
@@ -420,6 +451,7 @@ export async function aiBookingAgent(
       }
       if (err instanceof GeminiRateLimitError) {
         logger.warn({ requestId, businessId: business.id, round }, 'aiBookingAgent: rate-limited after retries, returning fallback');
+        await recordAbortedTurn(RATE_LIMIT_REPLY_GREEK);
         return {
           text: RATE_LIMIT_REPLY_GREEK,
           interactionId: previousInteractionId ?? null,
@@ -462,6 +494,7 @@ export async function aiBookingAgent(
         }
       }
 
+      await recordAbortedTurn(AGENT_ERROR_REPLY_GREEK);
       return {
         text: AGENT_ERROR_REPLY_GREEK,
         interactionId: currentInteractionId ?? null,
@@ -490,8 +523,15 @@ export async function aiBookingAgent(
         { requestId, businessId: business.id, round, elapsedMs: Date.now() - agentStartedAt },
         'aiBookingAgent: exit (final text, no more tool calls)'
       );
+      const finalText = interaction.output_text ?? 'Συγγνώμη, κάτι πήγε στραβά.';
+      await finishTurn(turn, {
+        userText: userMessage,
+        botText: finalText,
+        interactionId: currentInteractionId,
+        contextTokens: extractContextTokens(interaction),
+      });
       return {
-        text: interaction.output_text ?? 'Συγγνώμη, κάτι πήγε στραβά.',
+        text: finalText,
         interactionId: currentInteractionId,
         requestId,
         toolCalls: accumulatedToolCalls,

@@ -29,6 +29,16 @@ import {
 } from '../telegram/client';
 import { activateBusiness } from './queries';
 import { GEMINI_MODEL } from './ai-owner-agent';
+import {
+  beginTurn,
+  buildFirstInput,
+  CONVERSATION_CONTINUITY_RULE,
+  describeToolReply,
+  extractContextTokens,
+  finishTurn,
+  isChainRejected,
+  restartChain,
+} from '../conversation/memory';
 
 // ---------------------------------------------------------------------------
 // D-01/D-02 constants
@@ -331,6 +341,7 @@ export function buildOnboardingSystemPrompt(
     '- Κάλεσε finish_onboarding ΜΟΝΟ όταν υπάρχουν όνομα + πλήρες ωράριο (και οι 7 ημέρες) + τουλάχιστον 1 υπηρεσία, ΚΑΙ ο ιδιοκτήτης έχει επιβεβαιώσει ότι δεν έχει κάτι άλλο να προσθέσει.',
     '- Αν δεν καταλαβαίνεις κάτι που είπε ο ιδιοκτήτης, ρώτησέ τον μια σύντομη διευκρινιστική ερώτηση στα Ελληνικά — μην τον απορρίπτεις με έτοιμο μήνυμα σφάλματος.',
     '- Μην κάνεις ενέργειες εκτός των παραπάνω εργαλείων.',
+    CONVERSATION_CONTINUITY_RULE,
   ].join('\n');
 }
 
@@ -381,6 +392,7 @@ interface GeminiInteractionResult {
   id: string;
   output_text?: string;
   steps?: Array<{ type: string; name?: string; arguments?: Record<string, unknown>; id?: string }>;
+  usage?: { total_input_tokens?: number; total_output_tokens?: number };
 }
 
 // Bounds the Gemini HTTP call to 25s so a stalled onboarding response can no
@@ -696,13 +708,33 @@ export async function aiOnboardingAgent(
   const hoursList = await listBusinessHours(business.id);
   const systemInstruction = buildOnboardingSystemPrompt(business, svcList, hoursList, today);
 
-  let input: string | GeminiFunctionResultInput[] = messageText;
-  let currentInteractionId: string | undefined;
+  // Unified conversation memory + context-window policy (see
+  // src/conversation/memory.ts). The system prompt is already rebuilt from DB
+  // state each call (D-02), but question/answer pairs ("shall I add Pilates?" /
+  // "yes", or an inline Ναι/Όχι tap) were lost because every message started a
+  // brand-new interaction.
+  let turn = await beginTurn({ businessId: business.id, role: 'onboarding', participantId: ownerTelegramId });
+  let input: string | GeminiFunctionResultInput[] = buildFirstInput(turn, messageText);
+  let currentInteractionId: string | undefined = turn.previousInteractionId;
   let round = 0;
+  const executedToolNames: string[] = [];
+
+  // A turn that executed tools but never reached a final model text leaves the
+  // chain ending in an unanswered function_call: record the exchange but force
+  // the next turn onto a fresh, seeded chain.
+  const recordAbortedTurn = async (botText: string): Promise<void> => {
+    if (executedToolNames.length === 0) return; // nothing changed; keep chain as-is
+    await finishTurn(turn, {
+      userText: messageText,
+      botText: `${botText} [η απάντηση διακόπηκε· εκτελέστηκαν εργαλεία: ${executedToolNames.join(', ')}]`,
+      interactionId: null,
+    });
+  };
 
   while (true) {
     if (++round > MAX_TOOL_ROUNDS) {
       logger.error({ businessId: business.id, ownerTelegramId }, 'aiOnboardingAgent exceeded MAX_TOOL_ROUNDS');
+      await recordAbortedTurn('Συγγνώμη, κάτι πήγε στραβά.');
       return 'Συγγνώμη, κάτι πήγε στραβά. Δοκιμάστε ξανά.';
     }
 
@@ -731,10 +763,24 @@ export async function aiOnboardingAgent(
         'aiOnboardingAgent: ai.interactions.create() returned'
       );
     } catch (err) {
+      // 404 (expired) / 400 (malformed) on the stored chain: retire it and
+      // retry once on a fresh chain seeded with summary + recent exchanges.
+      if (isChainRejected(err) && currentInteractionId && round === 1 && typeof input === 'string') {
+        logger.warn(
+          { err, businessId: business.id },
+          'aiOnboardingAgent: stored interaction chain rejected (404/400), retrying on a fresh seeded chain'
+        );
+        turn = await restartChain(turn);
+        input = buildFirstInput(turn, messageText);
+        currentInteractionId = undefined;
+        round = 0;
+        continue;
+      }
       logger.error(
         { err, businessId: business.id, round, elapsedMs: Date.now() - callStartedAt },
         'aiOnboardingAgent Gemini call failed'
       );
+      await recordAbortedTurn('Το σύστημα δεν απόκρινε.');
       return 'Το σύστημα δεν απόκρινε. Δοκιμάστε ξανά σε λίγο.';
     }
 
@@ -752,7 +798,14 @@ export async function aiOnboardingAgent(
         { businessId: business.id, round, elapsedMs: Date.now() - agentStartedAt },
         'aiOnboardingAgent: exit (final text, no more tool calls)'
       );
-      return interaction.output_text ?? 'Συγγνώμη, δεν κατάλαβα. Μπορείτε να επαναδιατυπώσετε;';
+      const finalText = interaction.output_text ?? 'Συγγνώμη, δεν κατάλαβα. Μπορείτε να επαναδιατυπώσετε;';
+      await finishTurn(turn, {
+        userText: messageText,
+        botText: finalText,
+        interactionId: currentInteractionId,
+        contextTokens: extractContextTokens(interaction),
+      });
+      return finalText;
     }
 
     const functionResults: GeminiFunctionResultInput[] = [];
@@ -775,10 +828,20 @@ export async function aiOnboardingAgent(
         'Onboarding tool executed'
       );
 
+      executedToolNames.push(call.name);
+
       // D-03/D-08: '' signals finish_onboarding already sent its own Telegram
       // message. Break the Gemini loop immediately — the caller must NOT send
       // an additional reply when this function returns ''.
       if (result === '') {
+        // The business is now active, so the onboarding conversation is over:
+        // record the exchange but do not spend a model call closing the chain
+        // (null => any later onboarding-role turn starts a fresh seeded chain).
+        await finishTurn(turn, {
+          userText: messageText,
+          botText: describeToolReply(call.name, call.arguments),
+          interactionId: null,
+        });
         logger.info(
           { businessId: business.id, round, elapsedMs: Date.now() - agentStartedAt },
           'aiOnboardingAgent: exit (tool sent its own reply)'

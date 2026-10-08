@@ -21,6 +21,16 @@ jest.mock('../src/database/queries', () => ({
   listServicesForBusiness: jest.fn(),
   listBusinessHours: jest.fn(),
 }));
+// Unified conversation memory: the pure helpers stay real, the three entry
+// points that would touch the DB are stubbed so these unit tests never open a
+// pg connection (pg-pool's connect timer would also pollute the setTimeout spy
+// in Test 6). Real persistence is covered by tests/conversation-memory*.test.ts.
+jest.mock('../src/conversation/memory', () => ({
+  ...jest.requireActual('../src/conversation/memory'),
+  beginTurn: jest.fn(),
+  finishTurn: jest.fn(),
+  restartChain: jest.fn(),
+}));
 // Spread of jest.requireActual keeps the real botTokenStore so .run() actually
 // invokes its callback — a plain automock would make .run() a no-op (Phase
 // 04-05 "explicit call-through mock" lesson, STATE.md).
@@ -33,7 +43,25 @@ import * as genai from '@google/genai';
 import * as queries from '../src/database/queries';
 import * as functionExecutor from '../src/conversation/function-executor';
 import { sendTelegramMessage } from '../src/telegram/client';
+import * as memory from '../src/conversation/memory';
 import { aiBookingAgent, RATE_LIMIT_REPLY_GREEK, AGENT_ERROR_REPLY_GREEK } from '../src/conversation/ai-agent';
+
+const mockedBeginTurn = memory.beginTurn as jest.MockedFunction<typeof memory.beginTurn>;
+const mockedFinishTurn = memory.finishTurn as jest.MockedFunction<typeof memory.finishTurn>;
+const mockedRestartChain = memory.restartChain as jest.MockedFunction<typeof memory.restartChain>;
+
+/** A memory turn as beginTurn would return it. `disabled` mimics an unreachable store. */
+function memoryTurn(overrides: Partial<memory.TurnMemory> = {}): memory.TurnMemory {
+  return {
+    key: { businessId: 1, role: 'client', participantId: 'c1' },
+    enabled: true,
+    state: memory.emptyState(),
+    previousInteractionId: undefined,
+    seed: null,
+    startedFreshChain: false,
+    ...overrides,
+  };
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockCreate = (genai as any).__mockCreate as jest.Mock;
@@ -92,6 +120,18 @@ describe('aiBookingAgent', () => {
     mockedListServicesForBusiness.mockResolvedValue(SERVICES);
     mockedListBusinessHours.mockResolvedValue(HOURS);
     mockedSendTelegramMessage.mockResolvedValue({ messageId: 1 });
+    // Default: memory store unreachable -> agent behaves statelessly except for
+    // the legacy conversation_turns chain id (exactly the pre-memory behaviour).
+    mockedBeginTurn.mockImplementation(async (_key, opts) =>
+      memoryTurn({ enabled: false, previousInteractionId: opts?.legacyInteractionId ?? undefined })
+    );
+    mockedFinishTurn.mockResolvedValue(undefined);
+    mockedRestartChain.mockImplementation(async (turn) => ({
+      ...turn,
+      previousInteractionId: undefined,
+      seed: null,
+      startedFreshChain: true,
+    }));
   });
 
   it('Test 1: no function calls -> returns text/interactionId directly, executeTool never called', async () => {
@@ -358,5 +398,120 @@ describe('aiBookingAgent', () => {
     for (const line of confirmationLines) {
       expect(line.toLowerCase()).toContain('μην');
     }
+  });
+
+  describe('unified conversation memory (debug: bot-loses-conversation-memory)', () => {
+    it('M1: a bare "ναι" continues the stored chain (previous_interaction_id from memory, not the legacy id)', async () => {
+      mockedBeginTurn.mockResolvedValueOnce(memoryTurn({ previousInteractionId: 'memChain' }));
+      mockCreate.mockResolvedValueOnce({ id: 'int2', steps: [], output_text: 'Κλείστηκε!' });
+
+      await aiBookingAgent('ναι', BUSINESS, 'c1', 'legacyChain');
+
+      expect(mockedBeginTurn).toHaveBeenCalledWith(
+        { businessId: 1, role: 'client', participantId: 'c1' },
+        { legacyInteractionId: 'legacyChain' }
+      );
+      const params = mockCreate.mock.calls[0][0];
+      expect(params.previous_interaction_id).toBe('memChain');
+      expect(params.input).toBe('ναι'); // no seed on a continued chain
+    });
+
+    it('M2: a fresh chain (budget rollover / expiry) sends the seed in front of the new message', async () => {
+      mockedBeginTurn.mockResolvedValueOnce(
+        memoryTurn({ seed: '[ΠΛΑΙΣΙΟ]\nΒοηθός: Θέλεις Τρίτη 18:00;\n[ΤΕΛΟΣ ΠΛΑΙΣΙΟΥ]', startedFreshChain: true })
+      );
+      mockCreate.mockResolvedValueOnce({ id: 'int9', steps: [], output_text: 'ok' });
+
+      await aiBookingAgent('ναι', BUSINESS, 'c1', null);
+
+      const params = mockCreate.mock.calls[0][0];
+      expect(params.previous_interaction_id).toBeUndefined();
+      expect(params.input).toContain('Θέλεις Τρίτη 18:00;');
+      expect(params.input).toContain('[Νέο μήνυμα χρήστη]\nναι');
+    });
+
+    it('M3: records the finished turn (chain head, reply text, prompt tokens) after the final answer', async () => {
+      mockedBeginTurn.mockResolvedValueOnce(memoryTurn({ previousInteractionId: 'memChain' }));
+      mockCreate.mockResolvedValueOnce({
+        id: 'int2',
+        steps: [],
+        output_text: 'Έγινε!',
+        usage: { total_input_tokens: 3000, total_output_tokens: 40 },
+      });
+
+      await aiBookingAgent('ναι', BUSINESS, 'c1', null);
+
+      expect(mockedFinishTurn).toHaveBeenCalledTimes(1);
+      expect(mockedFinishTurn.mock.calls[0][1]).toEqual({
+        userText: 'ναι',
+        botText: 'Έγινε!',
+        interactionId: 'int2',
+        contextTokens: 3040,
+      });
+    });
+
+    it('M4: a rejected stored chain (404 expired / 400 dangling) restarts ONCE on a seeded fresh chain', async () => {
+      for (const status of [404, 400]) {
+        jest.clearAllMocks();
+        mockedListServicesForBusiness.mockResolvedValue(SERVICES);
+        mockedListBusinessHours.mockResolvedValue(HOURS);
+        mockedFinishTurn.mockResolvedValue(undefined);
+        const initial = memoryTurn({ previousInteractionId: 'deadChain' });
+        const restarted = memoryTurn({ previousInteractionId: undefined, seed: 'SEED', startedFreshChain: true });
+        mockedBeginTurn.mockResolvedValueOnce(initial);
+        mockedRestartChain.mockResolvedValueOnce(restarted);
+        mockCreate
+          .mockRejectedValueOnce({ status })
+          .mockResolvedValueOnce({ id: 'int2', steps: [], output_text: 'ok' });
+
+        const result = await aiBookingAgent('ναι', BUSINESS, 'c1', null);
+
+        expect(mockedRestartChain).toHaveBeenCalledWith(initial);
+        expect(mockCreate).toHaveBeenCalledTimes(2);
+        expect(mockCreate.mock.calls[0][0].previous_interaction_id).toBe('deadChain');
+        expect(mockCreate.mock.calls[1][0].previous_interaction_id).toBeUndefined();
+        expect(mockCreate.mock.calls[1][0].input).toBe('SEED\n\n[Νέο μήνυμα χρήστη]\nναι');
+        expect(result.text).toBe('ok');
+        expect(result.interactionId).toBe('int2');
+      }
+    });
+
+    it('M5: a turn that executed tools but aborts (MAX_TOOL_ROUNDS) is recorded with interactionId null so the next turn re-seeds instead of continuing a dangling chain', async () => {
+      mockedBeginTurn.mockResolvedValueOnce(memoryTurn({ previousInteractionId: 'memChain' }));
+      mockCreate.mockResolvedValue({
+        id: 'intLoop',
+        steps: [{ type: 'function_call', name: 'check_availability', arguments: {}, id: 'cX' }],
+      });
+      mockedExecuteTool.mockResolvedValue({});
+
+      const result = await aiBookingAgent('θέλω ραντεβού', BUSINESS, 'c1', null);
+
+      expect(result.text).toBe('Συγγνώμη, κάτι πήγε στραβά. Δοκιμάστε ξανά.');
+      expect(mockedFinishTurn).toHaveBeenCalledTimes(1);
+      const outcome = mockedFinishTurn.mock.calls[0][1];
+      expect(outcome.interactionId).toBeNull();
+      expect(outcome.botText).toContain('check_availability');
+    });
+
+    it('M6: a failure on round 1 (no tool executed, chain untouched) records nothing', async () => {
+      mockedBeginTurn.mockResolvedValueOnce(memoryTurn({ previousInteractionId: 'memChain' }));
+      const timeoutErr = new Error('timeout');
+      timeoutErr.name = 'TimeoutError';
+      mockCreate.mockRejectedValue(timeoutErr);
+
+      const result = await aiBookingAgent('ναι', BUSINESS, 'c1', null);
+
+      expect(result.text).toBe(AGENT_ERROR_REPLY_GREEK);
+      expect(mockedFinishTurn).not.toHaveBeenCalled();
+    });
+
+    it('M7: the system prompt tells the model to continue from its own last message instead of re-greeting', async () => {
+      mockCreate.mockResolvedValueOnce({ id: 'int1', steps: [], output_text: 'ok' });
+
+      await aiBookingAgent('ναι', BUSINESS, 'c1', null);
+
+      const systemInstruction = mockCreate.mock.calls[0][0].system_instruction as string;
+      expect(systemInstruction).toContain('ΜΗΝ χαιρετάς ξανά');
+    });
   });
 });
