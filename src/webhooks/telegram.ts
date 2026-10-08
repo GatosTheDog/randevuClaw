@@ -1028,6 +1028,8 @@ async function handleCallbackQuery(
   // ---------------------------------------------------------------------------
   if ('clientMenuAction' in parsed) {
     const clientResult = parsed as ClientMenuCallbackResult;
+    // Inert calendar cells (book:none) must leave the grid in place.
+    if (clientResult.clientMenuAction === 'book:none') return;
     if (callbackQuery.message?.message_id) {
       await editTelegramMessageReplyMarkup(senderTelegramId, callbackQuery.message.message_id, []);
     }

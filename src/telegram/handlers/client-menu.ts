@@ -29,7 +29,7 @@ import { logger } from '../../utils/logger';
 import { listSessions, bookSessionInstance, findSessionInstanceById } from '../../session/manager';
 import { BACK_MENU_LABELS } from '../../utils/greek-messages';
 import { hoursUntilSession, isoDateInAthens, formatExpiryDateGreek } from '../../utils/timezone';
-import { formatDateButtonLabel, dateToCallbackId, callbackIdToDate } from '../../utils/date-picker';
+import { buildWeekGridRows, callbackIdToDate } from '../../utils/date-picker';
 import { checkEnforcementAndGetMembership } from '../../billing/enforcement';
 import {
   getClientActiveMembership,
@@ -111,7 +111,7 @@ export async function showClientRootMenu(chatId: string, business: Business): Pr
 const BOOKING_WINDOW_DAYS = 30;
 
 /**
- * Step 1 of booking: shows one button per date (next 30 days) that has at
+ * Step 1 of booking: shows a week-per-row calendar grid (next 30 days) that has at
  * least one available session. Guard: only for fixed_sessions booking mode.
  */
 export async function showBookDateList(chatId: string, business: Business): Promise<void> {
@@ -173,11 +173,7 @@ export async function showBookDateList(chatId: string, business: Business): Prom
   // listSessions returns rows ordered by sessionDate, so dedup preserves order.
   const dates = [...new Set(withinMembership.map((s) => s.sessionDate))];
 
-  const rows: InlineKeyboard = dates.map((date) => {
-    const callbackData = `cmenu:book:date:${dateToCallbackId(date)}`;
-    assertCallbackDataSize(callbackData);
-    return [{ text: formatDateButtonLabel(date), callback_data: callbackData }];
-  });
+  const rows: InlineKeyboard = buildWeekGridRows(dates, 'cmenu:book:date', 'cmenu:book:none');
   rows.push([{ text: BACK_MENU_LABELS.CLIENT, callback_data: 'cmenu:root' }]);
 
   let banner: string;
@@ -191,7 +187,7 @@ export async function showBookDateList(chatId: string, business: Business): Prom
     banner = '⚠️ Δεν έχεις ενεργή συνδρομή. Η κράτηση θα σταλεί στον διαχειριστή για έγκριση.';
   }
 
-  await sendTelegramMessageWithKeyboard(chatId, `${banner}\n\nΕπίλεξε ημερομηνία:`, rows);
+  await sendTelegramMessageWithKeyboard(chatId, `${banner}\n\nΕπίλεξε ημέρα (οι ημέρες με διαθέσιμα μαθήματα φαίνονται ως αριθμοί):`, rows);
 }
 
 /**
@@ -681,6 +677,10 @@ export async function handleClientMenuCallback(
     // Plan 18-02: book a class flow (date-first, Phase 30)
     case clientMenuAction === 'book':
       await showBookDateList(chatId, business);
+      break;
+
+    // Inert calendar cell (weekday header / day without sessions)
+    case clientMenuAction === 'book:none':
       break;
 
     case clientMenuAction === 'book:date':

@@ -250,6 +250,7 @@ Recent decisions affecting current work:
 | 260716-oaa | AI-powered owner agent: Gemini NLU replaces keyword matching | 2026-07-16 | 14fe0d1 | [260716-oaa-ai-owner-agent](./quick/260716-oaa-ai-owner-agent/) |
 | 260725-hlh | fix silent-hang bug — add Gemini API request timeout | 2026-07-25 | cbb7310 | [260725-hlh-fix-silent-hang-bug-add-gemini-api-reque](./quick/260725-hlh-fix-silent-hang-bug-add-gemini-api-reque/) |
 | 260726-vfm | show resolved client name (not phone/telegram id) in owner notifications | 2026-07-26 | e82b49f | [260726-vfm-show-resolved-client-name-not-phone-tele](./quick/260726-vfm-show-resolved-client-name-not-phone-tele/) |
+| 261008-n4y | Weekly 7-day calendar grid for client booking dates | 2026-10-08 | HEAD | [261008-n4y-telegram-booking-weekly-7-day-calendar-b](./quick/261008-n4y-telegram-booking-weekly-7-day-calendar-b/) |
 
 ### Blockers/Concerns
 
