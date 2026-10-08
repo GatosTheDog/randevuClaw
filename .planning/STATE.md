@@ -32,7 +32,7 @@ Phase: 26 (confirmation-approval-policy) — IN PROGRESS (2 of 5 plans executed:
 Phase 25.1 (google-calendar-client-admin) and Phase 31 (google-calendar-self-serve-connect-owner-facing-oauth-flow-t) — both merged and implementation-complete; 31 still needs a VERIFICATION.md pass and a 31-01-SUMMARY.md correction (its OAuth-state mechanism was superseded during the git-sync merge)
 Plan: 26-03-PLAN.md is the next unexecuted plan (CONF-02 domain core: persist reschedule link, approve-time cascade, reschedule-aware expiry notice)
 Status: Deliberately paused — user chose to leave Phase 26 in_progress and decide later rather than execute 26-03/04/05 now or formally descope them
-Last activity: 2026-10-08 — Completed quick task 261008-gqb (rebook previous month slots); prior: Git-sync merge resolved; session also shipped date-first booking picker (client + admin class-cancel), membership expiry date-cap/preview, admin clients-list remaining-slots display, hidden /testrole dev command, and the admin "Ειδοποίηση Πελατών" notify-clients menu; today's capacity-release bug fix (quick-261008-a3x) covers the basic case of 26-03's capacity-release requirement but not its fuller edge-case handling
+Last activity: 2026-10-08 — Completed quick task 261008-h82 (admin slot override); prior: 261008-gqb (rebook previous month slots); prior: Git-sync merge resolved; session also shipped date-first booking picker (client + admin class-cancel), membership expiry date-cap/preview, admin clients-list remaining-slots display, hidden /testrole dev command, and the admin "Ειδοποίηση Πελατών" notify-clients menu; today's capacity-release bug fix (quick-261008-a3x) covers the basic case of 26-03's capacity-release requirement but not its fuller edge-case handling
 
 ## Performance Metrics
 
@@ -281,6 +281,7 @@ Recent decisions affecting current work:
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260716-heo | keyboard buttons UX | 2026-07-16 | 0425059 | [260716-heo-keyboard-buttons-ux](./quick/260716-heo-keyboard-buttons-ux/) |
+| 261008-h82 | Admin override of granted slots per client (set_client_slots owner tool) | 2026-10-08 | 277fa9b | [261008-h82-admin-override-of-granted-slots-per-clie](./quick/261008-h82-admin-override-of-granted-slots-per-clie/) |
 | 261008-gqb | Rebook previous month slots flow for clients | 2026-10-08 | 1f521cd | [261008-gqb-rebook-previous-month-slots-flow-for-cli](./quick/261008-gqb-rebook-previous-month-slots-flow-for-cli/) |
 | 260716-hxo | streamline hours onboarding: single time range + split hours | 2026-07-16 | 587f338 | [260716-hxo-streamline-hours-onboarding-single-time-](./quick/260716-hxo-streamline-hours-onboarding-single-time-/) |
 | 260716-oaa | AI-powered owner agent: Gemini NLU replaces keyword matching | 2026-07-16 | 14fe0d1 | [260716-oaa-ai-owner-agent](./quick/260716-oaa-ai-owner-agent/) |
