@@ -348,6 +348,7 @@ type BookOneResult =
   | { kind: 'not_allowed' }
   | { kind: 'not_found' }
   | { kind: 'full' }
+  | { kind: 'already_booked' }
   | { kind: 'conflict'; status: string };
 
 /**
@@ -385,7 +386,22 @@ async function bookOneInstance(
   );
 
   if (!bookResult || bookResult.status === 'full') return { kind: 'full' };
-  if (bookResult.status !== 'success') return { kind: 'conflict', status: bookResult.status };
+  if (bookResult.status !== 'success') {
+    if (bookResult.reason === 'already_booked') return { kind: 'already_booked' };
+    return { kind: 'conflict', status: bookResult.status };
+  }
+  // A success without a bookingId means no booking row exists. Never continue:
+  // the owner approval keyboard below is built from it, and `sbk:approve:undefined`
+  // is unparseable ("Η ενέργεια δεν αναγνωρίστηκε."). Fail closed instead of
+  // telling the client a request was sent for a booking that was never created.
+  const bookingId = bookResult.bookingId;
+  if (typeof bookingId !== 'number') {
+    logger.error(
+      { businessId: business.id, senderTelegramId, instanceId },
+      'bookSessionInstance reported success without a bookingId'
+    );
+    return { kind: 'conflict', status: 'missing_booking_id' };
+  }
 
   // Owner notification — best-effort (mirrors handleCancelExecute's pattern
   // below and bookSessionTool's equivalent AI-chat alert in
@@ -402,8 +418,8 @@ async function bookOneInstance(
         session.sessionTime +
         '\nΠελάτης: ' +
         clientDisplayName;
-      const approveData = `sbk:approve:${bookResult.bookingId}`;
-      const rejectData = `sbk:reject:${bookResult.bookingId}`;
+      const approveData = `sbk:approve:${bookingId}`;
+      const rejectData = `sbk:reject:${bookingId}`;
       assertCallbackDataSize(approveData);
       assertCallbackDataSize(rejectData);
       await botTokenStore.run(business.botToken, async () => {
@@ -413,9 +429,7 @@ async function bookOneInstance(
             { text: 'Απόρριψη', callback_data: rejectData },
           ],
         ]);
-        if (bookResult.bookingId) {
-          await updateBookingOwnerMessageId(bookResult.bookingId, msgResp.messageId);
-        }
+        await updateBookingOwnerMessageId(bookingId, msgResp.messageId);
       });
     }
   } catch (err) {
@@ -451,6 +465,9 @@ export async function handleBookSessionExecute(
       await sendTelegramMessage(chatId, 'Δυστυχώς δεν ήταν δυνατή η κράτησή σας. Ο διαχειριστής ειδοποιήθηκε.');
       await sendEscalationToAdmin(business, senderTelegramId, 'κράτηση μαθήματος', 'class_full', instanceId);
       logger.info({ businessId: business.id, senderTelegramId, instanceId, reason: 'class_full' }, 'escalation triggered');
+      return;
+    case 'already_booked':
+      await sendTelegramMessage(chatId, 'Έχετε ήδη κράτηση σε αυτό το μάθημα.');
       return;
     case 'conflict':
       await sendTelegramMessage(chatId, 'Το μάθημα δεν βρέθηκε ή δεν είναι πλέον διαθέσιμο.');

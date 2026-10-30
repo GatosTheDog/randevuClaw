@@ -682,6 +682,9 @@ async function bookSessionTool(
     return { success: false, error: 'session_full', message: 'Το μάθημα είναι πλήρες. Δεν υπάρχουν διαθέσιμες θέσεις.' };
   }
   if (result.status === 'conflict') {
+    if (result.reason === 'already_booked') {
+      return { success: false, error: 'already_booked', message: 'Έχετε ήδη κράτηση σε αυτό το μάθημα.' };
+    }
     return { success: false, error: 'session_not_available', message: 'Το μάθημα δεν είναι διαθέσιμο (ακυρωμένο ή δεν βρέθηκε).' };
   }
 

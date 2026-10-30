@@ -218,9 +218,25 @@ export const bookings = pgTable(
     // these 3 columns would permanently block the slot after one
     // cancellation — that would be a correctness bug, not just a
     // performance choice.
+    //
+    // Scoped to NON-session bookings (session_instance_id IS NULL), migration
+    // 0015: a fixed-session class holds many clients at the same date/time
+    // (capacity N), so the one-client-per-slot rule must only apply to
+    // open_slots bookings. Before this, a class could hold exactly one active
+    // booking — a 2nd client's insert was silently swallowed by
+    // onConflictDoNothing (debug approve-reject-action-not-recognized).
     uniqueIndex('unique_active_slot_per_business')
       .on(table.businessId, table.calendarDate, table.calendarTime)
-      .where(sql`booking_status IN ('pending_owner_approval', 'confirmed')`),
+      .where(
+        sql`booking_status IN ('pending_owner_approval', 'confirmed') AND session_instance_id IS NULL`
+      ),
+    // One client cannot hold two active seats in the same class instance
+    // (different idempotency keys); migration 0015.
+    uniqueIndex('unique_active_client_per_session_instance')
+      .on(table.sessionInstanceId, table.clientPhone)
+      .where(
+        sql`booking_status IN ('pending_owner_approval', 'confirmed') AND session_instance_id IS NOT NULL`
+      ),
     // Idempotency-replay guard: must remain globally unique regardless of status.
     uniqueIndex('unique_request_per_client').on(table.clientPhone, table.requestId),
   ]

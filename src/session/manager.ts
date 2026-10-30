@@ -41,7 +41,13 @@ export interface SessionInstance {
 
 export interface BookSessionResult {
   status: 'success' | 'full' | 'conflict';
+  /** Always set when status === 'success'. */
   bookingId?: number;
+  /**
+   * Set on status === 'conflict' when the client already holds an active
+   * (pending/confirmed) booking in this very session instance.
+   */
+  reason?: 'already_booked';
 }
 
 // ---------------------------------------------------------------------------
@@ -319,14 +325,48 @@ export async function bookSessionInstance(
       .returning({ id: bookings.id });
 
     if (bookingRows.length === 0) {
-      // Idempotent replay: booking already exists — return existing bookingId.
-      // Skip deduction: ledger row already written on the first call.
-      const existingRows = await getConn()
+      // onConflictDoNothing (no target) swallows ANY unique violation, so a
+      // zero-row insert is not necessarily an idempotent replay. Disambiguate:
+      //
+      // 1. Replay (unique_request_per_client): this client already inserted a
+      //    booking with this exact idempotency key — return its id. Scoped by
+      //    clientPhone (the unique index is (client_phone, request_id)); an
+      //    unscoped lookup could surface another client's booking id.
+      //    Skip deduction: ledger row already written on the first call.
+      const replayRows = await getConn()
         .select({ id: bookings.id })
         .from(bookings)
-        .where(eq(bookings.requestId, idempotencyKey))
+        .where(and(eq(bookings.clientPhone, clientPhone), eq(bookings.requestId, idempotencyKey)))
         .limit(1);
-      return { status: 'success', bookingId: existingRows[0]?.id };
+      if (replayRows[0]) {
+        return { status: 'success', bookingId: replayRows[0].id };
+      }
+
+      // 2. Anything else (e.g. unique_active_client_per_session_instance: this
+      //    client already holds an active seat in this class under a different
+      //    key). NEVER report success without a bookingId — callers build the
+      //    owner's `sbk:approve:<id>` keyboard from it, and `undefined` made
+      //    that callback_data unparseable ("Η ενέργεια δεν αναγνωρίστηκε.")
+      //    while the client was told a request had been sent for a booking that
+      //    was never created.
+      const activeSeatRows = await getConn()
+        .select({ id: bookings.id })
+        .from(bookings)
+        .where(
+          and(
+            eq(bookings.sessionInstanceId, sessionInstanceId),
+            eq(bookings.clientPhone, clientPhone),
+            inArray(bookings.bookingStatus, ['pending_owner_approval', 'confirmed'])
+          )
+        )
+        .limit(1);
+      logger.warn(
+        { businessId, sessionInstanceId, clientPhone, alreadyBooked: activeSeatRows.length > 0 },
+        'bookSessionInstance: insert produced no row and no idempotent replay found'
+      );
+      return activeSeatRows.length > 0
+        ? { status: 'conflict', reason: 'already_booked' }
+        : { status: 'conflict' };
     }
 
     // Increment denormalized bookedCount atomically (T-10-03: race guard)

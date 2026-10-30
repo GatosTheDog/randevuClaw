@@ -69,3 +69,62 @@ test('picker with messageId edits keyboard in place', async () => {
   expect(client.editTelegramMessageReplyMarkup).toHaveBeenCalledWith('42', 77, expect.any(Array));
   expect(client.sendTelegramMessageWithKeyboard).not.toHaveBeenCalled();
 });
+
+// ---------------------------------------------------------------------------
+// Regression (debug approve-reject-action-not-recognized): the owner approval
+// keyboard must only ever be built from a real bookingId. A success result
+// without one used to yield `sbk:approve:undefined`, which parseCallbackData
+// rejects -> "Η ενέργεια δεν αναγνωρίστηκε.".
+// ---------------------------------------------------------------------------
+
+import { handleBookSessionExecute } from '../src/telegram/handlers/client-menu';
+import * as dbQueries from '../src/database/queries';
+
+const ownerBusiness = { ...business, ownerTelegramId: '555', botToken: 'owner-bot-token' } as any;
+const APPROVE_RE = /^sbk:(approve|reject):(\d+)$/;
+
+function arrangeBooking(result: unknown) {
+  (enforcement.checkEnforcementAndGetMembership as jest.Mock).mockResolvedValue({ allowed: true, membership: null });
+  (manager.bookSessionInstance as jest.Mock).mockResolvedValue(result);
+  // botTokenStore is auto-mocked with the rest of telegram/client; run the callback for real.
+  (client.botTokenStore.run as jest.Mock).mockImplementation((_token: string, fn: () => unknown) => fn());
+}
+
+function ownerKeyboardCalls() {
+  return (client.sendTelegramMessageWithKeyboard as jest.Mock).mock.calls.filter(([to]) => to === '555');
+}
+
+test('owner approval keyboard carries a parseable sbk:approve/reject id for a real booking', async () => {
+  arrangeBooking({ status: 'success', bookingId: 9 });
+  await handleBookSessionExecute('42', ownerBusiness, '42', 1);
+
+  const calls = ownerKeyboardCalls();
+  expect(calls).toHaveLength(1);
+  const data = calls[0][2].flat().map((b: any) => b.callback_data);
+  expect(data).toEqual(['sbk:approve:9', 'sbk:reject:9']);
+  data.forEach((d: string) => expect(d).toMatch(APPROVE_RE));
+  expect(dbQueries.updateBookingOwnerMessageId).toHaveBeenCalledWith(9, 1);
+});
+
+test('success WITHOUT a bookingId sends no owner keyboard and does not tell the client a request was sent', async () => {
+  arrangeBooking({ status: 'success' });
+  await handleBookSessionExecute('42', ownerBusiness, '42', 1);
+
+  // No approval keyboard at all, and certainly never one with an unparseable id.
+  expect(ownerKeyboardCalls()).toHaveLength(0);
+  const everyCallbackData = (client.sendTelegramMessageWithKeyboard as jest.Mock).mock.calls
+    .flatMap(([, , kb]) => (kb ?? []).flat().map((b: any) => b.callback_data));
+  expect(everyCallbackData.join('|')).not.toContain('undefined');
+  const sentTexts = (client.sendTelegramMessage as jest.Mock).mock.calls.map((c) => c[1]);
+  expect(sentTexts).not.toContain('Το αίτημά σας στάλθηκε στον διαχειριστή! Αναμονή επιβεβαίωσης...');
+  expect(sentTexts).toContain('Το μάθημα δεν βρέθηκε ή δεν είναι πλέον διαθέσιμο.');
+});
+
+test('already-booked conflict tells the client so and notifies nobody', async () => {
+  arrangeBooking({ status: 'conflict', reason: 'already_booked' });
+  await handleBookSessionExecute('42', ownerBusiness, '42', 1);
+
+  expect(ownerKeyboardCalls()).toHaveLength(0);
+  const sentTexts = (client.sendTelegramMessage as jest.Mock).mock.calls.map((c) => c[1]);
+  expect(sentTexts).toContain('Έχετε ήδη κράτηση σε αυτό το μάθημα.');
+});

@@ -190,6 +190,151 @@ describe('SBOK-01: client session booking capacity enforcement', () => {
 });
 
 // ---------------------------------------------------------------------------
+// SBOK-05: several clients in one class (debug approve-reject-action-not-recognized)
+//
+// Regression: unique_active_slot_per_business used to cover session bookings
+// too, so a 2nd client's insert into the SAME class was swallowed by
+// onConflictDoNothing. bookSessionInstance then returned
+// { status: 'success' } with NO bookingId and the owner got an approval
+// keyboard with `sbk:approve:undefined` -> "Η ενέργεια δεν αναγνωρίστηκε.".
+// Requires migrations/0015_session_bookings_slot_index.sql.
+// ---------------------------------------------------------------------------
+
+describe('SBOK-05: several clients can hold seats in the same class', () => {
+  let businessId: number;
+  let serviceId: number;
+  let catalogId: number;
+
+  beforeAll(async () => {
+    const business = await insertTestBusiness();
+    businessId = business.id;
+    serviceId = await getTestServiceId(businessId);
+    const catalog = await insertTestSessionCatalog(businessId, serviceId, { capacity: 5 });
+    catalogId = catalog.id;
+  });
+
+  async function newInstance(daysAhead: number, tag: string) {
+    return insertTestSessionInstance(catalogId, {
+      sessionDate: addDays(daysAhead),
+      bookedCount: 0,
+      idempotencyKey: `sbok05-${tag}:${catalogId}:${Date.now()}`,
+    });
+  }
+
+  async function bookedCountOf(instanceId: number): Promise<number> {
+    const rows = await db
+      .select({ bookedCount: sessionInstances.bookedCount })
+      .from(sessionInstances)
+      .where(eq(sessionInstances.id, instanceId));
+    return rows[0].bookedCount as number;
+  }
+
+  async function activeRowsFor(instanceId: number) {
+    return db
+      .select({ id: bookings.id, clientPhone: bookings.clientPhone })
+      .from(bookings)
+      .where(eq(bookings.sessionInstanceId, instanceId));
+  }
+
+  it('a 2nd client booking the same class gets a real bookingId (never success without one)', async () => {
+    const instance = await newInstance(20, 'two-clients');
+    const clientA = uniquePhone();
+    const clientB = uniquePhone();
+
+    const a = await bookSessionInstance(businessId, instance.id, clientA, serviceId, `k:${instance.id}:${clientA}`, null);
+    const b = await bookSessionInstance(businessId, instance.id, clientB, serviceId, `k:${instance.id}:${clientB}`, null);
+
+    expect(a.status).toBe('success');
+    expect(b.status).toBe('success');
+    expect(typeof a.bookingId).toBe('number');
+    // The bug: b was { status: 'success' } with bookingId undefined.
+    expect(typeof b.bookingId).toBe('number');
+    expect(b.bookingId).not.toBe(a.bookingId);
+
+    const rows = await activeRowsFor(instance.id);
+    expect(rows.map((r: { clientPhone: string }) => r.clientPhone).sort()).toEqual([clientA, clientB].sort());
+    expect(await bookedCountOf(instance.id)).toBe(2);
+  });
+
+  it('every success carries a bookingId whose callback_data matches the sbk:approve parser regex', async () => {
+    const instance = await newInstance(21, 'callback-data');
+    for (let i = 0; i < 3; i++) {
+      const phone = uniquePhone();
+      const res = await bookSessionInstance(businessId, instance.id, phone, serviceId, `k:${instance.id}:${phone}`, null);
+      expect(res.status).toBe('success');
+      // Same pattern parseCallbackData (src/webhooks/telegram.ts) applies.
+      expect(`sbk:approve:${res.bookingId}`).toMatch(/^sbk:(approve|reject):(\d+)$/);
+    }
+  });
+
+  it('idempotent replay (same client, same key) returns the original bookingId and books nothing new', async () => {
+    const instance = await newInstance(22, 'replay');
+    const client = uniquePhone();
+    const key = `k:${instance.id}:${client}`;
+
+    const first = await bookSessionInstance(businessId, instance.id, client, serviceId, key, null);
+    const replay = await bookSessionInstance(businessId, instance.id, client, serviceId, key, null);
+
+    expect(first.status).toBe('success');
+    expect(replay).toEqual({ status: 'success', bookingId: first.bookingId });
+    expect((await activeRowsFor(instance.id)).length).toBe(1);
+    expect(await bookedCountOf(instance.id)).toBe(1);
+  });
+
+  it('replay lookup is scoped to the client: another client reusing a key never receives that booking id', async () => {
+    const instance = await newInstance(23, 'key-scope');
+    const clientA = uniquePhone();
+    const clientB = uniquePhone();
+    const sharedKey = `shared-key:${instance.id}`;
+
+    const a = await bookSessionInstance(businessId, instance.id, clientA, serviceId, sharedKey, null);
+    const b = await bookSessionInstance(businessId, instance.id, clientB, serviceId, sharedKey, null);
+
+    expect(a.status).toBe('success');
+    expect(b.status).toBe('success');
+    expect(b.bookingId).not.toBe(a.bookingId);
+  });
+
+  it('the same client booking the same class again under a different key is a conflict, not a phantom success', async () => {
+    const instance = await newInstance(24, 'dup-client');
+    const client = uniquePhone();
+
+    const first = await bookSessionInstance(businessId, instance.id, client, serviceId, `k1:${instance.id}:${client}`, null);
+    const second = await bookSessionInstance(businessId, instance.id, client, serviceId, `k2:${instance.id}:${client}`, null);
+
+    expect(first.status).toBe('success');
+    expect(second).toEqual({ status: 'conflict', reason: 'already_booked' });
+    expect(second.bookingId).toBeUndefined();
+    expect((await activeRowsFor(instance.id)).length).toBe(1);
+    // The failed attempt must not consume capacity.
+    expect(await bookedCountOf(instance.id)).toBe(1);
+  });
+
+  it('open-slot bookings (no session_instance_id) are still limited to one active client per slot', async () => {
+    const date = addDays(25);
+    const insertOpenSlot = (phone: string) =>
+      db
+        .insert(bookings)
+        .values({
+          businessId,
+          clientPhone: phone,
+          serviceId,
+          calendarDate: date,
+          calendarTime: '17:30',
+          requestId: `open-slot:${phone}`,
+        })
+        .onConflictDoNothing()
+        .returning({ id: bookings.id });
+
+    const first = await insertOpenSlot(uniquePhone());
+    const second = await insertOpenSlot(uniquePhone());
+
+    expect(first.length).toBe(1);
+    expect(second.length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // SBOK-02: atomic session credit deduction on booking
 // ---------------------------------------------------------------------------
 
