@@ -287,8 +287,13 @@ async function findSeriesInstances(
 
 /**
  * Shows a Ναι/Όχι confirmation prompt for the selected session instance.
- * When the business allows multi-booking and the same weekly class has later
- * open dates, also offers booking those in the same tap.
+ *
+ * The Ναι/Όχι pair is ALWAYS the same plain question, and "Ναι" always books
+ * exactly ONE session. When the business allows multi-booking and the same
+ * class has later open dates, a separate, neutrally-worded row (deliberately
+ * NOT starting with "Ναι") opens the explicit date picker. There is no
+ * one-tap bulk booking here: clients who read a second "Ναι, και τις
+ * επόμενες N" as a plain yes used to create up to N+1 bookings at once.
  */
 export async function showBookConfirm(
   chatId: string,
@@ -300,42 +305,24 @@ export async function showBookConfirm(
   assertCallbackDataSize(yesData);
   assertCallbackDataSize(noData);
 
-  let all: Awaited<ReturnType<typeof findSeriesInstances>> = [];
+  let hasLaterDates = false;
   if (business?.allowMultiBooking) {
     const base = await findSessionInstanceById(business.id, instanceId);
-    if (base) all = await findSeriesInstances(business, chatId, base, PICK_MAX);
-  }
-  const extras = all.slice(0, SERIES_MAX_EXTRA);
-
-  if (extras.length === 0) {
-    const keyboard: InlineKeyboard = [
-      [
-        { text: 'Ναι', callback_data: yesData },
-        { text: 'Όχι', callback_data: noData },
-      ],
-    ];
-    await sendTelegramMessageWithKeyboard(chatId, 'Να κρατηθεί αυτό το μάθημα;', keyboard);
-    return;
+    if (base) hasLaterDates = (await findSeriesInstances(business, chatId, base, 1)).length > 0;
   }
 
-  const seriesData = `cmenu:book:series:${instanceId}`;
-  assertCallbackDataSize(seriesData);
   const keyboard: InlineKeyboard = [
-    [{ text: 'Ναι, μόνο αυτό', callback_data: yesData }],
-    [{ text: `Ναι, και τις επόμενες ${extras.length}`, callback_data: seriesData }],
+    [
+      { text: 'Ναι', callback_data: yesData },
+      { text: 'Όχι', callback_data: noData },
+    ],
   ];
-  if (all.length > 1) {
+  if (hasLaterDates) {
     const pickData = `cmenu:book:pick:${instanceId}`;
     assertCallbackDataSize(pickData);
-    keyboard.push([{ text: 'Επιλογή συγκεκριμένων ημερομηνιών', callback_data: pickData }]);
+    keyboard.push([{ text: 'Κράτηση και για άλλες ημερομηνίες', callback_data: pickData }]);
   }
-  keyboard.push([{ text: 'Όχι', callback_data: noData }]);
-  const dateList = extras.map((e) => `• ${dateTimeLabel(e)}`).join('\n');
-  await sendTelegramMessageWithKeyboard(
-    chatId,
-    `Να κρατηθεί αυτό το μάθημα;\n\nΜπορώ να κρατήσω θέση και σε επόμενες ημερομηνίες:\n${dateList}`,
-    keyboard
-  );
+  await sendTelegramMessageWithKeyboard(chatId, 'Να κρατηθεί αυτό το μάθημα;', keyboard);
 }
 
 /**
@@ -503,16 +490,29 @@ export async function showBookPicker(
     return;
   }
 
+  // Ignore bits beyond the candidate list (e.g. a stale/forged mask) so the
+  // count on the final button always matches what will actually be booked.
+  const allMask = (1 << candidates.length) - 1;
+  mask &= allMask;
+
   const selected = candidates.filter((_, i) => mask & (1 << i)).length;
   const keyboard: InlineKeyboard = candidates.map((c, i) => {
     const data = `cmenu:book:pick:${baseId}:${mask ^ (1 << i)}`;
     assertCallbackDataSize(data);
     return [{ text: `${mask & (1 << i) ? '✅' : '⬜'} ${dateTimeLabel(c)}`, callback_data: data }];
   });
+  // Select-all only sets the mask; nothing is booked until "Κράτηση" is tapped.
+  const allSelected = mask === allMask;
+  const toggleAllData = `cmenu:book:pick:${baseId}:${allSelected ? 0 : allMask}`;
+  assertCallbackDataSize(toggleAllData);
+  keyboard.push([
+    { text: allSelected ? 'Αποεπιλογή όλων' : 'Επιλογή όλων', callback_data: toggleAllData },
+  ]);
   const doneData = `cmenu:book:picked:${baseId}:${mask}`;
   assertCallbackDataSize(doneData);
+  const total = selected + 1;
   keyboard.push([
-    { text: `Κράτηση (${selected + 1} μαθήματα)`, callback_data: doneData },
+    { text: `Κράτηση (${total} ${total === 1 ? 'μάθημα' : 'μαθήματα'})`, callback_data: doneData },
     { text: 'Άκυρο', callback_data: 'cmenu:root' },
   ]);
 
@@ -522,7 +522,7 @@ export async function showBookPicker(
   }
   await sendTelegramMessageWithKeyboard(
     chatId,
-    `Θα κρατηθεί το επιλεγμένο μάθημα (${dateTimeLabel(base)}). Πάτα στις ημερομηνίες που θέλεις να προστεθούν:`,
+    `Θα κρατηθεί το επιλεγμένο μάθημα (${dateTimeLabel(base)}).\n\nΑν θέλεις να κλείσεις και άλλες ημερομηνίες, πάτα πάνω τους (✅ = θα κρατηθεί). Όταν τελειώσεις, πάτα «Κράτηση».`,
     keyboard
   );
 }
@@ -548,6 +548,10 @@ async function handleBookPickedExecute(
  * Books the chosen session plus its upcoming weekly repeats in one go.
  * Sequential on purpose (capacity races, membership deduction per booking).
  * Gated on allowMultiBooking, same as the AI-chat multi-booking path.
+ *
+ * Only reached from the explicit picker ("Κράτηση (N μαθήματα)") via
+ * handleBookPickedExecute, which always passes the client's chosen
+ * extraInstanceIds. No UI button calls it without a selection any more.
  */
 export async function handleBookSeriesExecute(
   chatId: string,
@@ -968,11 +972,15 @@ export async function handleClientMenuCallback(
       await handleBookPickedExecute(chatId, business, Number(pickDone![1]), result.id ?? 0);
       break;
 
+    // Legacy: confirm screens sent before the one-tap bulk button was removed
+    // may still carry cmenu:book:series. Never bulk-book from it; open the
+    // picker with the old "next N" pre-selected so the client must still tap
+    // "Κράτηση (N μαθήματα)" and sees exactly what will be booked.
     case clientMenuAction === 'book:series':
       if (result.id === undefined) {
         await sendTelegramMessage(chatId, 'Σφάλμα: δεν βρέθηκε το μάθημα.');
       } else {
-        await handleBookSeriesExecute(chatId, business, chatId, result.id);
+        await showBookPicker(chatId, business, result.id, (1 << SERIES_MAX_EXTRA) - 1);
       }
       break;
 
